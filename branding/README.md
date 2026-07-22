@@ -56,7 +56,7 @@ Linux:   ~/.costrict/skills-review/review
 Linux:   ~/.costrict/skills-security-review/security-review
 ```
 
-Point `DICODE_REVIEW_SKILLS_PATH` at that `.costrict` directory. The build validates `SKILL.md`, imports the locale and version from `.version`, removes the installed-copy `.version` files, and packages the skills as Dicode bundled resources.
+Offline Dicode builds automatically check `~/.dicode` and then `~/.costrict`. You can also point `DICODE_REVIEW_SKILLS_PATH` at either directory explicitly. The build validates `SKILL.md`, imports the locale and version from `.version`, removes the installed-copy `.version` files, and packages the skills as Dicode bundled resources.
 
 PowerShell:
 

@@ -10,6 +10,7 @@
  */
 
 import * as fs from "fs/promises"
+import * as os from "os"
 import * as path from "path"
 import { fileURLToPath } from "url"
 import { spawnSync } from "child_process"
@@ -26,6 +27,24 @@ const BRANCH = "main"
 const CLONE_URL = process.env.REVIEW_SKILLS_REPOSITORY || `https://github.com/${REPO}.git`
 const OFFLINE_BUILD = process.env.REVIEW_SKILLS_OFFLINE === "true"
 const LOCAL_SKILLS_SOURCE = process.env.DICODE_REVIEW_SKILLS_PATH
+
+async function findInstalledSkillsRoot() {
+	if (LOCAL_SKILLS_SOURCE) return path.resolve(LOCAL_SKILLS_SOURCE)
+	if (!OFFLINE_BUILD) return undefined
+
+	for (const candidate of [path.join(os.homedir(), ".dicode"), path.join(os.homedir(), ".costrict")]) {
+		const hasReview = await fs
+			.stat(path.join(candidate, "skills-review", "review", "SKILL.md"))
+			.then((stat) => stat.isFile())
+			.catch(() => false)
+		const hasSecurityReview = await fs
+			.stat(path.join(candidate, "skills-security-review", "security-review", "SKILL.md"))
+			.then((stat) => stat.isFile())
+			.catch(() => false)
+		if (hasReview || hasSecurityReview) return candidate
+	}
+	return undefined
+}
 
 function git(...args) {
 	const result = spawnSync("git", args, { encoding: "utf-8" })
@@ -254,9 +273,10 @@ async function main() {
 	console.log("\n🚀 CoStrict - Downloading Builtin Review Skills\n")
 
 	await fs.mkdir(bundledSkillsDir, { recursive: true })
-	if (LOCAL_SKILLS_SOURCE) {
-		console.log(`Importing locally installed review skills from ${LOCAL_SKILLS_SOURCE}`)
-		await importLocalInstalledSkills(path.resolve(LOCAL_SKILLS_SOURCE))
+	const installedSkillsRoot = await findInstalledSkillsRoot()
+	if (installedSkillsRoot) {
+		console.log(`Importing locally installed review skills from ${installedSkillsRoot}`)
+		await importLocalInstalledSkills(installedSkillsRoot)
 		return
 	}
 	const cachedSha = await readCachedSha()

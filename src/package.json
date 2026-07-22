@@ -383,13 +383,11 @@
 				},
 				{
 					"command": "costrict.reviewFilesAndFolders",
-					"group": "costrict.explorerSubmenu@2",
-					"when": "!explorerResourceIsFolder"
+					"group": "costrict.explorerSubmenu@2"
 				},
 				{
 					"command": "costrict.securityFilesAndFolders",
-					"group": "costrict.explorerSubmenu@3",
-					"when": "!explorerResourceIsFolder"
+					"group": "costrict.explorerSubmenu@3"
 				}
 			],
 			"costrict": [
@@ -411,13 +409,11 @@
 				},
 				{
 					"command": "costrict.codeReview",
-					"group": "costrict@5",
-					"when": "editorHasSelection && workbenchState != 'empty'"
+					"group": "costrict@5"
 				},
 				{
 					"command": "costrict.securityReviewCode",
-					"group": "costrict@6",
-					"when": "editorHasSelection && workbenchState != 'empty'"
+					"group": "costrict@6"
 				},
 				{
 					"command": "costrict.view.issue",

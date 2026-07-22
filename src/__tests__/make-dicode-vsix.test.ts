@@ -49,7 +49,10 @@ describe("make-dicode-vsix", () => {
 					],
 					menus: {
 						"editor/context": [{ submenu: "costrict", group: "navigation" }],
-						costrict: [{ command: "costrict.codeReview" }, { command: "costrict.securityReviewCode" }],
+						costrict: [
+							{ command: "costrict.codeReview", when: "editorHasSelection" },
+							{ command: "costrict.securityReviewCode", when: "editorHasSelection" },
+						],
 						"view/title": [
 							{ command: "costrict.settingsButtonClicked", when: "view == costrict.SidebarProvider" },
 							{ command: "costrict.reloadWebview", when: "view == costrict.AssistantUISidebarProvider" },
@@ -84,6 +87,7 @@ describe("make-dicode-vsix", () => {
 			"dicode.codeReview",
 			"dicode.securityReviewCode",
 		])
+		expect(result.contributes.menus.dicode.every((item: { when?: string }) => item.when === undefined)).toBe(true)
 		expect(result.contributes.configuration.properties["dicode.uiMode"]).toBeUndefined()
 		expect(result.contributes.configuration.properties["dicode.assistantUI.enabled"]).toBeUndefined()
 		expect(result.contributes.configuration.properties["dicode.apiRequestTimeout"]).toBeDefined()

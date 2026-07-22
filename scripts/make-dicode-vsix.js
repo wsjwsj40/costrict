@@ -8,18 +8,18 @@ const binDir = path.join(repoRoot, "bin")
 const sourcePackagePath = path.join(repoRoot, "src", "package.json")
 const sourcePackage = JSON.parse(fs.readFileSync(sourcePackagePath, "utf8"))
 
-const configuredIconPath = (() => {
-	if (process.env.DICODE_ICON_PATH) return path.resolve(process.env.DICODE_ICON_PATH)
-	for (const name of ["dicode-icon.png", "dicode-icon.svg"]) {
-		const candidate = path.join(repoRoot, "branding", name)
-		if (fs.existsSync(candidate)) return candidate
-	}
-	return path.join(repoRoot, "branding", "dicode-icon.png")
-})()
-const activityIcon =
-	path.extname(configuredIconPath).toLowerCase() === ".svg"
-		? "assets/images/dicode-activity-icon.svg"
-		: "assets/images/dicode-icon.png"
+const configuredIconPath = process.env.DICODE_ICON_PATH ? path.resolve(process.env.DICODE_ICON_PATH) : undefined
+const configuredPngPath =
+	configuredIconPath && path.extname(configuredIconPath).toLowerCase() === ".png"
+		? configuredIconPath
+		: path.join(repoRoot, "branding", "dicode-icon.png")
+const configuredSvgPath =
+	configuredIconPath && path.extname(configuredIconPath).toLowerCase() === ".svg"
+		? configuredIconPath
+		: path.join(repoRoot, "branding", "dicode-icon.svg")
+const activityIcon = fs.existsSync(configuredSvgPath)
+	? "assets/images/dicode-activity-icon.svg"
+	: "assets/images/dicode-icon.png"
 
 const brand = {
 	name: process.env.DICODE_EXTENSION_NAME || "dicode",
@@ -145,6 +145,17 @@ const patchPackageJson = (unpackDir) => {
 	const packageJson = removeCloudContributions(JSON.parse(fs.readFileSync(packagePath, "utf8")))
 	packageJson.contributes = patchContributionIdentifiers(packageJson.contributes)
 	packageJson.activationEvents = patchContributionIdentifiers(packageJson.activationEvents, "id")
+	const alwaysVisibleReviewCommands = new Set([
+		`${brand.name}.codeReview`,
+		`${brand.name}.securityReviewCode`,
+		`${brand.name}.reviewFilesAndFolders`,
+		`${brand.name}.securityFilesAndFolders`,
+	])
+	for (const items of Object.values(packageJson.contributes?.menus || {})) {
+		for (const item of items) {
+			if (alwaysVisibleReviewCommands.has(item.command)) delete item.when
+		}
+	}
 	packageJson.name = brand.name
 	packageJson.publisher = brand.publisher
 	packageJson.version = brand.version
@@ -211,19 +222,22 @@ const patchTextAssets = (dir) => {
 
 const patchIcon = (unpackDir) => {
 	const fallbackPath = path.join(unpackDir, "extension", "assets", "images", "shenma_robot_logo_big.png")
-	const sourcePath = fs.existsSync(configuredIconPath) ? configuredIconPath : fallbackPath
-	if (sourcePath === fallbackPath) {
-		console.warn(`[Dicode] Icon not found at ${configuredIconPath}; using the existing icon as a placeholder.`)
-	}
 	const imagesDir = path.join(unpackDir, "extension", "assets", "images")
-	if (path.extname(sourcePath).toLowerCase() === ".svg") {
-		fs.copyFileSync(sourcePath, path.join(imagesDir, "dicode-activity-icon.svg"))
-		// The login and account views load /logo.svg from the packaged webview root.
-		fs.copyFileSync(sourcePath, path.join(unpackDir, "extension", "webview-ui", "build", "logo.svg"))
-		fs.copyFileSync(fallbackPath, path.join(imagesDir, "dicode-icon.png"))
-		console.warn("[Dicode] SVG is used for the Activity Bar. Add a PNG icon for VSIX/Marketplace metadata.")
+	const webviewLogoPath = path.join(unpackDir, "extension", "webview-ui", "build", "logo.svg")
+
+	if (fs.existsSync(configuredPngPath)) {
+		fs.copyFileSync(configuredPngPath, path.join(imagesDir, "dicode-icon.png"))
 	} else {
-		fs.copyFileSync(sourcePath, path.join(imagesDir, "dicode-icon.png"))
+		fs.copyFileSync(fallbackPath, path.join(imagesDir, "dicode-icon.png"))
+		console.warn(`[Dicode] PNG icon not found at ${configuredPngPath}; using the existing metadata icon.`)
+	}
+
+	if (fs.existsSync(configuredSvgPath)) {
+		fs.copyFileSync(configuredSvgPath, path.join(imagesDir, "dicode-activity-icon.svg"))
+		// The login and account views load /logo.svg from the packaged webview root.
+		fs.copyFileSync(configuredSvgPath, webviewLogoPath)
+	} else {
+		console.warn(`[Dicode] SVG icon not found at ${configuredSvgPath}; the login page keeps the placeholder logo.`)
 	}
 }
 
