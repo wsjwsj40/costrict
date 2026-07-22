@@ -407,7 +407,7 @@ export const EVALS_SETTINGS: RooCodeSettings = {
 	includeDiagnosticMessages: true,
 	maxDiagnosticMessages: 50,
 
-	language: "en",
+	language: "zh-CN",
 	telemetrySetting: "disabled",
 
 	mcpEnabled: false,

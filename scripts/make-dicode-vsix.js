@@ -24,7 +24,7 @@ const activityIcon =
 const brand = {
 	name: process.env.DICODE_EXTENSION_NAME || "dicode",
 	publisher: process.env.DICODE_PUBLISHER || "byd-ai",
-	displayName: process.env.DICODE_DISPLAY_NAME || "Dicode",
+	displayName: process.env.DICODE_DISPLAY_NAME || "DiCode",
 	version: process.env.DICODE_VERSION || sourcePackage.version,
 	description:
 		process.env.DICODE_DESCRIPTION ||
@@ -214,6 +214,8 @@ const patchIcon = (unpackDir) => {
 	const imagesDir = path.join(unpackDir, "extension", "assets", "images")
 	if (path.extname(sourcePath).toLowerCase() === ".svg") {
 		fs.copyFileSync(sourcePath, path.join(imagesDir, "dicode-activity-icon.svg"))
+		// The login and account views load /logo.svg from the packaged webview root.
+		fs.copyFileSync(sourcePath, path.join(unpackDir, "extension", "webview-ui", "build", "logo.svg"))
 		fs.copyFileSync(fallbackPath, path.join(imagesDir, "dicode-icon.png"))
 		console.warn("[Dicode] SVG is used for the Activity Bar. Add a PNG icon for VSIX/Marketplace metadata.")
 	} else {

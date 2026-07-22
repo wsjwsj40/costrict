@@ -12,7 +12,7 @@ branding/dicode-icon.png
 
 The recommended size is 256x256 pixels. If the file is absent, the build uses the current extension icon as a placeholder and prints a warning.
 
-An SVG named `branding/dicode-icon.svg` is also supported for the VS Code Activity Bar. VSIX/Marketplace metadata still requires a PNG, so provide both files for a production package.
+An SVG named `branding/dicode-icon.svg` is used for both the VS Code Activity Bar and the login/account pages. VSIX/Marketplace metadata still requires a PNG, so provide both files for a production package.
 
 ## Build
 

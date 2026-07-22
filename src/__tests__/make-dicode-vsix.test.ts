@@ -69,7 +69,7 @@ describe("make-dicode-vsix", () => {
 
 		expect(result.name).toBe("dicode")
 		expect(result.publisher).toBe(brand.publisher)
-		expect(result.displayName).toBe("Dicode")
+		expect(result.displayName).toBe("DiCode")
 		expect(result.icon).toBe("assets/images/dicode-icon.png")
 		expect(result.keywords).not.toContain("costrict")
 		expect(result.contributes.views["dicode-ActivityBar"]).toHaveLength(1)
@@ -102,8 +102,8 @@ describe("make-dicode-vsix", () => {
 
 		for (const name of ["package.nls.json", "package.nls.zh-CN.json"]) {
 			const result = JSON.parse(fs.readFileSync(path.join(extensionDir, name), "utf8"))
-			expect(result["extension.displayName"]).toBe("Dicode")
-			expect(result["configuration.title"]).toBe("Dicode")
+			expect(result["extension.displayName"]).toBe("DiCode")
+			expect(result["configuration.title"]).toBe("DiCode")
 		}
 	})
 
@@ -118,7 +118,7 @@ describe("make-dicode-vsix", () => {
 		const result = fs.readFileSync(manifestPath, "utf8")
 		expect(result).toContain('Id="dicode"')
 		expect(result).toContain(`Publisher="${brand.publisher}"`)
-		expect(result).toContain("<DisplayName>Dicode</DisplayName>")
+		expect(result).toContain("<DisplayName>DiCode</DisplayName>")
 		expect(result).not.toContain("CoStrict")
 		expect(result).not.toContain("zgsm-ai/costrict")
 	})
@@ -135,7 +135,7 @@ describe("make-dicode-vsix", () => {
 
 	it("rebrands built-in prompt text without changing lowercase backend identifiers", () => {
 		expect(replaceVisibleBrand("You are CoStrict, based on Roo Code. provider=costrict 诸葛神码")).toBe(
-			"You are Dicode, based on Dicode. provider=costrict Dicode",
+			"You are DiCode, based on DiCode. provider=costrict DiCode",
 		)
 	})
 })
