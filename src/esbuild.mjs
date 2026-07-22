@@ -80,6 +80,11 @@ async function main() {
 			"process.env.NODE_ENV": production ? '"production"' : '"development"',
 			"process.env.DICODE_CLASSIC_ONLY": JSON.stringify(process.env.DICODE_CLASSIC_ONLY || "false"),
 			"process.env.COSTRICT_PKG_NAME": JSON.stringify(process.env.COSTRICT_PKG_NAME || ""),
+			"process.env.COSTRICT_PKG_PUBLISHER": JSON.stringify(process.env.COSTRICT_PKG_PUBLISHER || ""),
+			"process.env.COSTRICT_PKG_COMMAND_ID_PREFIX": JSON.stringify(
+				process.env.COSTRICT_PKG_COMMAND_ID_PREFIX || "",
+			),
+			"process.env.COSTRICT_PKG_OUTPUT_CHANNEL": JSON.stringify(process.env.COSTRICT_PKG_OUTPUT_CHANNEL || ""),
 			"process.env.COSTRICT_PUBLIC_KEY": JSON.stringify(
 				process.env.COSTRICT_PUBLIC_KEY || process.env.ZGSM_PUBLIC_KEY || "",
 			),

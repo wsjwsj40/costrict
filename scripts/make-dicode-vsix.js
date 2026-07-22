@@ -8,6 +8,19 @@ const binDir = path.join(repoRoot, "bin")
 const sourcePackagePath = path.join(repoRoot, "src", "package.json")
 const sourcePackage = JSON.parse(fs.readFileSync(sourcePackagePath, "utf8"))
 
+const configuredIconPath = (() => {
+	if (process.env.DICODE_ICON_PATH) return path.resolve(process.env.DICODE_ICON_PATH)
+	for (const name of ["dicode-icon.png", "dicode-icon.svg"]) {
+		const candidate = path.join(repoRoot, "branding", name)
+		if (fs.existsSync(candidate)) return candidate
+	}
+	return path.join(repoRoot, "branding", "dicode-icon.png")
+})()
+const activityIcon =
+	path.extname(configuredIconPath).toLowerCase() === ".svg"
+		? "assets/images/dicode-activity-icon.svg"
+		: "assets/images/dicode-icon.png"
+
 const brand = {
 	name: process.env.DICODE_EXTENSION_NAME || "dicode",
 	publisher: process.env.DICODE_PUBLISHER || "byd-ai",
@@ -56,6 +69,26 @@ const escapeXml = (text) =>
 
 const isCloudCommand = (command) => typeof command === "string" && cloudCommands.has(command)
 const referencesCloudView = (value) => typeof value === "string" && value.includes("AssistantUISidebarProvider")
+
+const replaceExtensionNamespace = (value) =>
+	value.replaceAll("costrict.", `${brand.name}.`).replaceAll("costrict-", `${brand.name}-`)
+
+const patchContributionIdentifiers = (value, field = "") => {
+	if (Array.isArray(value)) return value.map((item) => patchContributionIdentifiers(item, field))
+	if (!value || typeof value !== "object") {
+		if (typeof value === "string" && ["command", "enablement", "id", "viewType", "when"].includes(field)) {
+			return replaceExtensionNamespace(value)
+		}
+		return value
+	}
+
+	const patched = {}
+	for (const [key, item] of Object.entries(value)) {
+		const patchedKey = replaceExtensionNamespace(key)
+		patched[patchedKey] = patchContributionIdentifiers(item, key)
+	}
+	return patched
+}
 
 const removeCloudContributions = (packageJson) => {
 	const contributes = packageJson.contributes || {}
@@ -106,6 +139,8 @@ const removeCloudContributions = (packageJson) => {
 const patchPackageJson = (unpackDir) => {
 	const packagePath = path.join(unpackDir, "extension", "package.json")
 	const packageJson = removeCloudContributions(JSON.parse(fs.readFileSync(packagePath, "utf8")))
+	packageJson.contributes = patchContributionIdentifiers(packageJson.contributes)
+	packageJson.activationEvents = patchContributionIdentifiers(packageJson.activationEvents, "id")
 	packageJson.name = brand.name
 	packageJson.publisher = brand.publisher
 	packageJson.version = brand.version
@@ -132,7 +167,7 @@ const patchPackageJson = (unpackDir) => {
 		if (Array.isArray(value)) return value.map(replaceIcon)
 		if (!value || typeof value !== "object") return value
 		for (const [key, item] of Object.entries(value)) {
-			if (key === "icon" && item === "assets/images/shenma_robot_logo_big.png") value[key] = packageJson.icon
+			if (key === "icon" && item === "assets/images/shenma_robot_logo_big.png") value[key] = activityIcon
 			else value[key] = replaceIcon(item)
 		}
 		return value
@@ -171,15 +206,19 @@ const patchTextAssets = (dir) => {
 }
 
 const patchIcon = (unpackDir) => {
-	const configuredPath = process.env.DICODE_ICON_PATH
-		? path.resolve(process.env.DICODE_ICON_PATH)
-		: path.join(repoRoot, "branding", "dicode-icon.png")
 	const fallbackPath = path.join(unpackDir, "extension", "assets", "images", "shenma_robot_logo_big.png")
-	const sourcePath = fs.existsSync(configuredPath) ? configuredPath : fallbackPath
+	const sourcePath = fs.existsSync(configuredIconPath) ? configuredIconPath : fallbackPath
 	if (sourcePath === fallbackPath) {
-		console.warn(`[Dicode] Icon not found at ${configuredPath}; using the existing icon as a placeholder.`)
+		console.warn(`[Dicode] Icon not found at ${configuredIconPath}; using the existing icon as a placeholder.`)
 	}
-	fs.copyFileSync(sourcePath, path.join(unpackDir, "extension", "assets", "images", "dicode-icon.png"))
+	const imagesDir = path.join(unpackDir, "extension", "assets", "images")
+	if (path.extname(sourcePath).toLowerCase() === ".svg") {
+		fs.copyFileSync(sourcePath, path.join(imagesDir, "dicode-activity-icon.svg"))
+		fs.copyFileSync(fallbackPath, path.join(imagesDir, "dicode-icon.png"))
+		console.warn("[Dicode] SVG is used for the Activity Bar. Add a PNG icon for VSIX/Marketplace metadata.")
+	} else {
+		fs.copyFileSync(sourcePath, path.join(imagesDir, "dicode-icon.png"))
+	}
 }
 
 const patchDocumentation = (unpackDir) => {
@@ -225,6 +264,9 @@ const buildStableVsix = () => {
 		...process.env,
 		DICODE_CLASSIC_ONLY: "true",
 		COSTRICT_PKG_NAME: brand.name,
+		COSTRICT_PKG_PUBLISHER: brand.publisher,
+		COSTRICT_PKG_COMMAND_ID_PREFIX: brand.name,
+		COSTRICT_PKG_OUTPUT_CHANNEL: brand.displayName,
 		REVIEW_SKILLS_OFFLINE: "true",
 	}
 	for (const workspace of ["packages/build", "packages/types", "webview-ui"]) {

@@ -72,14 +72,16 @@ describe("make-dicode-vsix", () => {
 		expect(result.displayName).toBe("Dicode")
 		expect(result.icon).toBe("assets/images/dicode-icon.png")
 		expect(result.keywords).not.toContain("costrict")
-		expect(result.contributes.views["costrict-ActivityBar"]).toHaveLength(1)
+		expect(result.contributes.views["dicode-ActivityBar"]).toHaveLength(1)
 		expect(result.contributes.commands.map((item: { command: string }) => item.command)).toEqual([
-			"costrict.openNewButtonClicked",
+			"dicode.openNewButtonClicked",
 		])
 		expect(result.contributes.menus["view/title"]).toHaveLength(1)
-		expect(result.contributes.configuration.properties["costrict.uiMode"]).toBeUndefined()
-		expect(result.contributes.configuration.properties["costrict.assistantUI.enabled"]).toBeUndefined()
-		expect(result.contributes.configuration.properties["costrict.apiRequestTimeout"]).toBeDefined()
+		expect(result.contributes.configuration.properties["dicode.uiMode"]).toBeUndefined()
+		expect(result.contributes.configuration.properties["dicode.assistantUI.enabled"]).toBeUndefined()
+		expect(result.contributes.configuration.properties["dicode.apiRequestTimeout"]).toBeDefined()
+		expect(result.contributes.views["dicode-ActivityBar"][0].id).toBe("dicode.SidebarProvider")
+		expect(result.contributes.menus["view/title"][0].when).toBe("view == dicode.SidebarProvider")
 	})
 
 	it("patches every localized extension display name", () => {

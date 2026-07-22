@@ -1,4 +1,4 @@
-import { publisher, name, version } from "../package.json"
+import { publisher as packagePublisher, name, version } from "../package.json"
 
 // These ENV variables can be defined by ESBuild when building the extension
 // in order to override the values in package.json. This allows us to build
@@ -7,7 +7,7 @@ import { publisher, name, version } from "../package.json"
 // by VSCode, but that build artifact is not used during the transpile step of
 // the build, so we still need this override mechanism.
 export const Package = {
-	publisher,
+	publisher: process.env.COSTRICT_PKG_PUBLISHER || packagePublisher,
 	name: process.env.COSTRICT_PKG_NAME || name,
 	commandIDPrefix:
 		process.env.COSTRICT_PKG_COMMAND_ID_PREFIX || (name.includes("nightly") ? "costrict-nightly" : "costrict"),
