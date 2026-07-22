@@ -18,7 +18,7 @@ import {
 import { BaseTelemetryClient } from "./BaseTelemetryClient"
 
 /**
- * PostHogTelemetryClient handles telemetry event tracking for the CoStrict extension.
+ * PostHogTelemetryClient handles telemetry event tracking for the DiCode extension.
  * Uses PostHog analytics to track user interactions and system events.
  * Respects user privacy settings and VSCode's global telemetry configuration.
  */

@@ -66,7 +66,7 @@ export class CostrictAuthConfig {
 	}
 
 	/**
-	 * Get CoStrict site
+	 * Get DiCode site
 	 */
 	public getDefaultSite(): string {
 		return "https://dicode.byd.com:30092"

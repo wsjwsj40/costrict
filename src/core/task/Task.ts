@@ -1392,7 +1392,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				await this.providerRef.deref()?.updateTaskHistory(historyItem)
 				return true
 			} catch (error) {
-				console.error("Failed to save CoStrict messages:", error)
+				console.error("Failed to save DiCode messages:", error)
 				return false
 			}
 		},
@@ -1444,7 +1444,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// simply removes the reference to this instance, but the instance is
 		// still alive until this promise resolves or rejects.)
 		if (this.abort) {
-			throw new Error(`[CoStrict#ask] task ${this.taskId}.${this.instanceId} aborted`)
+			throw new Error(`[DiCode#ask] task ${this.taskId}.${this.instanceId} aborted`)
 		}
 
 		let askTs: number
@@ -2054,7 +2054,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		contextTruncation?: ContextTruncation,
 	): Promise<undefined> {
 		if (this.abort) {
-			throw new Error(`[CoStrict#say] task ${this.taskId}.${this.instanceId} aborted`)
+			throw new Error(`[DiCode#say] task ${this.taskId}.${this.instanceId} aborted`)
 		}
 		const isRateLimitRetry =
 			this.apiConfiguration.apiProvider === "costrict" &&
@@ -2166,7 +2166,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	async sayAndCreateMissingParamError(toolName: ToolName, paramName: string, relPath?: string) {
 		await this.say(
 			"error",
-			`Costrict tried to use ${toolName}${
+			`DiCode tried to use ${toolName}${
 				relPath ? ` for '${relPath.toPosix()}'` : ""
 			} without value for required parameter '${paramName}'. Retrying...`,
 		)
@@ -2831,7 +2831,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			const currentIncludeFileDetails = currentItem.includeFileDetails
 
 			if (this.abort) {
-				throw new Error(`[CoStrict#recursivelyMakeRooRequests] task ${this.taskId}.${this.instanceId} aborted`)
+				throw new Error(`[DiCode#recursivelyMakeRooRequests] task ${this.taskId}.${this.instanceId} aborted`)
 			}
 
 			// Handle mistake limit based on experiment flag
@@ -3759,7 +3759,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				// Need to call here in case the stream was aborted.
 				if (this.abort || this.abandoned) {
 					throw new Error(
-						`[CoStrict#recursivelyMakeRooRequests] task ${this.taskId}.${this.instanceId} aborted`,
+						`[DiCode#recursivelyMakeRooRequests] task ${this.taskId}.${this.instanceId} aborted`,
 					)
 				}
 

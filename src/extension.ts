@@ -84,7 +84,7 @@ let extensionContext: vscode.ExtensionContext
 // let userInfoHandler: ((data: { userInfo: CloudUserInfo }) => Promise<void>) | undefined
 
 /**
- * Check if we should auto-open the CoStrict sidebar after switching to a worktree.
+ * Check if we should auto-open the DiCode sidebar after switching to a worktree.
  * This is called during extension activation to handle the worktree auto-open flow.
  */
 async function checkWorktreeAutoOpen(
@@ -112,9 +112,9 @@ async function checkWorktreeAutoOpen(
 			// Clear the state first to prevent re-triggering
 			await context.globalState.update("worktreeAutoOpenPath", undefined)
 
-			outputChannel.appendLine(`[Worktree] Auto-opening CoStrict sidebar for worktree: ${worktreeAutoOpenPath}`)
+			outputChannel.appendLine(`[Worktree] Auto-opening DiCode sidebar for worktree: ${worktreeAutoOpenPath}`)
 
-			// Open the CoStrict sidebar with a slight delay to ensure UI is ready
+			// Open the DiCode sidebar with a slight delay to ensure UI is ready
 			setTimeout(async () => {
 				try {
 					await vscode.commands.executeCommand(getCommand("plusButtonClicked"))
@@ -305,7 +305,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			// both providers stack, so falling back is the safer default.
 			if (isJetbrainsPlatform() && !csCloudService.startupFailureIsUninstallCsc) {
 				outputChannel.appendLine(`[cs-cloud] JetBrains platform detected, auto-fallback to classic mode`)
-				void vscode.window.showWarningMessage(`CoStrict Cloud 启动失败 (${msg})，已自动回退到经典模式。`)
+				void vscode.window.showWarningMessage(`DiCode Cloud 启动失败 (${msg})，已自动回退到经典模式。`)
 				try {
 					await vscode.workspace
 						.getConfiguration(Package.commandIDPrefix)
@@ -393,7 +393,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	// Activate coworkflow integration
 	activateCoworkflowIntegration(context)
 
-	// Allows other extensions to activate once CoStrict is ready.
+	// Allows other extensions to activate once DiCode is ready.
 	vscode.commands.executeCommand(`${Package.commandIDPrefix}.activationCompleted`)
 
 	// Implements the `RooCodeAPI` interface.

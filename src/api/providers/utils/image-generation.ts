@@ -70,8 +70,8 @@ export async function generateImageWithProvider(options: ImageGenerationOptions)
 			headers: {
 				Authorization: `Bearer ${authToken}`,
 				"Content-Type": "application/json",
-				"HTTP-Referer": "https://github.com/zgsm-ai/costrict",
-				"X-Title": "CoStrict",
+				"HTTP-Referer": "https://github.com/atad-apts/costrict",
+				"X-Title": "DiCode",
 			},
 			body: JSON.stringify({
 				model,
@@ -216,8 +216,8 @@ export async function generateImageWithImagesApi(options: ImagesApiOptions): Pro
 			headers: {
 				Authorization: `Bearer ${authToken}`,
 				"Content-Type": "application/json",
-				"HTTP-Referer": "https://github.com/zgsm-ai/costrict",
-				"X-Title": "Costrict",
+				"HTTP-Referer": "https://github.com/atad-apts/costrict",
+				"X-Title": "DiCode",
 			},
 			body: JSON.stringify(requestBody),
 		}

@@ -91,7 +91,7 @@ describe("About", () => {
 			</TranslationProvider>,
 		)
 		expect(screen.getByText("settings:about.contact.label")).toBeInTheDocument()
-		expect(screen.getByText("zgsm@sangfor.com.cn")).toBeInTheDocument()
+		expect(screen.getByText("DiCode")).toBeInTheDocument()
 	})
 
 	it("renders export, import, and reset buttons", () => {

@@ -12,8 +12,7 @@ export const Package = {
 	commandIDPrefix:
 		process.env.COSTRICT_PKG_COMMAND_ID_PREFIX || (name.includes("nightly") ? "costrict-nightly" : "costrict"),
 	version: process.env.COSTRICT_PKG_VERSION || version,
-	outputChannel:
-		process.env.COSTRICT_PKG_OUTPUT_CHANNEL || (name.includes("nightly") ? "Costrict-Nightly" : "CoStrict"),
+	outputChannel: process.env.COSTRICT_PKG_OUTPUT_CHANNEL || (name.includes("nightly") ? "DiCode-Nightly" : "DiCode"),
 	sha: process.env.COSTRICT_PKG_SHA,
 	buildTime: process.env.COSTRICT_PKG_BUILD_TIME,
 } as const

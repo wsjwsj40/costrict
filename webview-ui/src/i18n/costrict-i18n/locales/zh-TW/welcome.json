@@ -1,10 +1,10 @@
 {
-	"getCostrictApiKey": "登入 CoStrict",
-	"greeting": "你好，我是 CoStrict！",
-	"introduction": "<strong>CoStrict 嚴肅開發的AI智慧夥伴</strong>，開源免費，可私有化部署，重視效果可控、品質為先，提供AI Agent、AI CodeReview、AI Completion三大核心能力，登入即可體驗。",
+	"getDiCodeApiKey": "登入 DiCode",
+	"greeting": "你好，我是 DiCode！",
+	"introduction": "<strong>DiCode 嚴肅開發的AI智慧夥伴</strong>，開源免費，可私有化部署，重視效果可控、品質為先，提供AI Agent、AI CodeReview、AI Completion三大核心能力，登入即可體驗。",
 	"telemetry": {
-		"title": "幫助改進 CoStrict",
-		"anonymousTelemetry": "傳送匿名錯誤和使用資料，以協助我們修復錯誤並改善擴充功能。我們絕不會傳送任何程式碼、命令提示詞、或個人資訊 (除非您使用了 CoStrict)。詳細資訊請參閱我們的<privacyLink>隱私權政策</privacyLink>。"
+		"title": "幫助改進 DiCode",
+		"anonymousTelemetry": "傳送匿名錯誤和使用資料，以協助我們修復錯誤並改善擴充功能。我們絕不會傳送任何程式碼、命令提示詞、或個人資訊 (除非您使用了 DiCode)。詳細資訊請參閱我們的<privacyLink>隱私權政策</privacyLink>。"
 	},
 	"chooseProvider": "開始使用需要 LLM 提供者：",
 	"vibe": {
@@ -19,12 +19,12 @@
 	"developmentMode": "開發模式",
 	"commonFeatures": "常用功能",
 	"providerSignup": {
-		"rooCloudProvider": "CoStrict 提供商",
-		"rooCloudDescription": "使用 CoStrict 最簡單的方式。低成本精選的免費和付費模型組合",
+		"rooCloudProvider": "DiCode 提供商",
+		"rooCloudDescription": "使用 DiCode 最簡單的方式。低成本精選的免費和付費模型組合",
 		"learnMore": "瞭解更多",
 		"useAnotherProvider": "使用其他提供商",
 		"useAnotherProviderDescription": "輸入 API 金鑰即可開始。",
-		"noApiKeys": "不想處理金鑰？選擇 CoStrict 提供商吧。",
+		"noApiKeys": "不想處理金鑰？選擇 DiCode 提供商吧。",
 		"getStarted": "開始使用"
 	}
 }

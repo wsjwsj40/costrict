@@ -23,7 +23,7 @@ const activityIcon =
 
 const brand = {
 	name: process.env.DICODE_EXTENSION_NAME || "dicode",
-	publisher: process.env.DICODE_PUBLISHER || "byd-ai",
+	publisher: process.env.DICODE_PUBLISHER || "atad-apts",
 	displayName: process.env.DICODE_DISPLAY_NAME || "DiCode",
 	version: process.env.DICODE_VERSION || sourcePackage.version,
 	description:
@@ -60,8 +60,7 @@ const replaceVisibleBrand = (text) =>
 		.replaceAll("CoStrict", brand.displayName)
 		.replaceAll("Costrict", brand.displayName)
 		.replaceAll("Roo Code", brand.displayName)
-		.replaceAll("诸葛神码", brand.displayName)
-		.replaceAll("https://github.com/zgsm-ai/costrict", brand.homepage)
+		.replaceAll("https://github.com/atad-apts/costrict", brand.homepage)
 		.replaceAll("https://costrict.ai/operation", brand.homepage)
 
 const escapeXml = (text) =>
@@ -71,12 +70,17 @@ const isCloudCommand = (command) => typeof command === "string" && cloudCommands
 const referencesCloudView = (value) => typeof value === "string" && value.includes("AssistantUISidebarProvider")
 
 const replaceExtensionNamespace = (value) =>
-	value.replaceAll("costrict.", `${brand.name}.`).replaceAll("costrict-", `${brand.name}-`)
+	value === "costrict"
+		? brand.name
+		: value.replaceAll("costrict.", `${brand.name}.`).replaceAll("costrict-", `${brand.name}-`)
 
 const patchContributionIdentifiers = (value, field = "") => {
 	if (Array.isArray(value)) return value.map((item) => patchContributionIdentifiers(item, field))
 	if (!value || typeof value !== "object") {
-		if (typeof value === "string" && ["command", "enablement", "id", "viewType", "when"].includes(field)) {
+		if (
+			typeof value === "string" &&
+			["command", "enablement", "id", "submenu", "viewType", "when"].includes(field)
+		) {
 			return replaceExtensionNamespace(value)
 		}
 		return value
@@ -151,7 +155,7 @@ const patchPackageJson = (unpackDir) => {
 	packageJson.keywords = Array.from(
 		new Set(
 			(packageJson.keywords || [])
-				.filter((keyword) => !/costrict|zgsm|shenma|诸葛|神码|sangfor|深信服/i.test(keyword))
+				.filter((keyword) => !/costrict|zgsm|shenma|sangfor/i.test(keyword))
 				.concat(["dicode", "ai", "agent", "code review", "code completion"]),
 		),
 	)

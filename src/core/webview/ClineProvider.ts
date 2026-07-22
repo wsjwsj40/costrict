@@ -1582,7 +1582,7 @@ export class ClineProvider
 						window.AUDIO_BASE_URI = "${audioUri}"
 						window.MATERIAL_ICONS_BASE_URI = "${materialIconsUri}"
 					</script>
-					<title>CoStrict</title>
+					<title>DiCode</title>
 				</head>
 				<body data-platform="${platform}">
 					<div id="root"></div>
@@ -1673,7 +1673,7 @@ export class ClineProvider
 					"defaultLanguage": "${language}",
 				})
 			</script>
-            <title>CoStrict</title>
+            <title>DiCode</title>
           </head>
           <body data-platform="${platform}">
             <noscript>You need to enable JavaScript to run this app.</noscript>

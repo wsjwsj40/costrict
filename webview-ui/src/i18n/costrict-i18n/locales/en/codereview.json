@@ -1,7 +1,7 @@
 {
 	"welcomePage": {
-		"title": "CoStrict",
-		"tips": "You can also select functions/code blocks/multiple files, right-click > CoStrict > Code Review",
+		"title": "DiCode",
+		"tips": "You can also select functions/code blocks/multiple files, right-click > DiCode > Code Review",
 		"dismiss": "dismiss",
 		"reviewCurrentChanges": "Code Review",
 		"securityScan": "Security Review",

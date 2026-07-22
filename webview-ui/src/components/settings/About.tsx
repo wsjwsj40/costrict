@@ -96,7 +96,7 @@ export const About = ({ telemetrySetting, setTelemetrySetting, debug, setDebug, 
 						<Bug className="size-4 text-vscode-descriptionForeground shrink-0" />
 						<span>
 							{t("settings:about.bugReport.label")}{" "}
-							<VSCodeLink href="https://github.com/zgsm-ai/costrict/issues/new?template=bug_report.yml">
+							<VSCodeLink href="https://github.com/atad-apts/costrict/issues/new?template=bug_report.yml">
 								{t("settings:about.bugReport.link")}
 							</VSCodeLink>
 						</span>
@@ -105,7 +105,7 @@ export const About = ({ telemetrySetting, setTelemetrySetting, debug, setDebug, 
 						<Lightbulb className="size-4 text-vscode-descriptionForeground shrink-0" />
 						<span>
 							{t("settings:about.featureRequest.label")}{" "}
-							<VSCodeLink href="https://github.com/zgsm-ai/costrict/issues/new?template=feature_request.yml">
+							<VSCodeLink href="https://github.com/atad-apts/costrict/issues/new?template=feature_request.yml">
 								{t("settings:about.featureRequest.link")}
 							</VSCodeLink>
 						</span>
@@ -114,7 +114,7 @@ export const About = ({ telemetrySetting, setTelemetrySetting, debug, setDebug, 
 						<Shield className="size-4 text-vscode-descriptionForeground shrink-0" />
 						<span>
 							{t("settings:about.securityIssue.label")}{" "}
-							<VSCodeLink href="https://github.com/zgsm-ai/costrict/security/policy">
+							<VSCodeLink href="https://github.com/atad-apts/costrict/security/policy">
 								{t("settings:about.securityIssue.link")}
 							</VSCodeLink>
 						</span>
@@ -123,7 +123,7 @@ export const About = ({ telemetrySetting, setTelemetrySetting, debug, setDebug, 
 						<MessageCircle className="size-4 text-vscode-descriptionForeground shrink-0" />
 						<span>
 							{t("settings:about.contact.label")}{" "}
-							<VSCodeLink href="mailto:zgsm@sangfor.com.cn">zgsm@sangfor.com.cn</VSCodeLink>
+							<VSCodeLink href="https://dicode.byd.com:30092">DiCode</VSCodeLink>
 						</span>
 					</div>
 					<div className="flex items-start gap-2">

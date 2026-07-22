@@ -442,7 +442,7 @@ export const ModelPicker = ({
 										),
 									}}
 									values={{
-										serviceName: serviceName === "costrict" ? "Costrict" : serviceName,
+										serviceName: serviceName === "costrict" ? "DiCode" : serviceName,
 										defaultModelId,
 									}}
 								/>

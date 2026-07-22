@@ -636,7 +636,7 @@ export const MODELS_BY_PROVIDER: Record<
 > = {
 	costrict: {
 		id: "costrict",
-		label: "CoStrict",
+		label: "DiCode",
 		models: [],
 	},
 	anthropic: {

@@ -20,7 +20,7 @@
 export class Logger {
 	private static formatMessage(): string {
 		const timestamp = new Date().toLocaleString()
-		return `[CoStrict][${timestamp}] `
+		return `[DiCode][${timestamp}] `
 	}
 
 	static log(...optionalParams: any[]) {

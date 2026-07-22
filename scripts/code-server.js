@@ -20,7 +20,7 @@ const CYAN = "\x1b[36m"
 const RED = "\x1b[31m"
 
 // Build vsix to a fixed path in temp directory
-const VSIX_PATH = path.join(__dirname, "../bin/zgsm-ai-preview.vsix")
+const VSIX_PATH = path.join(__dirname, "../bin/atad-apts-preview.vsix")
 
 function log(message) {
 	console.log(`${CYAN}[code-server]${RESET} ${message}`)

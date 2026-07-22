@@ -1,10 +1,10 @@
-// Build CoStrict translations object
+// Build DiCode translations object
 export const costrictTranslations: Record<string, Record<string, any>> = {}
 
-// Dynamically load CoStrict locale files
+// Dynamically load DiCode locale files
 const costrictLocaleFiles = import.meta.glob("./locales/**/*.json", { eager: true })
 
-// Process all CoStrict locale files
+// Process all DiCode locale files
 Object.entries(costrictLocaleFiles).forEach(([path, module]) => {
 	// Extract language and namespace from path
 	// Example path: './locales/en/common.json' -> language: 'en', namespace: 'common'
@@ -23,7 +23,7 @@ Object.entries(costrictLocaleFiles).forEach(([path, module]) => {
 	}
 })
 
-// console.log("Dynamically loaded CoStrict translations:", Object.keys(costrictTranslations))
+// console.log("Dynamically loaded DiCode translations:", Object.keys(costrictTranslations))
 
 // Merge translations function
 const mergeTranslations = (base: Record<string, any>, override: Record<string, any>): Record<string, any> => {
@@ -44,7 +44,7 @@ export const mergeLanguageResources = (
 ): Record<string, any> => {
 	const mergedTranslations: Record<string, any> = {}
 
-	// Merge CoStrict translations
+	// Merge DiCode translations
 	for (const language in costrictTranslations) {
 		if (!mergedTranslations[language]) {
 			mergedTranslations[language] = {}
@@ -58,7 +58,7 @@ export const mergeLanguageResources = (
 		}
 	}
 
-	// Add current translations that don't exist in CoStrict
+	// Add current translations that don't exist in DiCode
 	for (const language in currentTranslations) {
 		if (!mergedTranslations[language]) {
 			mergedTranslations[language] = currentTranslations[language]

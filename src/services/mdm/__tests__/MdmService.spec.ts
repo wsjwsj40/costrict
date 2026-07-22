@@ -35,10 +35,10 @@ vi.mock("vscode", () => ({
 
 vi.mock("../../../shared/package", () => ({
 	Package: {
-		publisher: "zgsm-ai",
+		publisher: "atad-apts",
 		name: "costrict",
 		version: "1.0.0",
-		outputChannel: "CoStrict",
+		outputChannel: "DiCode",
 		sha: undefined,
 	},
 }))
@@ -47,9 +47,9 @@ vi.mock("../../../i18n", () => ({
 	t: vi.fn((key: string) => {
 		const translations: Record<string, string> = {
 			"mdm.errors.cloud_auth_required":
-				"Your organization requires CoStrict Cloud authentication. Please sign in to continue.",
+				"Your organization requires DiCode Cloud authentication. Please sign in to continue.",
 			"mdm.errors.organization_mismatch":
-				"You must be authenticated with your organization's CoStrict Cloud account.",
+				"You must be authenticated with your organization's DiCode Cloud account.",
 			"mdm.errors.verification_failed": "Unable to verify organization authentication.",
 		}
 		return translations[key] || key
@@ -170,7 +170,7 @@ describe("MdmService", () => {
 
 			await MdmService.createInstance()
 
-			expect(mockFs.existsSync).toHaveBeenCalledWith(path.join("C:\\ProgramData", "CoStrict", "mdm.json"))
+			expect(mockFs.existsSync).toHaveBeenCalledWith(path.join("C:\\ProgramData", "DiCode", "mdm.json"))
 		})
 
 		it("should use correct path for Windows in development", async () => {
@@ -182,7 +182,7 @@ describe("MdmService", () => {
 
 			await MdmService.createInstance()
 
-			expect(mockFs.existsSync).toHaveBeenCalledWith(path.join("C:\\ProgramData", "CoStrict", "mdm.dev.json"))
+			expect(mockFs.existsSync).toHaveBeenCalledWith(path.join("C:\\ProgramData", "DiCode", "mdm.dev.json"))
 		})
 
 		it("should use correct path for macOS in production", async () => {
@@ -193,7 +193,7 @@ describe("MdmService", () => {
 
 			await MdmService.createInstance()
 
-			expect(mockFs.existsSync).toHaveBeenCalledWith("/Library/Application Support/CoStrict/mdm.json")
+			expect(mockFs.existsSync).toHaveBeenCalledWith("/Library/Application Support/DiCode/mdm.json")
 		})
 
 		it("should use correct path for macOS in development", async () => {
@@ -204,7 +204,7 @@ describe("MdmService", () => {
 
 			await MdmService.createInstance()
 
-			expect(mockFs.existsSync).toHaveBeenCalledWith("/Library/Application Support/CoStrict/mdm.dev.json")
+			expect(mockFs.existsSync).toHaveBeenCalledWith("/Library/Application Support/DiCode/mdm.dev.json")
 		})
 
 		it("should use correct path for Linux in production", async () => {
@@ -237,7 +237,7 @@ describe("MdmService", () => {
 
 			await MdmService.createInstance()
 
-			expect(mockFs.existsSync).toHaveBeenCalledWith("/Library/Application Support/CoStrict/mdm.dev.json")
+			expect(mockFs.existsSync).toHaveBeenCalledWith("/Library/Application Support/DiCode/mdm.dev.json")
 		})
 	})
 
@@ -278,7 +278,7 @@ describe("MdmService", () => {
 
 			expect(compliance.compliant).toBe(false)
 			if (!compliance.compliant) {
-				expect(compliance.reason).toContain("Your organization requires CoStrict Cloud authentication")
+				expect(compliance.reason).toContain("Your organization requires DiCode Cloud authentication")
 			}
 		})
 
@@ -301,7 +301,7 @@ describe("MdmService", () => {
 			expect(compliance.compliant).toBe(false)
 			if (!compliance.compliant) {
 				expect(compliance.reason).toContain(
-					"You must be authenticated with your organization's CoStrict Cloud account",
+					"You must be authenticated with your organization's DiCode Cloud account",
 				)
 			}
 		})

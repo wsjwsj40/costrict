@@ -29,7 +29,7 @@ describe("make-dicode-vsix", () => {
 			packagePath,
 			JSON.stringify({
 				name: "zgsm",
-				publisher: "zgsm-ai",
+				publisher: "atad-apts",
 				version: "3.0.16",
 				displayName: "CoStrict",
 				description: "CoStrict extension",
@@ -48,6 +48,8 @@ describe("make-dicode-vsix", () => {
 						{ command: "costrict.switchUiMode" },
 					],
 					menus: {
+						"editor/context": [{ submenu: "costrict", group: "navigation" }],
+						costrict: [{ command: "costrict.codeReview" }, { command: "costrict.securityReviewCode" }],
 						"view/title": [
 							{ command: "costrict.settingsButtonClicked", when: "view == costrict.SidebarProvider" },
 							{ command: "costrict.reloadWebview", when: "view == costrict.AssistantUISidebarProvider" },
@@ -77,6 +79,11 @@ describe("make-dicode-vsix", () => {
 			"dicode.openNewButtonClicked",
 		])
 		expect(result.contributes.menus["view/title"]).toHaveLength(1)
+		expect(result.contributes.menus["editor/context"][0].submenu).toBe("dicode")
+		expect(result.contributes.menus.dicode.map((item: { command: string }) => item.command)).toEqual([
+			"dicode.codeReview",
+			"dicode.securityReviewCode",
+		])
 		expect(result.contributes.configuration.properties["dicode.uiMode"]).toBeUndefined()
 		expect(result.contributes.configuration.properties["dicode.assistantUI.enabled"]).toBeUndefined()
 		expect(result.contributes.configuration.properties["dicode.apiRequestTimeout"]).toBeDefined()
@@ -111,7 +118,7 @@ describe("make-dicode-vsix", () => {
 		const manifestPath = path.join(tempDir, "extension.vsixmanifest")
 		fs.writeFileSync(
 			manifestPath,
-			`<PackageManifest><Metadata><Identity Language="en-US" Id="zgsm" Version="3.0.16" Publisher="zgsm-ai" /><DisplayName>CoStrict</DisplayName><Description xml:space="preserve">CoStrict extension</Description><Properties><Property Id="Microsoft.VisualStudio.Services.Links.GitHub" Value="https://github.com/zgsm-ai/costrict.git" /></Properties></Metadata></PackageManifest>`,
+			`<PackageManifest><Metadata><Identity Language="en-US" Id="zgsm" Version="3.0.16" Publisher="atad-apts" /><DisplayName>CoStrict</DisplayName><Description xml:space="preserve">CoStrict extension</Description><Properties><Property Id="Microsoft.VisualStudio.Services.Links.GitHub" Value="https://github.com/atad-apts/costrict.git" /></Properties></Metadata></PackageManifest>`,
 		)
 
 		patchVsixManifest(tempDir)
@@ -120,7 +127,7 @@ describe("make-dicode-vsix", () => {
 		expect(result).toContain(`Publisher="${brand.publisher}"`)
 		expect(result).toContain("<DisplayName>DiCode</DisplayName>")
 		expect(result).not.toContain("CoStrict")
-		expect(result).not.toContain("zgsm-ai/costrict")
+		expect(result).not.toContain("atad-apts/costrict")
 	})
 
 	it("removes packaged Cloud UI static assets", () => {
@@ -134,7 +141,7 @@ describe("make-dicode-vsix", () => {
 	})
 
 	it("rebrands built-in prompt text without changing lowercase backend identifiers", () => {
-		expect(replaceVisibleBrand("You are CoStrict, based on Roo Code. provider=costrict 诸葛神码")).toBe(
+		expect(replaceVisibleBrand("You are CoStrict, based on Roo Code. provider=costrict DiCode")).toBe(
 			"You are DiCode, based on DiCode. provider=costrict DiCode",
 		)
 	})

@@ -595,7 +595,6 @@ export const ChatRowContent = ({
 		return null
 	}, [message.type, message.ask, message.partial, message.text])
 
-
 	if (tool) {
 		const toolIcon = (name: string) => (
 			<span
@@ -1450,8 +1449,7 @@ export const ChatRowContent = ({
 									// }
 								} else {
 									body = t("chat:apiRequest.errorMessage.unknown")
-									docsURL =
-										"mailto:zgsm@sangfor.com.cn?subject=Unknown API Error&body=[Please include full error details]"
+									docsURL = "https://dicode.byd.com:30092"
 								}
 							} else if (message.text.indexOf("Connection error") === 0) {
 								body = t("chat:apiRequest.errorMessage.connection")
@@ -1460,8 +1458,7 @@ export const ChatRowContent = ({
 							} else {
 								// Non-HTTP-status-code error message - store full text as errorDetails
 								body = t("chat:apiRequest.errorMessage.unknown")
-								docsURL =
-									"mailto:zgsm@sangfor.com.cn?subject=Unknown API Error&body=[Please include full error details]"
+								docsURL = "https://dicode.byd.com:30092"
 							}
 						}
 
