@@ -24,10 +24,10 @@ import { getCommandDecision } from "./commands"
 function getSkillDirectoryPrefixes(): string[] {
 	const homeDir = os.homedir()
 	const baseDirs = [
-		path.join(homeDir, ".costrict"),
+		path.join(homeDir, ".dicode"),
 		path.join(homeDir, ".roo"),
 		path.join(homeDir, ".agents"),
-		path.join(process.env.XDG_CONFIG_HOME || path.join(homeDir, ".config"), "costrict"),
+		path.join(process.env.XDG_CONFIG_HOME || path.join(homeDir, ".config"), "dicode"),
 	]
 	const prefixes: string[] = []
 	for (const base of baseDirs) {

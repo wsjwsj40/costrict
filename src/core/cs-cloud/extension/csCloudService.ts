@@ -72,12 +72,12 @@ export class CsCloudService extends EventEmitter implements vscode.Disposable {
 	}
 
 	private get serverUrlPath(): string {
-		return path.join(os.homedir(), ".costrict", "cs-cloud", "server_url")
+		return path.join(os.homedir(), ".dicode", "cs-cloud", "server_url")
 	}
 
 	private get bundledBinPath(): string {
 		const binName = process.platform === "win32" ? "cs-cloud.exe" : "cs-cloud"
-		return path.join(os.homedir(), ".costrict", "bin", binName)
+		return path.join(os.homedir(), ".dicode", "bin", binName)
 	}
 
 	async ensureStarted(): Promise<string> {

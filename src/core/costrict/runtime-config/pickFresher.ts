@@ -69,7 +69,7 @@ const compareScore = (a: TokenScore, b: TokenScore): number => {
 /**
  * Pick the fresher of two costrict token pairs.
  *
- * Used to reconcile `~/.costrict/share/auth.json` (which may be written by an
+ * Used to reconcile `~/.dicode/share/auth.json` (which may be written by an
  * external process — the completion-agent runtime, the CLI, or another window)
  * against the value held in VSCode SecretStorage. After a window reload the
  * SecretStorage value can be stale; this lets the startup flow adopt the

@@ -85,7 +85,7 @@ export type RegisterCommandOptions = {
 
 /**
  * 检查用户是否已登录 DiCode。
- * 先通过 CostrictAuthService 查询 token，再回退到 ~/.costrict/share/auth.json。
+ * 先通过 CostrictAuthService 查询 token，再回退到 ~/.dicode/share/auth.json。
  */
 async function isCostrictLoggedIn(): Promise<boolean> {
 	try {

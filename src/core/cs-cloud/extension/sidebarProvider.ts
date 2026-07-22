@@ -563,7 +563,7 @@ export class AssistantUISidebarProvider implements vscode.WebviewViewProvider {
 					`[AssistantUISidebarProvider] Failed to read access token from auth service: ${error}`,
 				)
 			}
-			// Fallback: if vscode token is cleared, read from ~/.costrict/share/auth.json
+			// Fallback: if vscode token is cleared, read from ~/.dicode/share/auth.json
 			if (!accessToken) {
 				try {
 					const data = readCostrictAccessToken()
