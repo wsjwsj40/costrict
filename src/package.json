@@ -141,6 +141,11 @@
 				"category": "%configuration.title%"
 			},
 			{
+				"command": "costrict.checkForUpdates",
+				"title": "DiCode: Check for Updates",
+				"category": "%configuration.title%"
+			},
+			{
 				"command": "costrict.settingsButtonClicked",
 				"title": "%command.settings.title%",
 				"icon": "$(settings-gear)"

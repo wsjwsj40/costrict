@@ -65,6 +65,7 @@ import { isJetbrainsPlatform } from "./utils/platform"
 import { AssistantUISidebarProvider } from "./core/cs-cloud/extension/sidebarProvider"
 import { CsCloudService } from "./core/cs-cloud/extension/csCloudService"
 import { getConfiguredUiMode } from "./shared/uiMode"
+import { ExtensionUpdater } from "./services/updater/ExtensionUpdater"
 // import { flushModels, getModels, initializeModelCacheRefresh } from "./api/providers/fetchers/modelCache"
 
 /**
@@ -148,7 +149,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	axios.defaults.httpsAgent = new https.Agent({ keepAlive: false })
 
 	// Kick off non-critical startup tasks in the background so activation can continue.
-	void initializeNetworkProxy(context, outputChannel).catch((error) => {
+	const networkProxyInitialization = initializeNetworkProxy(context, outputChannel).catch((error) => {
 		outputChannel.appendLine(
 			`[NetworkProxy] Failed to initialize network proxy: ${error instanceof Error ? error.message : String(error)}`,
 		)
@@ -335,6 +336,15 @@ export async function activate(context: vscode.ExtensionContext) {
 	}
 
 	registerCommands({ context, outputChannel, provider })
+
+	const extensionUpdater = new ExtensionUpdater(context, outputChannel)
+	context.subscriptions.push(
+		extensionUpdater,
+		vscode.commands.registerCommand(`${Package.commandIDPrefix}.checkForUpdates`, () =>
+			extensionUpdater.checkForUpdates(true),
+		),
+	)
+	void networkProxyInitialization.finally(() => extensionUpdater.start())
 
 	/**
 	 * We use the text document content provider API to show the left side for diff

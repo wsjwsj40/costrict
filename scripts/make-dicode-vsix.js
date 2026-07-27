@@ -279,6 +279,13 @@ const removeCloudAssets = (unpackDir) => {
 }
 
 const buildStableVsix = () => {
+	if (!process.env.DICODE_UPDATE_MANIFEST_URL?.trim()) {
+		console.error("DICODE_UPDATE_MANIFEST_URL is required when building a DiCode VSIX.")
+		console.error(
+			"Example: DICODE_UPDATE_MANIFEST_URL=https://updates.example.internal/api/v1/releases/latest pnpm vsix:dicode",
+		)
+		process.exit(1)
+	}
 	const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm"
 	const buildEnv = {
 		...process.env,

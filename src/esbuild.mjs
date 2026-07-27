@@ -88,6 +88,10 @@ async function main() {
 			"process.env.COSTRICT_PUBLIC_KEY": JSON.stringify(
 				process.env.COSTRICT_PUBLIC_KEY || process.env.ZGSM_PUBLIC_KEY || "",
 			),
+			"process.env.DICODE_UPDATE_MANIFEST_URL": JSON.stringify(process.env.DICODE_UPDATE_MANIFEST_URL || ""),
+			"process.env.DICODE_UPDATE_ALLOW_INSECURE_HTTP": JSON.stringify(
+				process.env.DICODE_UPDATE_ALLOW_INSECURE_HTTP || "false",
+			),
 			"process.env.COSTRICT_PKG_BUILD_TIME": JSON.stringify(buildTime),
 			...(gitSha ? { "process.env.COSTRICT_PKG_SHA": JSON.stringify(gitSha) } : {}),
 		},

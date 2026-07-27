@@ -1,0 +1,10 @@
+FROM gcr.io/distroless/static-debian12:nonroot
+
+COPY --chown=65532:65532 dicode-update-server /usr/local/bin/dicode-update-server
+
+ENV UPDATE_SERVER_CONFIG_DIR=/config
+ENV UPDATE_SERVER_RELEASES_DIR=/releases
+
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/dicode-update-server"]
