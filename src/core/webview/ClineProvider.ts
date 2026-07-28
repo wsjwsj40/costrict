@@ -3416,7 +3416,7 @@ export class ClineProvider
 		const taskDir = path.join(basePath, "tasks")
 		await fs.rm(taskDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
 		const homeDir = os.homedir()
-		const versionDir = path.join(homeDir, ".dicode", "share")
+		const versionDir = path.join(homeDir, ".costrict", "share")
 		const versionFilePath = path.join(versionDir, "version.json")
 		await fs.rm(versionFilePath, { recursive: true, force: true })
 	}

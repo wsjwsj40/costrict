@@ -7,6 +7,7 @@ const repoRoot = path.join(__dirname, "..")
 const binDir = path.join(repoRoot, "bin")
 const sourcePackagePath = path.join(repoRoot, "src", "package.json")
 const sourcePackage = JSON.parse(fs.readFileSync(sourcePackagePath, "utf8"))
+const runtimePublicKeyPath = path.join(repoRoot, "branding", "costrict-runtime-public.pem")
 
 const configuredIconPath = process.env.DICODE_ICON_PATH ? path.resolve(process.env.DICODE_ICON_PATH) : undefined
 const configuredPngPath =
@@ -286,9 +287,20 @@ const buildStableVsix = () => {
 		)
 		process.exit(1)
 	}
+	const runtimePublicKey =
+		process.env.COSTRICT_PUBLIC_KEY ||
+		process.env.ZGSM_PUBLIC_KEY ||
+		(fs.existsSync(runtimePublicKeyPath) ? fs.readFileSync(runtimePublicKeyPath, "utf8").trim() : "")
+	if (!runtimePublicKey) {
+		console.error(
+			"COSTRICT_PUBLIC_KEY is required; set it in the environment or provide branding/costrict-runtime-public.pem.",
+		)
+		process.exit(1)
+	}
 	const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm"
 	const buildEnv = {
 		...process.env,
+		COSTRICT_PUBLIC_KEY: runtimePublicKey,
 		DICODE_CLASSIC_ONLY: "true",
 		COSTRICT_PKG_NAME: brand.name,
 		COSTRICT_PKG_PUBLISHER: brand.publisher,

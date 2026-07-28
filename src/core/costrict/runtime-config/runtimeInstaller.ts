@@ -120,9 +120,9 @@ const DOWNLOAD_WAIT_INTERVAL_MS = 10_000
 export const getRuntimeProcessName = () => `costrict${process.platform === "win32" ? ".exe" : ""}`
 
 export const getRuntimePaths = (homeDir = os.homedir(), processName = getRuntimeProcessName()): RuntimePaths => {
-	const cacheDir = path.join(homeDir, ".dicode", "bin")
-	const versionDir = path.join(homeDir, ".dicode", "share")
-	const packageDir = path.join(homeDir, ".dicode", "package")
+	const cacheDir = path.join(homeDir, ".costrict", "bin")
+	const versionDir = path.join(homeDir, ".costrict", "share")
+	const packageDir = path.join(homeDir, ".costrict", "package")
 	const targetPath = path.join(cacheDir, processName)
 	const versionFilePath = path.join(versionDir, "version.json")
 	const packageInfoPath = path.join(packageDir, "costrict.json")

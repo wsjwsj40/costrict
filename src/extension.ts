@@ -21,6 +21,12 @@ if (fs.existsSync(envPath)) {
 	}
 }
 
+// The official VSIX ships these runtime integration defaults in its .env file.
+// Keep them in code as fallbacks so repackaged/offline builds can still start
+// costrict-keeper and its completion-agent when no extension-level .env exists.
+process.env._EXTENSION_COSTRICT_PORT ||= "4096"
+process.env.COSTRICT_CALLER ||= "vscode"
+
 // import type { CloudUserInfo, AuthState } from "@roo-code/types"
 // import { CloudService, BridgeOrchestrator } from "@roo-code/cloud"
 // import type { CloudUserInfo, AuthState } from "@roo-code/types"

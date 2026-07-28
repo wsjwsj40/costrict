@@ -1142,6 +1142,9 @@ export const webviewMessageHandler = async (
 		case "fixHistory":
 			await provider.fixHistory()
 			break
+		case "checkForUpdates":
+			await vscode.commands.executeCommand(`${Package.commandIDPrefix}.checkForUpdates`)
+			break
 		case "flushRouterModels": {
 			const { apiConfiguration } = await provider.getState()
 			const routerNameFlush: RouterName = toRouterName(message.text)

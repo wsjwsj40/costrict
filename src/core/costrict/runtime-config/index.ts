@@ -38,7 +38,7 @@ const logger = createLogger(Package.outputChannel)
 
 export const readCostrictWellKnownConfig = (): CostrictWellKnownConfig => {
 	try {
-		const wellKnownPath = path.join(os.homedir(), ".dicode", "share", ".well-known.json")
+		const wellKnownPath = path.join(os.homedir(), ".costrict", "share", ".well-known.json")
 
 		if (!fs.existsSync(wellKnownPath)) {
 			return { services: [] }
@@ -81,7 +81,7 @@ export const readCostrictAccessToken = () => {
 		throw new Error("Unable to determine user home directory path")
 	}
 
-	const tokenDir = path.join(homeDir, ".dicode", "share")
+	const tokenDir = path.join(homeDir, ".costrict", "share")
 	if (!fs.existsSync(tokenDir)) {
 		return null
 	}
@@ -253,7 +253,7 @@ export const writeCostrictRuntimeAuth = async (accessToken: string, refreshToken
 		throw new Error("Unable to determine user home directory path")
 	}
 
-	const tokenDir = path.join(homeDir, ".dicode", "share")
+	const tokenDir = path.join(homeDir, ".costrict", "share")
 	if (!fs.existsSync(tokenDir)) {
 		fs.mkdirSync(tokenDir, { recursive: true })
 	}

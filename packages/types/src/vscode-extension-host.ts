@@ -484,6 +484,7 @@ export interface WebviewMessage {
 		| "switchUiMode"
 		| "fetchCostrictInviteCode"
 		| "fixHistory"
+		| "checkForUpdates"
 		| "checkReviewSuggestion"
 		| "cancelReviewTask"
 		| "startCodereview"

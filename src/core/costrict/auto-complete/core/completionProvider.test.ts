@@ -13,7 +13,7 @@ vi.mock("../../runtime-config", () => ({
 	waitForCompletionAgentConfig: vi.fn().mockResolvedValue(null),
 	ensureCompletionRuntimeReady: vi.fn().mockResolvedValue(undefined),
 	ensureCostrictRuntimeInstalled: vi.fn().mockResolvedValue("noUpdate"),
-	getRuntimeBinaryPath: vi.fn(() => "/tmp/home/.dicode/bin/costrict"),
+	getRuntimeBinaryPath: vi.fn(() => "/tmp/home/.costrict/bin/costrict"),
 	getRuntimeProcessName: vi.fn(() => "costrict"),
 }))
 
