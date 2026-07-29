@@ -1,6 +1,6 @@
 {
 	"modes": {
-		"createModeHelpText": "Click + to create a new custom mode, or simply ask DiCode to create one for you! <DocsLink>Learn more</DocsLink>"
+		"createModeHelpText": "Click + to create a new custom mode, or simply ask DiCode to create one for you!"
 	},
 	"roleDefinition": {
 		"description": "Define DiCode's expertise and personality for this mode. This description shapes how DiCode presents itself and approaches tasks."

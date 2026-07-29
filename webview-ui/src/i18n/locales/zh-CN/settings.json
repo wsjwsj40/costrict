@@ -70,7 +70,7 @@
 		}
 	},
 	"slashCommands": {
-		"description": "管理您的斜杠命令，以快速执行自定义工作流和操作。 <DocsLink>了解更多</DocsLink>",
+		"description": "管理您的斜杠命令，以快速执行自定义工作流和操作。",
 		"workspaceCommands": "工作区命令",
 		"globalCommands": "全局命令",
 		"builtInCommands": "内置命令",
@@ -1030,7 +1030,7 @@
 		}
 	},
 	"skills": {
-		"description": "管理为代理提供上下文指令的技能。技能会在与您的任务相关时自动应用。<DocsLink>了解更多</DocsLink>",
+		"description": "管理为代理提供上下文指令的技能。技能会在与您的任务相关时自动应用。",
 		"workspaceSkills": "工作区技能",
 		"globalSkills": "全局技能",
 		"noWorkspaceSkills": "此项目中还没有技能。",

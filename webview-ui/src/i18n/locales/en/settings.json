@@ -70,7 +70,7 @@
 		}
 	},
 	"slashCommands": {
-		"description": "Slash commands are shortcuts for reusable workflows and actions to be used on demand (like creating a PR, running a set of tasks, etc). <DocsLink>Learn more</DocsLink>",
+		"description": "Slash commands are shortcuts for reusable workflows and actions to be used on demand (like creating a PR, running a set of tasks, etc).",
 		"workspaceCommands": "Workspace Commands",
 		"globalCommands": "Global Commands",
 		"builtInCommands": "Built-in Commands",
@@ -106,7 +106,7 @@
 		"footer": "Use slash commands for quick access to frequently used prompts and workflows."
 	},
 	"skills": {
-		"description": "Skills encapsulate contextual instructions and workflows, which the agent can load on-demand. They can include general instructions, specific workflows and even scripts to be run as needed. <DocsLink>Learn more</DocsLink>",
+		"description": "Skills encapsulate contextual instructions and workflows, which the agent can load on-demand. They can include general instructions, specific workflows and even scripts to be run as needed.",
 		"workspaceSkills": "Workspace Skills",
 		"globalSkills": "Global Skills",
 		"noWorkspaceSkills": "No skills in this project yet.",

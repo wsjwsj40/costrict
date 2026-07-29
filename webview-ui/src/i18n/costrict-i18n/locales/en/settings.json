@@ -156,7 +156,7 @@
 		"description": "When checked, DiCode will not use prompt caching for this model."
 	},
 	"prompts": {
-		"description": "Configure support prompts for quick actions like enhancing prompts, explaining code, and fixing issues. These prompts help DiCode provide better support for common development tasks.<DocsLink>Learn more</DocsLink>"
+		"description": "Configure support prompts for quick actions like enhancing prompts, explaining code, and fixing issues. These prompts help DiCode provide better support for common development tasks."
 	},
 	"ui": {
 		"collapseMarkdownWithoutScroll": {

@@ -1,6 +1,6 @@
 {
 	"modes": {
-		"createModeHelpText": "點選 + 建立新的自訂模式，或者在聊天中直接請 DiCode 為您建立！<DocsLink>了解更多</DocsLink>"
+		"createModeHelpText": "點選 + 建立新的自訂模式，或者在聊天中直接請 DiCode 為您建立！"
 	},
 	"roleDefinition": {
 		"description": "定義此模式下 DiCode 的專業知識和個性。此描述會形塑 DiCode 如何展現自己並處理工作。"
