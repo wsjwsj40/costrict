@@ -9,7 +9,6 @@ import {
 	type ReasoningEffort,
 	azureOpenAiDefaultApiVersion,
 	costrictModelsConfig as costrictModels,
-	costrictDefaultModelId,
 	OrganizationAllowList,
 	ExtensionMessage,
 } from "@roo-code/types"
@@ -195,7 +194,7 @@ export const CostrictAI = ({
 					<ModelPicker
 						apiConfiguration={apiConfiguration}
 						setApiConfigurationField={setApiConfigurationField}
-						defaultModelId={costrictDefaultModelId}
+						defaultModelId={apiConfiguration.costrictModelId || Object.keys(openAiModels ?? {})[0] || ""}
 						models={openAiModels}
 						modelIdKey="costrictModelId"
 						serviceName="costrict"

@@ -36,6 +36,7 @@ func New(data *store.Store, authenticator *auth.Authenticator, adminToken string
 	mux.HandleFunc("PUT /admin/api/plans/{code}/models", s.admin(s.putPlanModels))
 	mux.HandleFunc("PUT /admin/api/users/{email}", s.admin(s.putUser))
 	mux.HandleFunc("DELETE /admin/api/users/{email}", s.admin(s.deleteUser))
+	mux.HandleFunc("POST /admin/api/users/batch", s.admin(s.batchUsers))
 	sub, _ := fs.Sub(webFiles, "web")
 	mux.Handle("/admin/", http.StripPrefix("/admin/", http.FileServer(http.FS(sub))))
 	mux.HandleFunc("GET /admin", func(w http.ResponseWriter, r *http.Request) {
@@ -143,6 +144,37 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) batchUsers(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Action   string   `json:"action"`
+		Emails   []string `json:"emails"`
+		PlanCode string   `json:"planCode"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+
+	var (
+		count int
+		err   error
+	)
+	switch body.Action {
+	case "set":
+		count, err = s.store.SetUsersPlan(r.Context(), body.Emails, body.PlanCode)
+	case "delete":
+		count, err = s.store.DeleteUsers(r.Context(), body.Emails)
+	default:
+		writeError(w, 400, "invalid_action", "action must be set or delete")
+		return
+	}
+	if err != nil {
+		writeError(w, 400, "invalid_users", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"count": count})
 }
 
 func readJSON(r *http.Request, value any) error {

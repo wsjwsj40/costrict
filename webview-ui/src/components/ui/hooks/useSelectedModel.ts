@@ -19,7 +19,6 @@ import {
 	vscodeLlmModels,
 	vscodeLlmDefaultModelId,
 	getClaudeCodeModels,
-	costrictDefaultModelId,
 	normalizeClaudeCodeModelId,
 	openAiCodexModels,
 	sambaNovaModels,
@@ -166,12 +165,11 @@ function getSelectedModel({
 	const defaultModelId = getProviderDefaultModelId(provider, undefined, apiConfiguration)
 	switch (provider) {
 		case "costrict": {
-			const id = apiConfiguration.costrictModelId || apiConfiguration.apiModelId || costrictDefaultModelId
-			const info = getCostrictModelFeedback(
-				{ apiConfiguration },
-				routerModels.costrict[id] || costrictModels.default,
-			)
-			// apiConfiguration?.costrictModelId || apiConfiguration?.apiModelId || costrictDefaultModelId
+			const models = routerModels.costrict
+			const configuredId = apiConfiguration.costrictModelId || apiConfiguration.apiModelId
+			const firstModelId = Object.keys(models)[0]
+			const id = configuredId && (models[configuredId] || !firstModelId) ? configuredId : firstModelId || ""
+			const info = getCostrictModelFeedback({ apiConfiguration }, models[id] || costrictModels.default)
 			return { id, info }
 		}
 		case "openrouter": {

@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -94,6 +95,94 @@ func TestModelListUsesEmailPlanAndNeverReturnsAuto(t *testing.T) {
 				t.Fatalf("%s got %v, want %v", test.email, got, test.want)
 			}
 		}
+	}
+}
+
+func TestAdminBatchUsersCanSetAndDeletePlans(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	data, err := store.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "001_init.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := data.Migrate(ctx, string(migration)); err != nil {
+		t.Fatal(err)
+	}
+
+	emails := []string{"batch-one@example.com", "batch-two@example.com"}
+	_, _ = data.DeleteUsers(ctx, emails)
+	t.Cleanup(func() { _, _ = data.DeleteUsers(context.Background(), emails) })
+
+	server := httptest.NewServer(New(data, nil, "admin-secret").Handler())
+	defer server.Close()
+
+	request, _ := http.NewRequest(
+		http.MethodPost,
+		server.URL+"/admin/api/users/batch",
+		strings.NewReader(`{"action":"set","emails":["BATCH-ONE@example.com","batch-two@example.com","batch-one@example.com"],"planCode":"plus"}`),
+	)
+	request.Header.Set("Authorization", "Bearer admin-secret")
+	request.Header.Set("Content-Type", "application/json")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("set status = %d", response.StatusCode)
+	}
+	var result struct {
+		Count int `json:"count"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Count != 2 {
+		t.Fatalf("set count = %d, want 2", result.Count)
+	}
+
+	adminState, err := data.AdminState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := 0
+	for _, user := range adminState.Users {
+		if (user.Email == emails[0] || user.Email == emails[1]) && user.PlanCode == "plus" {
+			found++
+		}
+	}
+	if found != 2 {
+		t.Fatalf("found %d batch users in plus, want 2", found)
+	}
+
+	request, _ = http.NewRequest(
+		http.MethodPost,
+		server.URL+"/admin/api/users/batch",
+		strings.NewReader(`{"action":"delete","emails":["batch-one@example.com","batch-two@example.com"]}`),
+	)
+	request.Header.Set("Authorization", "Bearer admin-secret")
+	request.Header.Set("Content-Type", "application/json")
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("delete status = %d", response.StatusCode)
+	}
+	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Count != 2 {
+		t.Fatalf("delete count = %d, want 2", result.Count)
 	}
 }
 

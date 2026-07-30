@@ -26,7 +26,6 @@ import {
 	basetenDefaultModelId,
 	bedrockDefaultModelId,
 	vertexDefaultModelId,
-	costrictDefaultModelId,
 	sambaNovaDefaultModelId,
 	internationalZAiDefaultModelId,
 	mainlandZAiDefaultModelId,
@@ -414,7 +413,7 @@ const ApiOptions = ({
 				roo: { field: "apiModelId", default: rooDefaultModelId },
 				"vercel-ai-gateway": { field: "vercelAiGatewayModelId", default: vercelAiGatewayDefaultModelId },
 				openai: { field: "openAiModelId" },
-				costrict: { field: "costrictModelId", default: costrictDefaultModelId },
+				costrict: { field: "costrictModelId" },
 				ollama: { field: "ollamaModelId" },
 				lmstudio: { field: "lmStudioModelId" },
 			}

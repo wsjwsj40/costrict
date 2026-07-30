@@ -224,18 +224,80 @@ func (s *Store) SetPlanModels(ctx context.Context, code string, modelIDs []strin
 }
 
 func (s *Store) SetUserPlan(ctx context.Context, email, planCode string) error {
-	email = strings.ToLower(strings.TrimSpace(email))
-	if email == "" || !strings.Contains(email, "@") {
-		return errors.New("invalid email")
-	}
-	_, err := s.db.Exec(ctx, `
-		INSERT INTO model_access_user(email, plan_code) VALUES($1,$2)
-		ON CONFLICT(email) DO UPDATE SET plan_code=EXCLUDED.plan_code, updated_at=NOW()`,
-		email, planCode)
+	_, err := s.SetUsersPlan(ctx, []string{email}, planCode)
 	return err
 }
 
 func (s *Store) DeleteUser(ctx context.Context, email string) error {
-	_, err := s.db.Exec(ctx, "DELETE FROM model_access_user WHERE email=$1", strings.ToLower(email))
+	_, err := s.DeleteUsers(ctx, []string{email})
 	return err
+}
+
+func (s *Store) SetUsersPlan(ctx context.Context, emails []string, planCode string) (int, error) {
+	normalized, err := normalizeEmails(emails)
+	if err != nil {
+		return 0, err
+	}
+	planCode = strings.ToLower(strings.TrimSpace(planCode))
+	if planCode == "" {
+		return 0, errors.New("plan code is required")
+	}
+
+	err = pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		var isDefault bool
+		if err := tx.QueryRow(ctx, "SELECT is_default FROM model_access_plan WHERE code=$1", planCode).Scan(&isDefault); errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("plan does not exist")
+		} else if err != nil {
+			return err
+		}
+		// The default plan is implicit. Downgrading to it removes explicit
+		// overrides instead of accumulating redundant Free user rows.
+		if isDefault {
+			_, err := tx.Exec(ctx, "DELETE FROM model_access_user WHERE email = ANY($1)", normalized)
+			return err
+		}
+		for _, email := range normalized {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO model_access_user(email, plan_code) VALUES($1,$2)
+				ON CONFLICT(email) DO UPDATE SET plan_code=EXCLUDED.plan_code, updated_at=NOW()`,
+				email, planCode); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return len(normalized), err
+}
+
+func (s *Store) DeleteUsers(ctx context.Context, emails []string) (int, error) {
+	normalized, err := normalizeEmails(emails)
+	if err != nil {
+		return 0, err
+	}
+	tag, err := s.db.Exec(ctx, "DELETE FROM model_access_user WHERE email = ANY($1)", normalized)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
+}
+
+func normalizeEmails(emails []string) ([]string, error) {
+	if len(emails) == 0 {
+		return nil, errors.New("at least one email is required")
+	}
+	seen := make(map[string]struct{}, len(emails))
+	normalized := make([]string, 0, len(emails))
+	for _, raw := range emails {
+		email := strings.ToLower(strings.TrimSpace(raw))
+		at := strings.LastIndex(email, "@")
+		if at <= 0 || at == len(email)-1 || strings.ContainsAny(email, " \t\r\n") {
+			return nil, fmt.Errorf("invalid email: %s", raw)
+		}
+		if _, exists := seen[email]; exists {
+			continue
+		}
+		seen[email] = struct{}{}
+		normalized = append(normalized, email)
+	}
+	return normalized, nil
 }

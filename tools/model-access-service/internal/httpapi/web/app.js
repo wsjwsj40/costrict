@@ -1,4 +1,8 @@
-const state = { token: sessionStorage.getItem("adminToken") || "", data: null }
+const state = {
+	token: sessionStorage.getItem("adminToken") || "",
+	data: null,
+	selectedEmails: new Set(),
+}
 const $ = (selector) => document.querySelector(selector)
 const $$ = (selector) => [...document.querySelectorAll(selector)]
 
@@ -67,19 +71,38 @@ function render() {
 	$("#user-form select").innerHTML = plans
 		.map((p) => `<option value="${attr(p.code)}">${escapeHTML(p.name)}</option>`)
 		.join("")
+	$("#bulk-plan").innerHTML = plans
+		.map((p) => `<option value="${attr(p.code)}">${escapeHTML(p.name)}</option>`)
+		.join("")
+	$("#batch-user-form select").innerHTML = plans
+		.filter((p) => !p.isDefault)
+		.map((p) => `<option value="${attr(p.code)}">${escapeHTML(p.name)}</option>`)
+		.join("")
 }
 
 function renderUsers() {
 	const query = $("#user-search").value.trim().toLowerCase()
 	const users = state.data.users.filter((u) => u.email.includes(query))
-	$("#users-table").innerHTML = `<table><thead><tr><th>邮箱</th><th>套餐</th><th></th></tr></thead><tbody>${users
-		.map(
-			(
-				u,
-			) => `<tr><td><strong>${escapeHTML(u.email)}</strong></td><td><span class="badge">${escapeHTML(u.planCode)}</span></td>
+	const visibleEmails = users.map((u) => u.email)
+	const allVisibleSelected =
+		visibleEmails.length > 0 && visibleEmails.every((email) => state.selectedEmails.has(email))
+	$("#users-table").innerHTML =
+		`<table><thead><tr><th class="table-check"><input id="select-all-users" type="checkbox" aria-label="选择当前列表全部用户" ${allVisibleSelected ? "checked" : ""}></th><th>邮箱</th><th>套餐</th><th></th></tr></thead><tbody>${users
+			.map(
+				(
+					u,
+				) => `<tr><td class="table-check"><input type="checkbox" data-select-user="${attr(u.email)}" aria-label="选择 ${attr(u.email)}" ${state.selectedEmails.has(u.email) ? "checked" : ""}></td><td><strong>${escapeHTML(u.email)}</strong></td><td><span class="badge">${escapeHTML(u.planCode)}</span></td>
     <td><div class="row-actions"><button data-edit-user="${attr(u.email)}">修改</button><button class="danger" data-delete-user="${attr(u.email)}">移除</button></div></td></tr>`,
-		)
-		.join("")}</tbody></table>`
+			)
+			.join("")}</tbody></table>`
+	updateBulkControls()
+}
+
+function updateBulkControls() {
+	const count = state.selectedEmails.size
+	$("#selection-count").textContent = count ? `已选择 ${count} 个用户` : "未选择用户"
+	$("#bulk-set-plan").disabled = count === 0
+	$("#bulk-delete-users").disabled = count === 0
 }
 
 function showApp() {
@@ -121,6 +144,25 @@ function openUser(user = null) {
 	$("#user-dialog").showModal()
 }
 
+function openBatchUsers() {
+	const form = $("#batch-user-form")
+	form.reset()
+	$("#batch-email-count").textContent = "已识别 0 个邮箱"
+	$("#batch-user-dialog").showModal()
+}
+
+function parseEmails(value) {
+	const matches = String(value || "").match(/[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []
+	return [...new Set(matches.map((email) => email.toLowerCase()))]
+}
+
+async function batchUsers(action, emails, planCode = "") {
+	return api("/users/batch", {
+		method: "POST",
+		body: JSON.stringify({ action, emails, ...(planCode ? { planCode } : {}) }),
+	})
+}
+
 $("#login-form").addEventListener("submit", async (e) => {
 	e.preventDefault()
 	state.token = $("#admin-token").value
@@ -144,8 +186,41 @@ $("#refresh").addEventListener("click", async () => {
 })
 $("#add-model").addEventListener("click", () => openModel())
 $("#add-user").addEventListener("click", () => openUser())
+$("#batch-add-users").addEventListener("click", openBatchUsers)
 $("#user-search").addEventListener("input", renderUsers)
 $$(".close-dialog").forEach((button) => button.addEventListener("click", () => button.closest("dialog").close()))
+
+$("#batch-user-form textarea").addEventListener("input", (e) => {
+	$("#batch-email-count").textContent = `已识别 ${parseEmails(e.currentTarget.value).length} 个邮箱`
+})
+
+$("#batch-user-csv").addEventListener("change", async (e) => {
+	const file = e.currentTarget.files[0]
+	if (!file) return
+	const textarea = $("#batch-user-form textarea")
+	const emails = parseEmails(`${textarea.value}\n${await file.text()}`)
+	textarea.value = emails.join("\n")
+	$("#batch-email-count").textContent = `已识别 ${emails.length} 个邮箱`
+})
+
+$("#bulk-set-plan").addEventListener("click", async () => {
+	const emails = [...state.selectedEmails]
+	const planCode = $("#bulk-plan").value
+	if (!emails.length || !confirm(`确认将选中的 ${emails.length} 个用户变更为 ${planCode} 套餐？`)) return
+	const result = await batchUsers("set", emails, planCode)
+	state.selectedEmails.clear()
+	await load()
+	toast(`已更新 ${result.count} 个用户`)
+})
+
+$("#bulk-delete-users").addEventListener("click", async () => {
+	const emails = [...state.selectedEmails]
+	if (!emails.length || !confirm(`确认删除选中的 ${emails.length} 个用户配置并恢复默认 Free？`)) return
+	const result = await batchUsers("delete", emails)
+	state.selectedEmails.clear()
+	await load()
+	toast(`已删除 ${result.count} 个用户配置`)
+})
 
 $$(".nav").forEach((button) =>
 	button.addEventListener("click", () => {
@@ -197,6 +272,38 @@ $("#user-form").addEventListener("submit", async (e) => {
 	toast("用户权限已保存")
 })
 
+$("#batch-user-form").addEventListener("submit", async (e) => {
+	e.preventDefault()
+	const f = e.currentTarget
+	const emails = parseEmails(f.elements.emails.value)
+	if (!emails.length) {
+		toast("没有识别到有效邮箱")
+		return
+	}
+	const result = await batchUsers("set", emails, f.elements.planCode.value)
+	f.closest("dialog").close()
+	await load()
+	toast(`已保存 ${result.count} 个用户权限`)
+})
+
+document.addEventListener("change", (e) => {
+	if (e.target.id === "select-all-users") {
+		$$("[data-select-user]").forEach((input) => {
+			input.checked = e.target.checked
+			if (e.target.checked) state.selectedEmails.add(input.dataset.selectUser)
+			else state.selectedEmails.delete(input.dataset.selectUser)
+		})
+		updateBulkControls()
+	}
+	if (e.target.dataset.selectUser) {
+		if (e.target.checked) state.selectedEmails.add(e.target.dataset.selectUser)
+		else state.selectedEmails.delete(e.target.dataset.selectUser)
+		updateBulkControls()
+		const visible = $$("[data-select-user]")
+		$("#select-all-users").checked = visible.length > 0 && visible.every((input) => input.checked)
+	}
+})
+
 document.addEventListener("click", async (e) => {
 	const button = e.target.closest("button")
 	if (!button) return
@@ -218,6 +325,7 @@ document.addEventListener("click", async (e) => {
 	}
 	if (button.dataset.deleteUser && confirm(`确认移除 ${button.dataset.deleteUser} 的套餐配置？`)) {
 		await api(`/users/${encodeURIComponent(button.dataset.deleteUser)}`, { method: "DELETE" })
+		state.selectedEmails.delete(button.dataset.deleteUser)
 		await load()
 		toast("用户已恢复默认套餐")
 	}

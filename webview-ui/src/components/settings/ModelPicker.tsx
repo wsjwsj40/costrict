@@ -155,7 +155,9 @@ export const ModelPicker = ({
 				{} as Record<string, ModelInfo>,
 			)
 
-		return Object.keys(availableModels).sort((a, b) => a.localeCompare(b))
+		// Preserve the order supplied by the model service. For Costrict this order
+		// reflects the administrator-configured priority for the current user.
+		return Object.keys(availableModels)
 	}, [models, activeProvider, organizationAllowList, selectedModelId])
 
 	const [searchValue, setSearchValue] = useState("")

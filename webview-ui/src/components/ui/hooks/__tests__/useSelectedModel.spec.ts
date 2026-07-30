@@ -382,7 +382,7 @@ describe("useSelectedModel", () => {
 	})
 
 	describe("default behavior", () => {
-		it("should return anthropic default when no configuration is provided", () => {
+		it("should return no Costrict model while the permission list is unavailable", () => {
 			mockUseRouterModels.mockReturnValue({
 				data: undefined,
 				isLoading: false,
@@ -399,7 +399,64 @@ describe("useSelectedModel", () => {
 			const { result } = renderHook(() => useSelectedModel(), { wrapper })
 
 			expect(result.current.provider).toBe("costrict")
-			expect(result.current.id).toBe("Auto")
+			expect(result.current.id).toBe("")
+		})
+
+		it("should use the first Costrict model in server order when none is selected", () => {
+			mockUseRouterModels.mockReturnValue({
+				data: {
+					costrict: {
+						"server-first": { contextWindow: 128_000 },
+						"alphabetically-first": { contextWindow: 64_000 },
+					},
+					openrouter: {},
+					requesty: {},
+					litellm: {},
+				},
+				isLoading: false,
+				isError: false,
+			} as any)
+
+			mockUseOpenRouterModelProviders.mockReturnValue({
+				data: {},
+				isLoading: false,
+				isError: false,
+			} as any)
+
+			const wrapper = createWrapper()
+			const { result } = renderHook(() => useSelectedModel({ apiProvider: "costrict" }), { wrapper })
+
+			expect(result.current.id).toBe("server-first")
+		})
+
+		it("should replace a stale Costrict selection with the first authorized model", () => {
+			mockUseRouterModels.mockReturnValue({
+				data: {
+					costrict: {
+						"server-first": { contextWindow: 128_000 },
+						"server-second": { contextWindow: 64_000 },
+					},
+					openrouter: {},
+					requesty: {},
+					litellm: {},
+				},
+				isLoading: false,
+				isError: false,
+			} as any)
+
+			mockUseOpenRouterModelProviders.mockReturnValue({
+				data: {},
+				isLoading: false,
+				isError: false,
+			} as any)
+
+			const wrapper = createWrapper()
+			const { result } = renderHook(
+				() => useSelectedModel({ apiProvider: "costrict", costrictModelId: "Auto" }),
+				{ wrapper },
+			)
+
+			expect(result.current.id).toBe("server-first")
 		})
 	})
 
