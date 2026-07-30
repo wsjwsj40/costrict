@@ -1,6 +1,6 @@
 import * as vscode from "vscode"
 import { Package } from "../shared/package"
-import { costrictModelDebugBuildEnabled } from "../shared/costrictModelDebug"
+import { costrictDebugModeBuildEnabled } from "../shared/costrictDebugMode"
 export let defaultDebug = false
 
 export const updateDefaultDebug = (debug: boolean) => {
@@ -12,4 +12,4 @@ export const isDebug = () => {
 	return debug
 }
 
-export const isCostrictModelDebugEnabled = () => costrictModelDebugBuildEnabled
+export const isCostrictModelDebugEnabled = () => costrictDebugModeBuildEnabled && isDebug()

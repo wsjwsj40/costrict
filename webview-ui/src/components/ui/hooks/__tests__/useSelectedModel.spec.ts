@@ -18,6 +18,10 @@ import {
 import { useSelectedModel } from "../useSelectedModel"
 import { useRouterModels } from "../useRouterModels"
 import { useOpenRouterModelProviders } from "../useOpenRouterModelProviders"
+import {
+	COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION,
+	costrictDebugModeBuildEnabled,
+} from "../../../../../../src/shared/costrictDebugMode"
 
 vi.mock("../useRouterModels")
 vi.mock("../useOpenRouterModelProviders")
@@ -499,6 +503,50 @@ describe("useSelectedModel", () => {
 			)
 
 			expect(result.current.info).toEqual(serverModelInfo)
+		})
+
+		it("should require current consent before a debug build can use Costrict custom model info", () => {
+			const serverModelInfo: ModelInfo = {
+				contextWindow: 128_000,
+				maxTokens: 8192,
+				supportsImages: false,
+				supportsPromptCache: false,
+			}
+			const customModelInfo: ModelInfo = {
+				...serverModelInfo,
+				contextWindow: 256_000,
+				maxTokens: 16_384,
+			}
+			mockUseRouterModels.mockReturnValue({
+				data: {
+					costrict: { "server-model": serverModelInfo },
+					openrouter: {},
+					requesty: {},
+					litellm: {},
+				},
+				isLoading: false,
+				isError: false,
+			} as any)
+			mockUseOpenRouterModelProviders.mockReturnValue({
+				data: {},
+				isLoading: false,
+				isError: false,
+			} as any)
+
+			const wrapper = createWrapper()
+			const { result } = renderHook(
+				() =>
+					useSelectedModel({
+						apiProvider: "costrict",
+						costrictModelId: "server-model",
+						useCostrictCustomConfig: true,
+						costrictCustomConfigConsentVersion: COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION,
+						costrictAiCustomModelInfo: customModelInfo,
+					}),
+				{ wrapper },
+			)
+
+			expect(result.current.info).toEqual(costrictDebugModeBuildEnabled ? customModelInfo : serverModelInfo)
 		})
 	})
 

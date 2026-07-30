@@ -57,7 +57,7 @@ import { TelemetryService } from "@roo-code/telemetry"
 import { CloudService, getRooCodeApiUrl } from "@roo-code/cloud"
 
 import { Package } from "../../shared/package"
-import { costrictModelDebugBuildEnabled } from "../../shared/costrictModelDebug"
+import { COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION, costrictDebugModeBuildEnabled } from "../../shared/costrictDebugMode"
 import { findLast } from "../../shared/array"
 import { supportPrompt, type SupportPromptType } from "../../shared/support-prompt"
 import { GlobalFileNames } from "../../shared/globalFileNames"
@@ -2823,7 +2823,7 @@ export class ClineProvider
 			openRouterImageApiKey,
 			openRouterImageGenerationSelectedModel,
 			autoCleanup,
-			debug,
+			debug: storedDebug,
 			hasClosedCodeReviewWelcomeTips,
 			lockApiConfigAcrossModes,
 		} = await this.buildBaseState({ includeTaskHistory: options?.includeTaskHistory ?? true })
@@ -2858,16 +2858,18 @@ export class ClineProvider
 		const currentTask = this.getCurrentTask()
 		const filteredTaskHistory = (taskHistory ?? []).filter((item: HistoryItem) => item.ts && item.task)
 
-		const costrictModelDebugEnabled = costrictModelDebugBuildEnabled
-		if (!costrictModelDebugEnabled) {
-			apiConfiguration.useCostrictCustomConfig = false
-		}
+		const costrictModelDebugEnabled = costrictDebugModeBuildEnabled && storedDebug
+		const costrictCustomConfigEnabled =
+			costrictModelDebugEnabled &&
+			(useCostrictCustomConfig ?? false) &&
+			apiConfiguration.costrictCustomConfigConsentVersion === COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION
+		apiConfiguration.useCostrictCustomConfig = costrictCustomConfigEnabled
 
 		return {
 			version: this.context.extension?.packageJSON?.version ?? "",
 			apiConfiguration,
 			autoCleanup,
-			debug,
+			debug: costrictModelDebugEnabled,
 			customInstructions,
 			alwaysAllowReadOnly: alwaysAllowReadOnly ?? false,
 			alwaysAllowReadOnlyOutsideWorkspace: alwaysAllowReadOnlyOutsideWorkspace ?? true,
@@ -2903,7 +2905,7 @@ export class ClineProvider
 			ttsSpeed: ttsSpeed ?? 1.0,
 			customStoragePath,
 			enableCheckpoints: enableCheckpoints ?? true,
-			useCostrictCustomConfig: costrictModelDebugEnabled && (useCostrictCustomConfig ?? false),
+			useCostrictCustomConfig: costrictCustomConfigEnabled,
 			checkpointTimeout: checkpointTimeout ?? DEFAULT_CHECKPOINT_TIMEOUT_SECONDS,
 			shouldShowAnnouncement:
 				telemetrySetting !== "disabled" && lastShownAnnouncementId !== this.latestAnnouncementId,
@@ -3132,10 +3134,16 @@ export class ClineProvider
 		// }
 
 		const customStoragePath = this.getCachedCustomStoragePath()
+		const costrictCustomConfigEnabled =
+			costrictDebugModeBuildEnabled &&
+			(stateValues.debug ?? false) &&
+			(stateValues.useCostrictCustomConfig ?? false) &&
+			apiConfiguration.costrictCustomConfigConsentVersion === COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION
+		apiConfiguration.useCostrictCustomConfig = costrictCustomConfigEnabled
 
 		// Return the same structure as before.
 		return {
-			debug: stateValues.debug ?? false,
+			debug: costrictDebugModeBuildEnabled && (stateValues.debug ?? false),
 			autoCleanup: stateValues.autoCleanup ?? DEFAULT_AUTO_CLEANUP_SETTINGS,
 			apiConfiguration,
 			lastShownAnnouncementId: stateValues.lastShownAnnouncementId,
@@ -3165,7 +3173,7 @@ export class ClineProvider
 			ttsSpeed: stateValues.ttsSpeed ?? 1.0,
 			customStoragePath,
 			enableCheckpoints: stateValues.enableCheckpoints ?? true,
-			useCostrictCustomConfig: costrictModelDebugBuildEnabled && (stateValues.useCostrictCustomConfig ?? false),
+			useCostrictCustomConfig: costrictCustomConfigEnabled,
 			checkpointTimeout: stateValues.checkpointTimeout ?? DEFAULT_CHECKPOINT_TIMEOUT_SECONDS,
 			soundVolume: stateValues.soundVolume,
 			writeDelayMs: stateValues.writeDelayMs ?? DEFAULT_WRITE_DELAY_MS,

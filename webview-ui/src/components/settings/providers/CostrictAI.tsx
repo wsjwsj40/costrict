@@ -12,6 +12,7 @@ import {
 	OrganizationAllowList,
 	ExtensionMessage,
 } from "@roo-code/types"
+import { COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION } from "../../../../../src/shared/costrictDebugMode"
 
 import { useAppTranslation } from "@src/i18n/TranslationContext"
 import { Button, StandardTooltip } from "@src/components/ui"
@@ -223,7 +224,15 @@ export const CostrictAI = ({
 							<VSCodeCheckbox
 								checked={useCostrictCustomConfig}
 								onChange={(e: any) => {
-									setCachedStateField("useCostrictCustomConfig", e.target.checked)
+									const enabled = e.target.checked === true
+									setCachedStateField("useCostrictCustomConfig", enabled)
+									setApiConfigurationField("useCostrictCustomConfig", enabled)
+									if (enabled) {
+										setApiConfigurationField(
+											"costrictCustomConfigConsentVersion",
+											COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION,
+										)
+									}
 								}}>
 								<label className="block font-medium mb-1">
 									{t("settings:providers.useCostrictCustomConfig")}

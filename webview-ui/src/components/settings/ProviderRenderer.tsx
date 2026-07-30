@@ -23,7 +23,10 @@ import { useSelectedModel } from "../ui/hooks/useSelectedModel"
 import { Brain } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getCorrectedCostrictModelId } from "./utils/correctModelSelection"
-import { costrictModelDebugBuildEnabled } from "../../../../src/shared/costrictModelDebug"
+import {
+	COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION,
+	costrictDebugModeBuildEnabled,
+} from "../../../../src/shared/costrictDebugMode"
 export interface ProviderRendererProps {
 	isEditMode?: boolean
 	isStreaming?: boolean
@@ -207,7 +210,9 @@ const ProviderRenderer: React.FC<ProviderRendererProps> = ({
 			if (selectedProvider === "costrict") {
 				// Use our custom headers state to build the headers object.
 				const headerObject =
-					costrictModelDebugBuildEnabled && apiConfiguration.useCostrictCustomConfig
+					costrictDebugModeBuildEnabled &&
+					apiConfiguration.useCostrictCustomConfig &&
+					apiConfiguration.costrictCustomConfigConsentVersion === COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION
 						? convertHeadersToObject(customHeaders)
 						: {}
 
