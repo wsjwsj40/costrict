@@ -38,7 +38,7 @@ import { getModels } from "./fetchers/modelCache"
 import { getEditorType } from "../../utils/getEditorType"
 import { ChatCompletionChunk } from "openai/resources/index.mjs"
 import { convertToZAiFormat } from "../transform/zai-format"
-import { isDebug } from "../../utils/getDebugState"
+import { isCostrictModelDebugEnabled } from "../../utils/getDebugState"
 import { liteToolContractPrompt } from "../../core/prompts/tools/lite-descriptions"
 import { isJetbrainsPlatform } from "../../utils/platform"
 
@@ -365,7 +365,9 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 		return {
 			"Accept-Language": metadata?.language || "en",
 			...COSTRICT_DEFAULT_HEADERS,
-			...(this.options.useCostrictCustomConfig && isDebug() ? (this.options.openAiHeaders ?? {}) : {}),
+			...(this.options.useCostrictCustomConfig && isCostrictModelDebugEnabled()
+				? (this.options.openAiHeaders ?? {})
+				: {}),
 			"User-Agent": `RooCode/3.52.1 ${isJetbrainsPlatform() ? "plugin_intellij" : "plugin_vscode"}/${Package.version}`,
 			"x-quota-identity": chatType || "system",
 			"X-Request-ID": requestId,
@@ -949,7 +951,7 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 		const id = this?.options?.costrictModelId ?? costrictDefaultModelId
 		const defaultInfo = this.modelInfo
 		let info =
-			this.options.useCostrictCustomConfig && isDebug()
+			this.options.useCostrictCustomConfig && isCostrictModelDebugEnabled()
 				? {
 						...defaultInfo,
 						...(this.options.costrictAiCustomModelInfo ?? {}),
@@ -1209,7 +1211,7 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 		const isAutoMode = modelInfo.id === "Auto" || modelInfo.id === "auto"
 
 		// Only add max_completion_tokens if includeMaxTokens is true
-		if (this.options.useCostrictCustomConfig && isDebug()) {
+		if (this.options.useCostrictCustomConfig && isCostrictModelDebugEnabled()) {
 			const maxTokens = this.options.modelMaxTokens || modelInfo.maxTokens
 			// Use user-configured modelMaxTokens if available, otherwise fall back to model's default maxTokens
 			// Using max_completion_tokens as max_tokens is deprecated

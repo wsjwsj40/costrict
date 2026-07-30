@@ -57,6 +57,7 @@ import { TelemetryService } from "@roo-code/telemetry"
 import { CloudService, getRooCodeApiUrl } from "@roo-code/cloud"
 
 import { Package } from "../../shared/package"
+import { costrictModelDebugBuildEnabled } from "../../shared/costrictModelDebug"
 import { findLast } from "../../shared/array"
 import { supportPrompt, type SupportPromptType } from "../../shared/support-prompt"
 import { GlobalFileNames } from "../../shared/globalFileNames"
@@ -2857,7 +2858,8 @@ export class ClineProvider
 		const currentTask = this.getCurrentTask()
 		const filteredTaskHistory = (taskHistory ?? []).filter((item: HistoryItem) => item.ts && item.task)
 
-		if (!debug) {
+		const costrictModelDebugEnabled = costrictModelDebugBuildEnabled
+		if (!costrictModelDebugEnabled) {
 			apiConfiguration.useCostrictCustomConfig = false
 		}
 
@@ -2901,7 +2903,7 @@ export class ClineProvider
 			ttsSpeed: ttsSpeed ?? 1.0,
 			customStoragePath,
 			enableCheckpoints: enableCheckpoints ?? true,
-			useCostrictCustomConfig: useCostrictCustomConfig ?? false,
+			useCostrictCustomConfig: costrictModelDebugEnabled && (useCostrictCustomConfig ?? false),
 			checkpointTimeout: checkpointTimeout ?? DEFAULT_CHECKPOINT_TIMEOUT_SECONDS,
 			shouldShowAnnouncement:
 				telemetrySetting !== "disabled" && lastShownAnnouncementId !== this.latestAnnouncementId,
@@ -3163,7 +3165,7 @@ export class ClineProvider
 			ttsSpeed: stateValues.ttsSpeed ?? 1.0,
 			customStoragePath,
 			enableCheckpoints: stateValues.enableCheckpoints ?? true,
-			useCostrictCustomConfig: stateValues.useCostrictCustomConfig ?? false,
+			useCostrictCustomConfig: costrictModelDebugBuildEnabled && (stateValues.useCostrictCustomConfig ?? false),
 			checkpointTimeout: stateValues.checkpointTimeout ?? DEFAULT_CHECKPOINT_TIMEOUT_SECONDS,
 			soundVolume: stateValues.soundVolume,
 			writeDelayMs: stateValues.writeDelayMs ?? DEFAULT_WRITE_DELAY_MS,

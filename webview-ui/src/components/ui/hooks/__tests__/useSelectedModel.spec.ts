@@ -458,6 +458,48 @@ describe("useSelectedModel", () => {
 
 			expect(result.current.id).toBe("server-first")
 		})
+
+		it("should ignore legacy Costrict custom model info in a standard build", () => {
+			const serverModelInfo: ModelInfo = {
+				contextWindow: 128_000,
+				maxTokens: 8192,
+				supportsImages: false,
+				supportsPromptCache: false,
+			}
+			mockUseRouterModels.mockReturnValue({
+				data: {
+					costrict: { "server-model": serverModelInfo },
+					openrouter: {},
+					requesty: {},
+					litellm: {},
+				},
+				isLoading: false,
+				isError: false,
+			} as any)
+			mockUseOpenRouterModelProviders.mockReturnValue({
+				data: {},
+				isLoading: false,
+				isError: false,
+			} as any)
+
+			const wrapper = createWrapper()
+			const { result } = renderHook(
+				() =>
+					useSelectedModel({
+						apiProvider: "costrict",
+						costrictModelId: "server-model",
+						useCostrictCustomConfig: true,
+						costrictAiCustomModelInfo: {
+							...serverModelInfo,
+							contextWindow: 1_000_000,
+							maxTokens: 100_000,
+						},
+					}),
+				{ wrapper },
+			)
+
+			expect(result.current.info).toEqual(serverModelInfo)
+		})
 	})
 
 	describe("claude-code provider", () => {

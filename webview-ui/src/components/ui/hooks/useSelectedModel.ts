@@ -42,6 +42,7 @@ import { useOpenRouterModelProviders } from "./useOpenRouterModelProviders"
 import { useLmStudioModels } from "./useLmStudioModels"
 
 import { useOllamaModels } from "./useOllamaModels"
+import { costrictModelDebugBuildEnabled } from "../../../../../src/shared/costrictModelDebug"
 
 /**
  * Helper to get a validated model ID for dynamic providers.
@@ -135,6 +136,7 @@ function getCostrictModelFeedback(
 ): ModelInfo {
 	const { apiConfiguration } = config
 	if (
+		costrictModelDebugBuildEnabled &&
 		apiConfiguration?.useCostrictCustomConfig &&
 		apiConfiguration?.costrictAiCustomModelInfo &&
 		JSON.stringify(apiConfiguration.costrictAiCustomModelInfo) !== "{}"

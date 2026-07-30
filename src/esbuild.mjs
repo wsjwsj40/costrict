@@ -88,6 +88,9 @@ async function main() {
 			"process.env.COSTRICT_PUBLIC_KEY": JSON.stringify(
 				process.env.COSTRICT_PUBLIC_KEY || process.env.ZGSM_PUBLIC_KEY || "",
 			),
+			"process.env.COSTRICT_ENABLE_MODEL_DEBUG": JSON.stringify(
+				process.env.COSTRICT_ENABLE_MODEL_DEBUG || "false",
+			),
 			"process.env.DICODE_UPDATE_MANIFEST_URL": JSON.stringify(process.env.DICODE_UPDATE_MANIFEST_URL || ""),
 			"process.env.DICODE_UPDATE_ALLOW_INSECURE_HTTP": JSON.stringify(
 				process.env.DICODE_UPDATE_ALLOW_INSECURE_HTTP || "false",

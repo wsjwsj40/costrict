@@ -38,6 +38,7 @@ import {
 	// TOOL_PROTOCOL,
 	unboundDefaultModelId,
 } from "@roo-code/types"
+import { costrictModelDebugBuildEnabled } from "../../../../src/shared/costrictModelDebug"
 
 import {
 	getProviderServiceConfig,
@@ -153,7 +154,6 @@ const ApiOptions = ({
 		setCostrictCodeMode,
 		organizationAllowList,
 		claudeCodeIsAuthenticated /* cloudIsAuthenticated */,
-		debug,
 		openAiCodexIsAuthenticated,
 	} = useExtensionState()
 
@@ -583,7 +583,7 @@ const ApiOptions = ({
 				<>
 					{!fromWelcomeView && selectedProvider === "costrict" && (
 						<CostrictAI
-							debug={debug}
+							debug={costrictModelDebugBuildEnabled}
 							fromWelcomeView={fromWelcomeView}
 							apiConfiguration={apiConfiguration}
 							setApiConfigurationField={setApiConfigurationField}

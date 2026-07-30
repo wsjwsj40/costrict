@@ -23,6 +23,7 @@ import { useSelectedModel } from "../ui/hooks/useSelectedModel"
 import { Brain } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getCorrectedCostrictModelId } from "./utils/correctModelSelection"
+import { costrictModelDebugBuildEnabled } from "../../../../src/shared/costrictModelDebug"
 export interface ProviderRendererProps {
 	isEditMode?: boolean
 	isStreaming?: boolean
@@ -205,7 +206,10 @@ const ProviderRenderer: React.FC<ProviderRendererProps> = ({
 		() => {
 			if (selectedProvider === "costrict") {
 				// Use our custom headers state to build the headers object.
-				const headerObject = convertHeadersToObject(customHeaders)
+				const headerObject =
+					costrictModelDebugBuildEnabled && apiConfiguration.useCostrictCustomConfig
+						? convertHeadersToObject(customHeaders)
+						: {}
 
 				vscode.postMessage({
 					type: "requestRouterModels",
