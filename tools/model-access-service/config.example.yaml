@@ -1,0 +1,27 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+database:
+  host: "postgres"
+  port: 5432
+  user: "zgsm"
+  password: "change-me"
+  database: "model_access"
+  sslMode: "disable"
+
+jwtSettings:
+  enable: true
+  # Casdoor deployment default. The service verifies the signature before reading email.
+  jwksUrl: "http://casdoor:8000/.well-known/jwks"
+  emailField: ["email"]
+  issuer: ""
+  audience: ""
+
+admin:
+  # Change before deployment. Used only by the embedded management page.
+  token: "change-this-admin-token"
+
+models:
+  # Optional bootstrap file, imported only when model_catalog is empty.
+  bootstrapFile: "/app/models.json"
