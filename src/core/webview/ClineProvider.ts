@@ -439,18 +439,22 @@ export class ClineProvider
 		try {
 			await this.taskHistoryStore.initialize()
 
-			// Migration: backfill per-task files from globalState on first run
+			// Migration: backfill per-task files from globalState.
+			//
+			// Do this on every startup. The migration itself is idempotent and this
+			// also repairs installations where VS Code retained globalState across
+			// an uninstall/reinstall but the file-backed index (or individual
+			// history_item.json files) was lost.
 			const migrationKey = "taskHistoryMigratedToFiles"
 			const alreadyMigrated = this.context.globalState.get<boolean>(migrationKey)
+			const legacyHistory = this.context.globalState.get<HistoryItem[]>("taskHistory") ?? []
+
+			if (legacyHistory.length > 0) {
+				this.log(`[initializeTaskHistoryStore] Reconciling ${legacyHistory.length} entries from globalState`)
+				await this.taskHistoryStore.migrateFromGlobalState(legacyHistory)
+			}
 
 			if (!alreadyMigrated) {
-				const legacyHistory = this.context.globalState.get<HistoryItem[]>("taskHistory") ?? []
-
-				if (legacyHistory.length > 0) {
-					this.log(`[initializeTaskHistoryStore] Migrating ${legacyHistory.length} entries from globalState`)
-					await this.taskHistoryStore.migrateFromGlobalState(legacyHistory)
-				}
-
 				await this.context.globalState.update(migrationKey, true)
 				this.log("[initializeTaskHistoryStore] Migration complete")
 			}
@@ -3779,11 +3783,10 @@ export class ClineProvider
 		// This ensures the stream fails quickly rather than waiting for network timeout
 		task.cancelCurrentRequest()
 
-		// Begin abort (non-blocking)
-		task.abortTask()
-
-		// Immediately mark the original instance as abandoned to prevent any residual activity
-		task.abandoned = true
+		// Wait for the final UI messages and history metadata to be durably saved
+		// before rehydrating this task. Rehydrating while abortTask() is still
+		// flushing can create a new Task from an empty/stale ui_messages.json.
+		await task.abortTask()
 
 		await pWaitFor(
 			() =>
@@ -3994,7 +3997,11 @@ export class ClineProvider
 	}
 
 	public get cwd() {
-		return this.currentWorkspacePath || getWorkspacePath()
+		// Keep no-workspace windows consistent with Task's fallback directory.
+		// Chat history is grouped by cwd in the webview; returning an empty string
+		// here while Task persists "Desktop" makes successfully saved history
+		// invisible until a workspace is opened.
+		return this.currentWorkspacePath || getWorkspacePath(path.join(os.homedir(), "Desktop"))
 	}
 	public getCostrictAuthCommands() {
 		return this.costrictAuthCommands

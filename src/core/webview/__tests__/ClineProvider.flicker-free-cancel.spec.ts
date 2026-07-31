@@ -340,4 +340,30 @@ describe("ClineProvider flicker-free cancel", () => {
 		expect((provider as any).clineStack[0]).toBe(mockParentTask)
 		expect((provider as any).clineStack[1]).toBe(mockTask2)
 	})
+
+	it("waits for abort persistence before rehydrating a cancelled task", async () => {
+		let finishAbort!: () => void
+		const abortFinished = new Promise<void>((resolve) => {
+			finishAbort = resolve
+		})
+
+		mockTask1.cancelCurrentRequest = vi.fn()
+		mockTask1.abortTask = vi.fn().mockReturnValue(abortFinished)
+		mockTask1.isStreaming = false
+		mockTask1.didFinishAbortingStream = false
+		mockTask1.isWaitingForFirstChunk = false
+		;(provider as any).clineStack = [mockTask1]
+
+		const rehydrate = vi.spyOn(provider, "createTaskWithHistoryItem").mockResolvedValue(mockTask2)
+		const cancelPromise = provider.cancelTask()
+
+		await Promise.resolve()
+		expect(rehydrate).not.toHaveBeenCalled()
+
+		finishAbort()
+		await cancelPromise
+
+		expect(rehydrate).toHaveBeenCalledOnce()
+		expect(mockTask1.cancelCurrentRequest).toHaveBeenCalledOnce()
+	})
 })

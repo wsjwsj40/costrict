@@ -375,6 +375,51 @@ describe("TaskHistoryStore", () => {
 		})
 	})
 
+	describe("legacy task recovery", () => {
+		it("rebuilds missing history metadata from ui_messages.json", async () => {
+			const taskDir = path.join(tmpDir, "tasks", "messages-only")
+			await fs.mkdir(taskDir, { recursive: true })
+			await fs.writeFile(
+				path.join(taskDir, GlobalFileNames.uiMessages),
+				JSON.stringify([
+					{ type: "say", say: "task", text: "Recovered prompt", ts: 100 },
+					{ type: "say", say: "text", text: "Recovered response", ts: 200 },
+				]),
+			)
+
+			await store.initialize()
+
+			expect(store.get("messages-only")).toMatchObject({
+				id: "messages-only",
+				task: "Recovered prompt",
+				ts: 200,
+			})
+			await expect(fs.access(path.join(taskDir, GlobalFileNames.historyItem))).resolves.toBeUndefined()
+		})
+
+		it("imports tasks from the predecessor extension globalStorage directory", async () => {
+			const globalStorageParent = path.join(tmpDir, "globalStorage")
+			const legacyTaskDir = path.join(globalStorageParent, "atad-apts.zgsm", "tasks", "old-task")
+			const currentStorage = path.join(globalStorageParent, "atad-apts.dicode")
+			await fs.mkdir(legacyTaskDir, { recursive: true })
+			// A failed/partial migration may already have created the task folder.
+			await fs.mkdir(path.join(currentStorage, "tasks", "old-task"), { recursive: true })
+			await fs.writeFile(
+				path.join(legacyTaskDir, GlobalFileNames.uiMessages),
+				JSON.stringify([{ type: "say", say: "task", text: "Task from ZGSM", ts: 123 }]),
+			)
+
+			const migratedStore = new TaskHistoryStore(currentStorage)
+			await migratedStore.initialize()
+
+			expect(migratedStore.get("old-task")).toMatchObject({
+				id: "old-task",
+				task: "Task from ZGSM",
+			})
+			migratedStore.dispose()
+		})
+	})
+
 	describe("flushIndex()", () => {
 		it("writes index to disk on flush", async () => {
 			await store.initialize()
