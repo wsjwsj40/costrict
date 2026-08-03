@@ -136,7 +136,7 @@ func TestAdminBatchUsersCanSetAndDeletePlans(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
+	if response.StatusCode != http.StatusAccepted {
 		t.Fatalf("set status = %d", response.StatusCode)
 	}
 	var result struct {
@@ -162,6 +162,9 @@ func TestAdminBatchUsersCanSetAndDeletePlans(t *testing.T) {
 	if found != 2 {
 		t.Fatalf("found %d batch users in plus, want 2", found)
 	}
+	if len(adminState.SyncTasks) == 0 || adminState.SyncTasks[0].TotalCount != 2 {
+		t.Fatalf("expected a two-user sync task, got %#v", adminState.SyncTasks)
+	}
 
 	request, _ = http.NewRequest(
 		http.MethodPost,
@@ -175,7 +178,7 @@ func TestAdminBatchUsersCanSetAndDeletePlans(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
+	if response.StatusCode != http.StatusAccepted {
 		t.Fatalf("delete status = %d", response.StatusCode)
 	}
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {

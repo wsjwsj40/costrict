@@ -421,6 +421,18 @@ tr:last-child td {
 	width: auto;
 	accent-color: var(--brand);
 }
+
+.sync-error {
+	display: block;
+	max-width: 320px;
+	white-space: normal;
+	word-break: break-word;
+	color: var(--muted);
+}
+.empty-state {
+	padding: 28px;
+	text-align: center;
+}
 .plan-card .primary {
 	width: 100%;
 	margin-top: 18px;

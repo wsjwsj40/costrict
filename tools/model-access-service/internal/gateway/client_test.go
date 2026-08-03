@@ -22,7 +22,7 @@ func TestUpdateModelsAddsCompletionModelAndToken(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
 			t.Error(err)
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "message": "ok"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "message": "ok", "data": map[string]any{"models": []string{"completion-model", "chat-model"}}})
 	}))
 	defer server.Close()
 
@@ -36,6 +36,35 @@ func TestUpdateModelsAddsCompletionModelAndToken(t *testing.T) {
 	}
 	if got.Key != "user@example.com" || got.Models != "chat-model,completion-model" {
 		t.Fatalf("unexpected payload: %#v", got)
+	}
+}
+
+func TestUpdateModelsRejectsSilentlyDroppedModel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": map[string]any{"models": []string{"chat-model"}}})
+	}))
+	defer server.Close()
+	cfg := config.Config{}
+	cfg.Gateway.PermissionURL = server.URL
+	if err := New(cfg).UpdateModels(context.Background(), "user@example.com", []string{"chat-model", "missing-model"}); err == nil {
+		t.Fatal("expected model mismatch")
+	}
+}
+
+func TestValidateSupportedModels(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "data": []string{"chat-model", "completion-model"}})
+	}))
+	defer server.Close()
+	cfg := config.Config{}
+	cfg.Gateway.SupportedModelsURL = server.URL
+	cfg.Gateway.CompletionModel = "completion-model"
+	client := New(cfg)
+	if err := client.ValidateSupported(context.Background(), []string{"chat-model"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.ValidateSupported(context.Background(), []string{"unknown"}); err == nil {
+		t.Fatal("expected unsupported model")
 	}
 }
 

@@ -17,10 +17,14 @@ import (
 	"github.com/costrict/model-access-service/internal/gateway"
 	"github.com/costrict/model-access-service/internal/httpapi"
 	"github.com/costrict/model-access-service/internal/store"
+	"github.com/costrict/model-access-service/internal/syncworker"
 )
 
 //go:embed migrations/001_init.sql
 var migrationSQL string
+
+//go:embed migrations/002_sync_tasks.sql
+var syncMigrationSQL string
 
 func main() {
 	configPath := "/app/config.yaml"
@@ -43,6 +47,9 @@ func main() {
 	if err := data.Migrate(ctx, migrationSQL); err != nil {
 		fatal(fmt.Errorf("migrate database: %w", err))
 	}
+	if err := data.Migrate(ctx, syncMigrationSQL); err != nil {
+		fatal(fmt.Errorf("migrate sync tasks: %w", err))
+	}
 	if err := data.Bootstrap(ctx, cfg.Models.BootstrapFile); err != nil {
 		fatal(fmt.Errorf("bootstrap models: %w", err))
 	}
@@ -51,7 +58,9 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	handler := httpapi.New(data, authenticator, cfg.Admin.Token, gateway.New(cfg))
+	gatewayClient := gateway.New(cfg)
+	handler := httpapi.New(data, authenticator, cfg.Admin.Token, gatewayClient)
+	go syncworker.New(data, gatewayClient, cfg).Run(ctx)
 	server := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
 		Handler:           handler.Handler(),

@@ -15,6 +15,11 @@
 网关同步失败时套餐修改不会写入数据库。对应环境变量为
 `MODEL_GATEWAY_PERMISSION_URL`、`MODEL_GATEWAY_TOKEN`、
 `MODEL_GATEWAY_COMPLETION_MODEL` 和 `MODEL_GATEWAY_TIMEOUT_SECONDS`。
+
+`MODEL_GATEWAY_SUPPORTED_MODELS_URL` 指向网关应用默认模型列表。模型启用或加入套餐前会先校验；
+用户、套餐、禁用和删除操作会创建持久化同步任务，由后台按
+`MODEL_GATEWAY_BATCH_SIZE` 分批处理并最多重试 `MODEL_GATEWAY_MAX_ATTEMPTS` 次。
+管理页面的“同步任务”页每 3 秒刷新正在执行的任务。
 用户权限页面支持多行邮箱分配、CSV 导入、列表多选后批量变更套餐，以及
 批量删除显式配置。批量设置为默认 Free 套餐也会删除显式配置。
 

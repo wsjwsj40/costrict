@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -34,9 +35,31 @@ type UserPermission struct {
 }
 
 type AdminState struct {
-	Models []Model          `json:"models"`
-	Plans  []Plan           `json:"plans"`
-	Users  []UserPermission `json:"users"`
+	Models    []Model          `json:"models"`
+	Plans     []Plan           `json:"plans"`
+	Users     []UserPermission `json:"users"`
+	SyncTasks []SyncTask       `json:"syncTasks"`
+}
+
+type SyncTask struct {
+	ID             int64     `json:"id"`
+	Reason         string    `json:"reason"`
+	Status         string    `json:"status"`
+	TotalCount     int       `json:"totalCount"`
+	ProcessedCount int       `json:"processedCount"`
+	SuccessCount   int       `json:"successCount"`
+	FailedCount    int       `json:"failedCount"`
+	LastError      string    `json:"lastError"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
+type SyncItem struct {
+	ID       int64
+	TaskID   int64
+	Email    string
+	ModelIDs []string
+	Attempts int
 }
 
 func New(ctx context.Context, databaseURL string) (*Store, error) {
@@ -125,7 +148,7 @@ func (s *Store) VisibleModels(ctx context.Context, email string) ([]map[string]a
 }
 
 func (s *Store) AdminState(ctx context.Context) (AdminState, error) {
-	state := AdminState{Models: []Model{}, Plans: []Plan{}, Users: []UserPermission{}}
+	state := AdminState{Models: []Model{}, Plans: []Plan{}, Users: []UserPermission{}, SyncTasks: []SyncTask{}}
 	rows, err := s.db.Query(ctx, "SELECT id, public_info, enabled, sort_order FROM model_access_catalog ORDER BY sort_order, id")
 	if err != nil {
 		return state, err
@@ -175,6 +198,25 @@ func (s *Store) AdminState(ctx context.Context) (AdminState, error) {
 		}
 		state.Users = append(state.Users, u)
 	}
+	if err := rows.Err(); err != nil {
+		return state, err
+	}
+	rows.Close()
+	rows, err = s.db.Query(ctx, `
+		SELECT t.id,t.reason,t.status,t.total_count,t.processed_count,t.success_count,t.failed_count,
+		COALESCE((SELECT i.last_error FROM model_access_sync_item i WHERE i.task_id=t.id AND i.last_error<>'' ORDER BY i.updated_at DESC LIMIT 1),''),
+		t.created_at,t.updated_at FROM model_access_sync_task t ORDER BY t.id DESC LIMIT 50`)
+	if err != nil {
+		return state, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var t SyncTask
+		if err := rows.Scan(&t.ID, &t.Reason, &t.Status, &t.TotalCount, &t.ProcessedCount, &t.SuccessCount, &t.FailedCount, &t.LastError, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return state, err
+		}
+		state.SyncTasks = append(state.SyncTasks, t)
+	}
 	return state, rows.Err()
 }
 
@@ -203,6 +245,15 @@ func (s *Store) UpsertModel(ctx context.Context, model Model) error {
 func (s *Store) DeleteModel(ctx context.Context, id string) error {
 	_, err := s.db.Exec(ctx, "DELETE FROM model_access_catalog WHERE id=$1", id)
 	return err
+}
+
+func (s *Store) ModelEnabled(ctx context.Context, id string) (bool, bool, error) {
+	var enabled bool
+	err := s.db.QueryRow(ctx, "SELECT enabled FROM model_access_catalog WHERE id=$1", id).Scan(&enabled)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, false, nil
+	}
+	return enabled, err == nil, err
 }
 
 func (s *Store) SetPlanModels(ctx context.Context, code string, modelIDs []string) error {
@@ -262,6 +313,134 @@ func (s *Store) DefaultPlanCode(ctx context.Context) (string, error) {
 	var code string
 	err := s.db.QueryRow(ctx, "SELECT code FROM model_access_plan WHERE is_default=TRUE LIMIT 1").Scan(&code)
 	return code, err
+}
+
+func (s *Store) UsersForPlan(ctx context.Context, planCode string) ([]string, error) {
+	rows, err := s.db.Query(ctx, "SELECT email FROM model_access_user WHERE plan_code=$1 ORDER BY email", strings.ToLower(strings.TrimSpace(planCode)))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []string{}
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return nil, err
+		}
+		result = append(result, email)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) PlansForModel(ctx context.Context, modelID string) ([]string, error) {
+	rows, err := s.db.Query(ctx, "SELECT plan_code FROM model_access_plan_model WHERE model_id=$1 ORDER BY plan_code", modelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []string{}
+	for rows.Next() {
+		var code string
+		if err := rows.Scan(&code); err != nil {
+			return nil, err
+		}
+		result = append(result, code)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) CreateSyncTask(ctx context.Context, reason string, emails, modelIDs []string) (int64, error) {
+	if len(emails) == 0 {
+		return 0, nil
+	}
+	normalized, err := NormalizeEmails(emails)
+	if err != nil {
+		return 0, err
+	}
+	var taskID int64
+	err = pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, "INSERT INTO model_access_sync_task(reason,total_count) VALUES($1,$2) RETURNING id", reason, len(normalized)).Scan(&taskID); err != nil {
+			return err
+		}
+		for _, email := range normalized {
+			if _, err := tx.Exec(ctx, "INSERT INTO model_access_sync_item(task_id,email,model_ids) VALUES($1,$2,$3)", taskID, email, modelIDs); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return taskID, err
+}
+
+func (s *Store) ResetInterruptedSyncItems(ctx context.Context) error {
+	_, err := s.db.Exec(ctx, "UPDATE model_access_sync_item SET status='pending',updated_at=NOW() WHERE status='running'")
+	return err
+}
+
+func (s *Store) ClaimSyncItems(ctx context.Context, limit int) ([]SyncItem, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	items := []SyncItem{}
+	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT id,task_id,email,model_ids,attempts FROM model_access_sync_item
+			WHERE status='pending' ORDER BY id FOR UPDATE SKIP LOCKED LIMIT $1`, limit)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var item SyncItem
+			if err := rows.Scan(&item.ID, &item.TaskID, &item.Email, &item.ModelIDs, &item.Attempts); err != nil {
+				return err
+			}
+			items = append(items, item)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for i := range items {
+			items[i].Attempts++
+			if _, err := tx.Exec(ctx, "UPDATE model_access_sync_item SET status='running',attempts=attempts+1,updated_at=NOW() WHERE id=$1", items[i].ID); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, "UPDATE model_access_sync_task SET status='running',updated_at=NOW() WHERE id=$1", items[i].TaskID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return items, err
+}
+
+func (s *Store) FinishSyncItem(ctx context.Context, item SyncItem, syncErr error, maxAttempts int) error {
+	status, message := "success", ""
+	if syncErr != nil {
+		status, message = "failed", syncErr.Error()
+		if item.Attempts < maxAttempts {
+			status = "pending"
+		}
+	}
+	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "UPDATE model_access_sync_item SET status=$2,last_error=$3,updated_at=NOW() WHERE id=$1", item.ID, status, message); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `UPDATE model_access_sync_task t SET
+			processed_count=x.success_count+x.failed_count, success_count=x.success_count, failed_count=x.failed_count,
+			status=CASE WHEN x.active_count>0 THEN 'running' WHEN x.failed_count=0 THEN 'completed' WHEN x.success_count=0 THEN 'failed' ELSE 'partial' END,
+			updated_at=NOW(), finished_at=CASE WHEN x.active_count=0 THEN NOW() ELSE NULL END
+			FROM (SELECT task_id,COUNT(*) FILTER(WHERE status='success')::int success_count,
+			COUNT(*) FILTER(WHERE status='failed')::int failed_count,
+			COUNT(*) FILTER(WHERE status IN ('pending','running'))::int active_count FROM model_access_sync_item WHERE task_id=$1 GROUP BY task_id) x
+			WHERE t.id=x.task_id`, item.TaskID)
+		return err
+	})
+}
+
+func (s *Store) IsSyncItemObsolete(ctx context.Context, item SyncItem) (bool, error) {
+	var obsolete bool
+	err := s.db.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM model_access_sync_item WHERE email=$1 AND id>$2)", item.Email, item.ID).Scan(&obsolete)
+	return obsolete, err
 }
 
 func (s *Store) SetUserPlan(ctx context.Context, email, planCode string) error {

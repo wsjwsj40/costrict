@@ -36,10 +36,14 @@ type Config struct {
 		BootstrapFile string `yaml:"bootstrapFile"`
 	} `yaml:"models"`
 	Gateway struct {
-		PermissionURL   string `yaml:"permissionUrl"`
-		Token           string `yaml:"token"`
-		CompletionModel string `yaml:"completionModel"`
-		TimeoutSeconds  int    `yaml:"timeoutSeconds"`
+		PermissionURL      string `yaml:"permissionUrl"`
+		SupportedModelsURL string `yaml:"supportedModelsUrl"`
+		Token              string `yaml:"token"`
+		CompletionModel    string `yaml:"completionModel"`
+		TimeoutSeconds     int    `yaml:"timeoutSeconds"`
+		BatchSize          int    `yaml:"batchSize"`
+		PollSeconds        int    `yaml:"pollSeconds"`
+		MaxAttempts        int    `yaml:"maxAttempts"`
 	} `yaml:"gateway"`
 }
 
@@ -55,6 +59,9 @@ func Load(path string) (Config, error) {
 	cfg.JWT.Enable = true
 	cfg.JWT.EmailField = []string{"email"}
 	cfg.Gateway.TimeoutSeconds = 10
+	cfg.Gateway.BatchSize = 20
+	cfg.Gateway.PollSeconds = 2
+	cfg.Gateway.MaxAttempts = 3
 
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -82,6 +89,9 @@ func Load(path string) (Config, error) {
 	if cfg.Gateway.PermissionURL != "" && cfg.Gateway.CompletionModel == "" {
 		return cfg, fmt.Errorf("gateway.completionModel is required when gateway.permissionUrl is set")
 	}
+	if cfg.Gateway.PermissionURL != "" && cfg.Gateway.SupportedModelsURL == "" {
+		return cfg, fmt.Errorf("gateway.supportedModelsUrl is required when gateway.permissionUrl is set")
+	}
 	return cfg, nil
 }
 
@@ -100,9 +110,13 @@ func applyEnv(cfg *Config) {
 	setString("ADMIN_TOKEN", &cfg.Admin.Token)
 	setString("MODELS_BOOTSTRAP_FILE", &cfg.Models.BootstrapFile)
 	setString("MODEL_GATEWAY_PERMISSION_URL", &cfg.Gateway.PermissionURL)
+	setString("MODEL_GATEWAY_SUPPORTED_MODELS_URL", &cfg.Gateway.SupportedModelsURL)
 	setString("MODEL_GATEWAY_TOKEN", &cfg.Gateway.Token)
 	setString("MODEL_GATEWAY_COMPLETION_MODEL", &cfg.Gateway.CompletionModel)
 	setInt("MODEL_GATEWAY_TIMEOUT_SECONDS", &cfg.Gateway.TimeoutSeconds)
+	setInt("MODEL_GATEWAY_BATCH_SIZE", &cfg.Gateway.BatchSize)
+	setInt("MODEL_GATEWAY_POLL_SECONDS", &cfg.Gateway.PollSeconds)
+	setInt("MODEL_GATEWAY_MAX_ATTEMPTS", &cfg.Gateway.MaxAttempts)
 	if value := os.Getenv("JWT_EMAIL_FIELD"); value != "" {
 		cfg.JWT.EmailField = strings.Split(value, ".")
 	}

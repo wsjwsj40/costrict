@@ -28,6 +28,7 @@ gateway:
 	t.Setenv("DATABASE_PASSWORD", "env-password")
 	t.Setenv("JWT_EMAIL_FIELD", "properties.email")
 	t.Setenv("MODEL_GATEWAY_PERMISSION_URL", "http://env-gateway/permissions")
+	t.Setenv("MODEL_GATEWAY_SUPPORTED_MODELS_URL", "http://env-gateway/supported")
 	t.Setenv("MODEL_GATEWAY_TOKEN", "env-gateway-token")
 	t.Setenv("MODEL_GATEWAY_COMPLETION_MODEL", "env-completion")
 	cfg, err := Load(path)

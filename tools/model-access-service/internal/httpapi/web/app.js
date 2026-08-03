@@ -28,10 +28,30 @@ async function load() {
 }
 
 function render() {
-	const { models, plans, users } = state.data
+	const { models, plans, users, syncTasks = [] } = state.data
 	$("#metric-models").textContent = models.filter((m) => m.enabled).length
 	$("#metric-plans").textContent = plans.length
 	$("#metric-users").textContent = users.length
+	$("#metric-sync").textContent = syncTasks.filter((task) => ["pending", "running"].includes(task.status)).length
+
+	const statusText = {
+		pending: "等待中",
+		running: "同步中",
+		completed: "已完成",
+		partial: "部分失败",
+		failed: "失败",
+	}
+	$("#sync-table").innerHTML = syncTasks.length
+		? `<table><thead><tr><th>任务</th><th>原因</th><th>进度</th><th>成功</th><th>失败</th><th>状态</th><th>最近错误</th></tr></thead><tbody>${syncTasks
+				.map(
+					(task) => `<tr><td>#${task.id}<br><small>${new Date(task.createdAt).toLocaleString()}</small></td>
+			<td>${escapeHTML(task.reason)}</td><td>${task.processedCount} / ${task.totalCount}</td>
+			<td>${task.successCount}</td><td>${task.failedCount}</td>
+			<td><span class="badge ${["failed", "partial"].includes(task.status) ? "off" : ""}">${statusText[task.status] || task.status}</span></td>
+			<td><small class="sync-error">${escapeHTML(task.lastError || "-")}</small></td></tr>`,
+				)
+				.join("")}</tbody></table>`
+		: '<p class="muted empty-state">暂无同步任务</p>'
 
 	const max = Math.max(...plans.map((p) => p.modelIds.length), 1)
 	$("#coverage").innerHTML = plans
@@ -233,6 +253,7 @@ $$(".nav").forEach((button) =>
 			models: "模型目录",
 			plans: "套餐权限",
 			users: "用户权限",
+			sync: "同步任务",
 		}[button.dataset.view]
 	}),
 )
@@ -347,3 +368,7 @@ if (state.token)
 	load()
 		.then(showApp)
 		.catch(() => sessionStorage.removeItem("adminToken"))
+
+setInterval(() => {
+	if (state.token && state.data && $(".nav.active")?.dataset.view === "sync") load().catch(() => {})
+}, 3000)

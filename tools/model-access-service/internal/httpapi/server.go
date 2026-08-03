@@ -30,6 +30,7 @@ type Server struct {
 
 type gatewayPermissions interface {
 	UpdateModels(ctx context.Context, email string, modelIDs []string) error
+	ValidateSupported(ctx context.Context, modelIDs []string) error
 }
 
 func New(data *store.Store, authenticator *auth.Authenticator, adminToken string, gateways ...gatewayPermissions) *Server {
@@ -103,19 +104,54 @@ func (s *Server) putModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	model.ID = r.PathValue("id")
+	oldEnabled, existed, err := s.store.ModelEnabled(r.Context(), model.ID)
+	if err != nil {
+		writeError(w, 500, "database_error", err.Error())
+		return
+	}
+	if model.Enabled && s.gateway != nil {
+		if err := s.gateway.ValidateSupported(r.Context(), []string{model.ID}); err != nil {
+			writeError(w, 400, "unsupported_model", err.Error())
+			return
+		}
+	}
+	plans, err := s.store.PlansForModel(r.Context(), model.ID)
+	if err != nil {
+		writeError(w, 500, "database_error", err.Error())
+		return
+	}
 	if err := s.store.UpsertModel(r.Context(), model); err != nil {
 		writeError(w, 400, "invalid_model", err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	tasks := []int64{}
+	if existed && oldEnabled != model.Enabled {
+		tasks, err = s.enqueuePlans(r.Context(), "model enabled state changed: "+model.ID, plans)
+	}
+	if err != nil {
+		writeError(w, 500, "task_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"taskIds": tasks})
 }
 
 func (s *Server) deleteModel(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteModel(r.Context(), r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	plans, err := s.store.PlansForModel(r.Context(), id)
+	if err != nil {
 		writeError(w, 500, "database_error", err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	if err := s.store.DeleteModel(r.Context(), id); err != nil {
+		writeError(w, 500, "database_error", err.Error())
+		return
+	}
+	tasks, err := s.enqueuePlans(r.Context(), "model deleted: "+id, plans)
+	if err != nil {
+		writeError(w, 500, "task_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"taskIds": tasks})
 }
 
 func (s *Server) putPlanModels(w http.ResponseWriter, r *http.Request) {
@@ -126,11 +162,23 @@ func (s *Server) putPlanModels(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid_request", err.Error())
 		return
 	}
-	if err := s.store.SetPlanModels(r.Context(), r.PathValue("code"), body.ModelIDs); err != nil {
+	if s.gateway != nil {
+		if err := s.gateway.ValidateSupported(r.Context(), body.ModelIDs); err != nil {
+			writeError(w, 400, "unsupported_model", err.Error())
+			return
+		}
+	}
+	code := r.PathValue("code")
+	if err := s.store.SetPlanModels(r.Context(), code, body.ModelIDs); err != nil {
 		writeError(w, 400, "invalid_plan", err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	tasks, err := s.enqueuePlans(r.Context(), "plan models changed: "+code, []string{code})
+	if err != nil {
+		writeError(w, 500, "task_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"taskIds": tasks})
 }
 
 func (s *Server) putUser(w http.ResponseWriter, r *http.Request) {
@@ -142,28 +190,43 @@ func (s *Server) putUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	email := r.PathValue("email")
-	if err := s.syncUsers(r.Context(), []string{email}, body.PlanCode); err != nil {
-		writeError(w, http.StatusBadGateway, "gateway_sync_failed", err.Error())
+	if err := s.validatePlan(r.Context(), body.PlanCode); err != nil {
+		writeError(w, 400, "unsupported_model", err.Error())
 		return
 	}
 	if err := s.store.SetUserPlan(r.Context(), email, body.PlanCode); err != nil {
 		writeError(w, 400, "invalid_user", err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	taskID, err := s.enqueueUsers(r.Context(), "user plan changed", []string{email}, body.PlanCode)
+	if err != nil {
+		writeError(w, 500, "task_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"taskId": taskID})
 }
 
 func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 	email := r.PathValue("email")
-	if err := s.syncUsersToDefault(r.Context(), []string{email}); err != nil {
-		writeError(w, http.StatusBadGateway, "gateway_sync_failed", err.Error())
+	code, err := s.store.DefaultPlanCode(r.Context())
+	if err != nil {
+		writeError(w, 500, "database_error", err.Error())
+		return
+	}
+	if err := s.validatePlan(r.Context(), code); err != nil {
+		writeError(w, 400, "unsupported_model", err.Error())
 		return
 	}
 	if err := s.store.DeleteUser(r.Context(), email); err != nil {
 		writeError(w, 500, "database_error", err.Error())
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	taskID, err := s.enqueueUsers(r.Context(), "user restored to default plan", []string{email}, code)
+	if err != nil {
+		writeError(w, 500, "task_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"taskId": taskID})
 }
 
 func (s *Server) batchUsers(w http.ResponseWriter, r *http.Request) {
@@ -183,14 +246,20 @@ func (s *Server) batchUsers(w http.ResponseWriter, r *http.Request) {
 	)
 	switch body.Action {
 	case "set":
-		if err = s.syncUsers(r.Context(), body.Emails, body.PlanCode); err != nil {
-			writeError(w, http.StatusBadGateway, "gateway_sync_failed", err.Error())
+		if err = s.validatePlan(r.Context(), body.PlanCode); err != nil {
+			writeError(w, 400, "unsupported_model", err.Error())
 			return
 		}
 		count, err = s.store.SetUsersPlan(r.Context(), body.Emails, body.PlanCode)
 	case "delete":
-		if err = s.syncUsersToDefault(r.Context(), body.Emails); err != nil {
-			writeError(w, http.StatusBadGateway, "gateway_sync_failed", err.Error())
+		var defaultCode string
+		defaultCode, err = s.store.DefaultPlanCode(r.Context())
+		if err != nil {
+			writeError(w, 500, "database_error", err.Error())
+			return
+		}
+		if err = s.validatePlan(r.Context(), defaultCode); err != nil {
+			writeError(w, 400, "unsupported_model", err.Error())
 			return
 		}
 		count, err = s.store.DeleteUsers(r.Context(), body.Emails)
@@ -202,35 +271,57 @@ func (s *Server) batchUsers(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid_users", err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"count": count})
+	planCode := body.PlanCode
+	if body.Action == "delete" {
+		planCode, err = s.store.DefaultPlanCode(r.Context())
+		if err != nil {
+			writeError(w, 500, "database_error", err.Error())
+			return
+		}
+	}
+	taskID, err := s.enqueueUsers(r.Context(), "batch user permissions changed", body.Emails, planCode)
+	if err != nil {
+		writeError(w, 500, "task_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"count": count, "taskId": taskID})
 }
 
-func (s *Server) syncUsersToDefault(ctx context.Context, emails []string) error {
-	code, err := s.store.DefaultPlanCode(ctx)
+func (s *Server) enqueueUsers(ctx context.Context, reason string, emails []string, planCode string) (int64, error) {
+	modelIDs, err := s.store.EnabledModelIDsForPlan(ctx, planCode)
 	if err != nil {
-		return fmt.Errorf("load default plan: %w", err)
+		return 0, err
 	}
-	return s.syncUsers(ctx, emails, code)
+	return s.store.CreateSyncTask(ctx, reason, emails, modelIDs)
 }
 
-func (s *Server) syncUsers(ctx context.Context, emails []string, planCode string) error {
-	if s.gateway == nil {
-		return nil
-	}
-	normalized, err := store.NormalizeEmails(emails)
-	if err != nil {
-		return err
-	}
+func (s *Server) validatePlan(ctx context.Context, planCode string) error {
 	modelIDs, err := s.store.EnabledModelIDsForPlan(ctx, planCode)
 	if err != nil {
 		return err
 	}
-	for _, email := range normalized {
-		if err := s.gateway.UpdateModels(ctx, email, modelIDs); err != nil {
-			return fmt.Errorf("sync %s: %w", email, err)
-		}
+	if s.gateway != nil {
+		return s.gateway.ValidateSupported(ctx, modelIDs)
 	}
 	return nil
+}
+
+func (s *Server) enqueuePlans(ctx context.Context, reason string, plans []string) ([]int64, error) {
+	ids := []int64{}
+	for _, code := range plans {
+		emails, err := s.store.UsersForPlan(ctx, code)
+		if err != nil {
+			return nil, err
+		}
+		id, err := s.enqueueUsers(ctx, fmt.Sprintf("%s (%s)", reason, code), emails, code)
+		if err != nil {
+			return nil, err
+		}
+		if id != 0 {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }
 
 func readJSON(r *http.Request, value any) error {
