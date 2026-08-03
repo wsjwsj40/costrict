@@ -18,7 +18,7 @@ jwtSettings:
 admin:
   token: file-token
 gateway:
-  permissionUrl: http://file-gateway/permissions
+  baseUrl: http://file-gateway
   token: file-gateway-token
   completionModel: file-completion
 `), 0o600)
@@ -27,8 +27,7 @@ gateway:
 	}
 	t.Setenv("DATABASE_PASSWORD", "env-password")
 	t.Setenv("JWT_EMAIL_FIELD", "properties.email")
-	t.Setenv("MODEL_GATEWAY_PERMISSION_URL", "http://env-gateway/permissions")
-	t.Setenv("MODEL_GATEWAY_SUPPORTED_MODELS_URL", "http://env-gateway/supported")
+	t.Setenv("MODEL_GATEWAY_BASE_URL", "http://env-gateway")
 	t.Setenv("MODEL_GATEWAY_TOKEN", "env-gateway-token")
 	t.Setenv("MODEL_GATEWAY_COMPLETION_MODEL", "env-completion")
 	cfg, err := Load(path)
@@ -41,7 +40,7 @@ gateway:
 	if len(cfg.JWT.EmailField) != 2 || cfg.JWT.EmailField[1] != "email" {
 		t.Fatalf("unexpected email field: %#v", cfg.JWT.EmailField)
 	}
-	if cfg.Gateway.PermissionURL != "http://env-gateway/permissions" || cfg.Gateway.CompletionModel != "env-completion" {
+	if cfg.Gateway.BaseURL != "http://env-gateway" || cfg.Gateway.CompletionModel != "env-completion" {
 		t.Fatalf("unexpected gateway config: %#v", cfg.Gateway)
 	}
 }

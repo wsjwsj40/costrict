@@ -27,7 +27,7 @@ func TestUpdateModelsAddsCompletionModelAndToken(t *testing.T) {
 	defer server.Close()
 
 	cfg := config.Config{}
-	cfg.Gateway.PermissionURL = server.URL
+	cfg.Gateway.BaseURL = server.URL
 	cfg.Gateway.Token = "gateway-secret"
 	cfg.Gateway.CompletionModel = "completion-model"
 	client := New(cfg)
@@ -45,7 +45,7 @@ func TestUpdateModelsRejectsSilentlyDroppedModel(t *testing.T) {
 	}))
 	defer server.Close()
 	cfg := config.Config{}
-	cfg.Gateway.PermissionURL = server.URL
+	cfg.Gateway.BaseURL = server.URL
 	if err := New(cfg).UpdateModels(context.Background(), "user@example.com", []string{"chat-model", "missing-model"}); err == nil {
 		t.Fatal("expected model mismatch")
 	}
@@ -57,7 +57,7 @@ func TestValidateSupportedModels(t *testing.T) {
 	}))
 	defer server.Close()
 	cfg := config.Config{}
-	cfg.Gateway.SupportedModelsURL = server.URL
+	cfg.Gateway.BaseURL = server.URL
 	cfg.Gateway.CompletionModel = "completion-model"
 	client := New(cfg)
 	if err := client.ValidateSupported(context.Background(), []string{"chat-model"}); err != nil {
@@ -74,7 +74,7 @@ func TestUpdateModelsRejectsUnsuccessfulGatewayResponse(t *testing.T) {
 	}))
 	defer server.Close()
 	cfg := config.Config{}
-	cfg.Gateway.PermissionURL = server.URL
+	cfg.Gateway.BaseURL = server.URL
 	if err := New(cfg).UpdateModels(context.Background(), "user@example.com", nil); err == nil {
 		t.Fatal("expected gateway rejection")
 	}

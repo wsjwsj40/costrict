@@ -29,8 +29,9 @@ models:
 gateway:
     # Optional. When set, changing a user's plan also updates the models allowed
     # by the inference gateway.
-    permissionUrl: "https://gateway.example.com/ai-gate/api/opentoken/key/condition"
-    supportedModelsUrl: "https://gateway.example.com/api/opentoken/key/app_support_models"
+  # Service root. Production example: https://gateway.example.com/ai-gate
+  # Direct-service example: http://10.0.0.10:3002
+  baseUrl: "https://gateway.example.com/ai-gate"
     token: "change-this-new-open-token"
     # Always granted in addition to the models selected for the user's plan.
     completionModel: "DeepSeek-Coder-V2-Lite-Base"

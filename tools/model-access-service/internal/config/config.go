@@ -36,14 +36,13 @@ type Config struct {
 		BootstrapFile string `yaml:"bootstrapFile"`
 	} `yaml:"models"`
 	Gateway struct {
-		PermissionURL      string `yaml:"permissionUrl"`
-		SupportedModelsURL string `yaml:"supportedModelsUrl"`
-		Token              string `yaml:"token"`
-		CompletionModel    string `yaml:"completionModel"`
-		TimeoutSeconds     int    `yaml:"timeoutSeconds"`
-		BatchSize          int    `yaml:"batchSize"`
-		PollSeconds        int    `yaml:"pollSeconds"`
-		MaxAttempts        int    `yaml:"maxAttempts"`
+		BaseURL         string `yaml:"baseUrl"`
+		Token           string `yaml:"token"`
+		CompletionModel string `yaml:"completionModel"`
+		TimeoutSeconds  int    `yaml:"timeoutSeconds"`
+		BatchSize       int    `yaml:"batchSize"`
+		PollSeconds     int    `yaml:"pollSeconds"`
+		MaxAttempts     int    `yaml:"maxAttempts"`
 	} `yaml:"gateway"`
 }
 
@@ -83,14 +82,11 @@ func Load(path string) (Config, error) {
 	if cfg.Admin.Token == "" {
 		return cfg, fmt.Errorf("admin.token is required")
 	}
-	if cfg.Gateway.PermissionURL != "" && cfg.Gateway.Token == "" {
-		return cfg, fmt.Errorf("gateway.token is required when gateway.permissionUrl is set")
+	if cfg.Gateway.BaseURL != "" && cfg.Gateway.Token == "" {
+		return cfg, fmt.Errorf("gateway.token is required when gateway.baseUrl is set")
 	}
-	if cfg.Gateway.PermissionURL != "" && cfg.Gateway.CompletionModel == "" {
-		return cfg, fmt.Errorf("gateway.completionModel is required when gateway.permissionUrl is set")
-	}
-	if cfg.Gateway.PermissionURL != "" && cfg.Gateway.SupportedModelsURL == "" {
-		return cfg, fmt.Errorf("gateway.supportedModelsUrl is required when gateway.permissionUrl is set")
+	if cfg.Gateway.BaseURL != "" && cfg.Gateway.CompletionModel == "" {
+		return cfg, fmt.Errorf("gateway.completionModel is required when gateway.baseUrl is set")
 	}
 	return cfg, nil
 }
@@ -109,8 +105,7 @@ func applyEnv(cfg *Config) {
 	setString("JWT_AUDIENCE", &cfg.JWT.Audience)
 	setString("ADMIN_TOKEN", &cfg.Admin.Token)
 	setString("MODELS_BOOTSTRAP_FILE", &cfg.Models.BootstrapFile)
-	setString("MODEL_GATEWAY_PERMISSION_URL", &cfg.Gateway.PermissionURL)
-	setString("MODEL_GATEWAY_SUPPORTED_MODELS_URL", &cfg.Gateway.SupportedModelsURL)
+	setString("MODEL_GATEWAY_BASE_URL", &cfg.Gateway.BaseURL)
 	setString("MODEL_GATEWAY_TOKEN", &cfg.Gateway.Token)
 	setString("MODEL_GATEWAY_COMPLETION_MODEL", &cfg.Gateway.CompletionModel)
 	setInt("MODEL_GATEWAY_TIMEOUT_SECONDS", &cfg.Gateway.TimeoutSeconds)

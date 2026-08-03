@@ -26,13 +26,21 @@ func New(cfg config.Config) *Client {
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
+	baseURL := strings.TrimRight(strings.TrimSpace(cfg.Gateway.BaseURL), "/")
 	return &Client{
-		url:                strings.TrimSpace(cfg.Gateway.PermissionURL),
-		supportedModelsURL: strings.TrimSpace(cfg.Gateway.SupportedModelsURL),
+		url:                endpoint(baseURL, "/api/opentoken/key/condition"),
+		supportedModelsURL: endpoint(baseURL, "/api/opentoken/key/app_support_models"),
 		token:              strings.TrimSpace(cfg.Gateway.Token),
 		completionModel:    strings.TrimSpace(cfg.Gateway.CompletionModel),
 		httpClient:         &http.Client{Timeout: timeout},
 	}
+}
+
+func endpoint(baseURL, path string) string {
+	if baseURL == "" {
+		return ""
+	}
+	return baseURL + path
 }
 
 func (c *Client) UpdateModels(ctx context.Context, email string, modelIDs []string) error {
