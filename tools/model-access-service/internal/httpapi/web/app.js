@@ -137,6 +137,23 @@ function toast(message) {
 	setTimeout(() => el.classList.remove("show"), 2200)
 }
 
+function operationErrorMessage(reason) {
+	const message = reason instanceof Error ? reason.message : String(reason || "操作失败，请稍后重试")
+	const unsupportedPrefix = "models not supported by gateway default list:"
+	if (message.startsWith(unsupportedPrefix)) {
+		return `以下模型不在网关默认支持列表中：${message.slice(unsupportedPrefix.length).trim()}`
+	}
+	return message
+}
+
+// Async DOM event handlers do not have a caller that can consume rejected
+// promises. Surface API failures in the page instead of leaving them only in
+// the browser console.
+window.addEventListener("unhandledrejection", (event) => {
+	event.preventDefault()
+	toast(operationErrorMessage(event.reason))
+})
+
 function openModel(model = null) {
 	const form = $("#model-form")
 	form.reset()
