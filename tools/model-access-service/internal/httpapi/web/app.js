@@ -146,16 +146,40 @@ function operationErrorMessage(reason) {
 	return message
 }
 
+function showOperationError(reason) {
+	const message = operationErrorMessage(reason)
+	const dialog = [...document.querySelectorAll("dialog[open]")].at(-1)
+	if (!dialog) {
+		toast(message)
+		return
+	}
+
+	let error = dialog.querySelector(".operation-error")
+	if (!error) {
+		error = document.createElement("p")
+		error.className = "error operation-error"
+		error.setAttribute("role", "alert")
+		const actions = dialog.querySelector(".dialog-actions")
+		actions?.parentNode.insertBefore(error, actions)
+	}
+	error.textContent = message
+}
+
+function clearOperationError(dialog) {
+	dialog?.querySelector(".operation-error")?.remove()
+}
+
 // Async DOM event handlers do not have a caller that can consume rejected
 // promises. Surface API failures in the page instead of leaving them only in
 // the browser console.
 window.addEventListener("unhandledrejection", (event) => {
 	event.preventDefault()
-	toast(operationErrorMessage(event.reason))
+	showOperationError(event.reason)
 })
 
 function openModel(model = null) {
 	const form = $("#model-form")
+	clearOperationError($("#model-dialog"))
 	form.reset()
 	form.elements.id.readOnly = Boolean(model)
 	if (model) {
@@ -172,6 +196,7 @@ function openModel(model = null) {
 
 function openUser(user = null) {
 	const form = $("#user-form")
+	clearOperationError($("#user-dialog"))
 	form.reset()
 	form.elements.email.readOnly = Boolean(user)
 	if (user) {
@@ -183,6 +208,7 @@ function openUser(user = null) {
 
 function openBatchUsers() {
 	const form = $("#batch-user-form")
+	clearOperationError($("#batch-user-dialog"))
 	form.reset()
 	$("#batch-email-count").textContent = "已识别 0 个邮箱"
 	$("#batch-user-dialog").showModal()

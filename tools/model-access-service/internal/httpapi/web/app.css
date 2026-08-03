@@ -148,6 +148,14 @@ button.primary:hover {
 	margin-top: 12px;
 	min-height: 20px;
 }
+.operation-error {
+	padding: 10px 12px;
+	border: 1px solid rgba(185, 28, 28, 0.25);
+	border-radius: 9px;
+	background: #fef2f2;
+	line-height: 1.45;
+	overflow-wrap: anywhere;
+}
 .app-shell {
 	min-height: 100vh;
 	display: grid;
