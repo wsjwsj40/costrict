@@ -143,7 +143,10 @@ export const getModels = async (options: GetModelsOptions): Promise<ModelRecord>
 	const hadMemoryModels = memoryCache.get<ModelRecord>(provider) != null
 	// let clineProvider = await ClineProvider.getAllInstance()
 
-	let models = getModelsFromCache(provider)
+	let models = provider === "costrict" && !hadMemoryModels ? undefined : getModelsFromCache(provider)
+	// Costrict models are permission-sensitive. Once the five-minute memory
+	// cache expires, the disk cache is only a failure fallback and must not be
+	// promoted back into memory as if it were fresh server data.
 
 	try {
 		if (models) {
@@ -164,7 +167,7 @@ export const getModels = async (options: GetModelsOptions): Promise<ModelRecord>
 
 		// Only cache non-empty results to prevent persisting failed API responses
 		// Empty results could indicate API failure rather than "no models exist"
-		if (modelCount > 0) {
+		if (modelCount > 0 || provider === "costrict") {
 			memoryCache.set(provider, models)
 
 			await writeModels(provider, models).catch((err) =>
@@ -214,7 +217,7 @@ export const refreshModels = async (options: GetModelsOptions): Promise<ModelRec
 			const models = await fetchModelsFromProvider(options)
 			const modelCount = Object.keys(models).length
 
-			if (modelCount === 0) {
+			if (modelCount === 0 && provider !== "costrict") {
 				// Get existing cached data for comparison
 				const existingCache = getModelsFromCache(provider)
 				const existingCount = existingCache ? Object.keys(existingCache).length : 0
@@ -232,7 +235,9 @@ export const refreshModels = async (options: GetModelsOptions): Promise<ModelRec
 				}
 			}
 
-			// Update memory cache first
+			// For Costrict, an empty successful response is authoritative: it can
+			// mean the user has no allowed models and must replace older privileges.
+			// Update memory cache first.
 			memoryCache.set(provider, models)
 
 			// Atomically write to disk (safeWriteJson handles atomic writes)

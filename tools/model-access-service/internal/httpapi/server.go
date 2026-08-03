@@ -1,9 +1,11 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -23,10 +25,18 @@ type Server struct {
 	auth       *auth.Authenticator
 	adminToken string
 	handler    http.Handler
+	gateway    gatewayPermissions
 }
 
-func New(data *store.Store, authenticator *auth.Authenticator, adminToken string) *Server {
+type gatewayPermissions interface {
+	UpdateModels(ctx context.Context, email string, modelIDs []string) error
+}
+
+func New(data *store.Store, authenticator *auth.Authenticator, adminToken string, gateways ...gatewayPermissions) *Server {
 	s := &Server{store: data, auth: authenticator, adminToken: adminToken}
+	if len(gateways) > 0 {
+		s.gateway = gateways[0]
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("GET /ai-gateway/api/v1/models", s.models)
@@ -131,7 +141,12 @@ func (s *Server) putUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid_request", err.Error())
 		return
 	}
-	if err := s.store.SetUserPlan(r.Context(), r.PathValue("email"), body.PlanCode); err != nil {
+	email := r.PathValue("email")
+	if err := s.syncUsers(r.Context(), []string{email}, body.PlanCode); err != nil {
+		writeError(w, http.StatusBadGateway, "gateway_sync_failed", err.Error())
+		return
+	}
+	if err := s.store.SetUserPlan(r.Context(), email, body.PlanCode); err != nil {
 		writeError(w, 400, "invalid_user", err.Error())
 		return
 	}
@@ -139,7 +154,12 @@ func (s *Server) putUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteUser(r.Context(), r.PathValue("email")); err != nil {
+	email := r.PathValue("email")
+	if err := s.syncUsersToDefault(r.Context(), []string{email}); err != nil {
+		writeError(w, http.StatusBadGateway, "gateway_sync_failed", err.Error())
+		return
+	}
+	if err := s.store.DeleteUser(r.Context(), email); err != nil {
 		writeError(w, 500, "database_error", err.Error())
 		return
 	}
@@ -163,8 +183,16 @@ func (s *Server) batchUsers(w http.ResponseWriter, r *http.Request) {
 	)
 	switch body.Action {
 	case "set":
+		if err = s.syncUsers(r.Context(), body.Emails, body.PlanCode); err != nil {
+			writeError(w, http.StatusBadGateway, "gateway_sync_failed", err.Error())
+			return
+		}
 		count, err = s.store.SetUsersPlan(r.Context(), body.Emails, body.PlanCode)
 	case "delete":
+		if err = s.syncUsersToDefault(r.Context(), body.Emails); err != nil {
+			writeError(w, http.StatusBadGateway, "gateway_sync_failed", err.Error())
+			return
+		}
 		count, err = s.store.DeleteUsers(r.Context(), body.Emails)
 	default:
 		writeError(w, 400, "invalid_action", "action must be set or delete")
@@ -175,6 +203,34 @@ func (s *Server) batchUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"count": count})
+}
+
+func (s *Server) syncUsersToDefault(ctx context.Context, emails []string) error {
+	code, err := s.store.DefaultPlanCode(ctx)
+	if err != nil {
+		return fmt.Errorf("load default plan: %w", err)
+	}
+	return s.syncUsers(ctx, emails, code)
+}
+
+func (s *Server) syncUsers(ctx context.Context, emails []string, planCode string) error {
+	if s.gateway == nil {
+		return nil
+	}
+	normalized, err := store.NormalizeEmails(emails)
+	if err != nil {
+		return err
+	}
+	modelIDs, err := s.store.EnabledModelIDsForPlan(ctx, planCode)
+	if err != nil {
+		return err
+	}
+	for _, email := range normalized {
+		if err := s.gateway.UpdateModels(ctx, email, modelIDs); err != nil {
+			return fmt.Errorf("sync %s: %w", email, err)
+		}
+	}
+	return nil
 }
 
 func readJSON(r *http.Request, value any) error {

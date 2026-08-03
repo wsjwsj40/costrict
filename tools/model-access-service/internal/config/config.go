@@ -35,6 +35,12 @@ type Config struct {
 	Models struct {
 		BootstrapFile string `yaml:"bootstrapFile"`
 	} `yaml:"models"`
+	Gateway struct {
+		PermissionURL   string `yaml:"permissionUrl"`
+		Token           string `yaml:"token"`
+		CompletionModel string `yaml:"completionModel"`
+		TimeoutSeconds  int    `yaml:"timeoutSeconds"`
+	} `yaml:"gateway"`
 }
 
 func Load(path string) (Config, error) {
@@ -48,6 +54,7 @@ func Load(path string) (Config, error) {
 	cfg.Database.SSLMode = "disable"
 	cfg.JWT.Enable = true
 	cfg.JWT.EmailField = []string{"email"}
+	cfg.Gateway.TimeoutSeconds = 10
 
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -69,6 +76,12 @@ func Load(path string) (Config, error) {
 	if cfg.Admin.Token == "" {
 		return cfg, fmt.Errorf("admin.token is required")
 	}
+	if cfg.Gateway.PermissionURL != "" && cfg.Gateway.Token == "" {
+		return cfg, fmt.Errorf("gateway.token is required when gateway.permissionUrl is set")
+	}
+	if cfg.Gateway.PermissionURL != "" && cfg.Gateway.CompletionModel == "" {
+		return cfg, fmt.Errorf("gateway.completionModel is required when gateway.permissionUrl is set")
+	}
 	return cfg, nil
 }
 
@@ -86,6 +99,10 @@ func applyEnv(cfg *Config) {
 	setString("JWT_AUDIENCE", &cfg.JWT.Audience)
 	setString("ADMIN_TOKEN", &cfg.Admin.Token)
 	setString("MODELS_BOOTSTRAP_FILE", &cfg.Models.BootstrapFile)
+	setString("MODEL_GATEWAY_PERMISSION_URL", &cfg.Gateway.PermissionURL)
+	setString("MODEL_GATEWAY_TOKEN", &cfg.Gateway.Token)
+	setString("MODEL_GATEWAY_COMPLETION_MODEL", &cfg.Gateway.CompletionModel)
+	setInt("MODEL_GATEWAY_TIMEOUT_SECONDS", &cfg.Gateway.TimeoutSeconds)
 	if value := os.Getenv("JWT_EMAIL_FIELD"); value != "" {
 		cfg.JWT.EmailField = strings.Split(value, ".")
 	}

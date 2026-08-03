@@ -223,6 +223,47 @@ func (s *Store) SetPlanModels(ctx context.Context, code string, modelIDs []strin
 	})
 }
 
+func (s *Store) EnabledModelIDsForPlan(ctx context.Context, code string) ([]string, error) {
+	code = strings.ToLower(strings.TrimSpace(code))
+	rows, err := s.db.Query(ctx, `
+		SELECT m.id FROM model_access_catalog m
+		JOIN model_access_plan_model pm ON pm.model_id=m.id
+		WHERE pm.plan_code=$1 AND m.enabled=TRUE AND LOWER(m.id)<>'auto'
+		ORDER BY m.sort_order, m.id`, code)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if ids == nil {
+		ids = []string{}
+	}
+	var exists bool
+	if err := s.db.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM model_access_plan WHERE code=$1)", code).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, errors.New("plan does not exist")
+	}
+	return ids, nil
+}
+
+func (s *Store) DefaultPlanCode(ctx context.Context) (string, error) {
+	var code string
+	err := s.db.QueryRow(ctx, "SELECT code FROM model_access_plan WHERE is_default=TRUE LIMIT 1").Scan(&code)
+	return code, err
+}
+
 func (s *Store) SetUserPlan(ctx context.Context, email, planCode string) error {
 	_, err := s.SetUsersPlan(ctx, []string{email}, planCode)
 	return err
@@ -234,7 +275,7 @@ func (s *Store) DeleteUser(ctx context.Context, email string) error {
 }
 
 func (s *Store) SetUsersPlan(ctx context.Context, emails []string, planCode string) (int, error) {
-	normalized, err := normalizeEmails(emails)
+	normalized, err := NormalizeEmails(emails)
 	if err != nil {
 		return 0, err
 	}
@@ -270,7 +311,7 @@ func (s *Store) SetUsersPlan(ctx context.Context, emails []string, planCode stri
 }
 
 func (s *Store) DeleteUsers(ctx context.Context, emails []string) (int, error) {
-	normalized, err := normalizeEmails(emails)
+	normalized, err := NormalizeEmails(emails)
 	if err != nil {
 		return 0, err
 	}
@@ -281,7 +322,7 @@ func (s *Store) DeleteUsers(ctx context.Context, emails []string) (int, error) {
 	return int(tag.RowsAffected()), nil
 }
 
-func normalizeEmails(emails []string) ([]string, error) {
+func NormalizeEmails(emails []string) ([]string, error) {
 	if len(emails) == 0 {
 		return nil, errors.New("at least one email is required")
 	}

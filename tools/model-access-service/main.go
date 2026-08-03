@@ -14,6 +14,7 @@ import (
 
 	"github.com/costrict/model-access-service/internal/auth"
 	"github.com/costrict/model-access-service/internal/config"
+	"github.com/costrict/model-access-service/internal/gateway"
 	"github.com/costrict/model-access-service/internal/httpapi"
 	"github.com/costrict/model-access-service/internal/store"
 )
@@ -50,7 +51,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	handler := httpapi.New(data, authenticator, cfg.Admin.Token)
+	handler := httpapi.New(data, authenticator, cfg.Admin.Token, gateway.New(cfg))
 	server := &http.Server{
 		Addr:              fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port),
 		Handler:           handler.Handler(),

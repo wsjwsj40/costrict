@@ -25,3 +25,12 @@ admin:
 models:
   # Optional bootstrap file, imported only when model_catalog is empty.
   bootstrapFile: "/app/models.json"
+
+gateway:
+  # Optional. When set, changing a user's plan also updates the models allowed
+  # by the inference gateway.
+  permissionUrl: "https://gateway.example.com/ai-gate/api/opentoken/key/condition"
+  token: "change-this-new-open-token"
+  # Always granted in addition to the models selected for the user's plan.
+  completionModel: "DeepSeek-Coder-V2-Lite-Base"
+  timeoutSeconds: 10

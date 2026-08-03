@@ -1,206 +1,1002 @@
-import path, { resolve } from "path"
-import fs from "fs"
-import { execSync } from "child_process"
+import React, { memo, useCallback, useEffect, useMemo, useState } from "react"
+import { convertHeadersToObject } from "./utils/headers"
+import { useDebounce } from "react-use"
+import { VSCodeTextField } from "@vscode/webview-ui-toolkit/react"
+import { ExternalLinkIcon } from "@radix-ui/react-icons"
 
-import { defineConfig, type PluginOption, type Plugin } from "vite"
-import react from "@vitejs/plugin-react"
-import tailwindcss from "@tailwindcss/vite"
+import {
+	type ProviderName,
+	type ProviderSettings,
+	isRetiredProvider,
+	DEFAULT_CONSECUTIVE_MISTAKE_LIMIT,
+	openRouterDefaultModelId,
+	poeDefaultModelId,
+	requestyDefaultModelId,
+	litellmDefaultModelId,
+	openAiNativeDefaultModelId,
+	openAiCodexDefaultModelId,
+	anthropicDefaultModelId,
+	claudeCodeDefaultModelId,
+	qwenCodeDefaultModelId,
+	geminiDefaultModelId,
+	deepSeekDefaultModelId,
+	moonshotDefaultModelId,
+	mistralDefaultModelId,
+	xaiDefaultModelId,
+	basetenDefaultModelId,
+	bedrockDefaultModelId,
+	vertexDefaultModelId,
+	sambaNovaDefaultModelId,
+	internationalZAiDefaultModelId,
+	mainlandZAiDefaultModelId,
+	fireworksDefaultModelId,
+	rooDefaultModelId,
+	vercelAiGatewayDefaultModelId,
+	minimaxDefaultModelId,
+	mimoDefaultModelId,
+	// type ToolProtocol,
+	// TOOL_PROTOCOL,
+	unboundDefaultModelId,
+} from "@roo-code/types"
+import {
+	COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION,
+	costrictDebugModeBuildEnabled,
+} from "../../../../src/shared/costrictDebugMode"
 
-import { sourcemapPlugin } from "./src/vite-plugins/sourcemapPlugin"
+import {
+	getProviderServiceConfig,
+	getDefaultModelIdForProvider,
+	getStaticModelsForProvider,
+	shouldUseGenericModelPicker,
+	handleModelChangeSideEffects,
+} from "./utils/providerModelConfig"
 
-function getGitSha() {
-	let gitSha: string | undefined = undefined
+import { vscode } from "@src/utils/vscode"
+import { validateApiConfigurationExcludingModelErrors, getModelValidationError } from "@src/utils/validate"
+import { useAppTranslation } from "@src/i18n/TranslationContext"
+import { useRouterModels } from "@src/components/ui/hooks/useRouterModels"
+import { useSelectedModel } from "@src/components/ui/hooks/useSelectedModel"
+import { useExtensionState } from "@src/context/ExtensionStateContext"
+import {
+	useOpenRouterModelProviders,
+	OPENROUTER_DEFAULT_PROVIDER_NAME,
+} from "@src/components/ui/hooks/useOpenRouterModelProviders"
+import { filterProviders, filterModels } from "./utils/organizationFilters"
+import {
+	Select,
+	SelectTrigger,
+	SelectValue,
+	SelectContent,
+	SelectItem,
+	SearchableSelect,
+	Collapsible,
+	CollapsibleTrigger,
+	CollapsibleContent,
+} from "@src/components/ui"
+import { ProviderChangeWarningDialog } from "./ProviderChangeWarningDialog"
 
-	try {
-		gitSha = execSync("git rev-parse HEAD").toString().trim()
-	} catch (_error) {
-		// Do nothing.
-	}
+import {
+	Anthropic,
+	Baseten,
+	Bedrock,
+	ClaudeCode,
+	DeepSeek,
+	Gemini,
+	LMStudio,
+	LiteLLM,
+	Mistral,
+	Moonshot,
+	Ollama,
+	OpenAI,
+	OpenAICompatible,
+	OpenAICodex,
+	OpenRouter,
+	Poe,
+	QwenCode,
+	Requesty,
+	// Roo,
+	SambaNova,
+	Unbound,
+	Vertex,
+	VSCodeLM,
+	XAI,
+	CostrictAI,
+	ZAi,
+	Fireworks,
+	VercelAiGateway,
+	MiniMax,
+	Mimo,
+} from "./providers"
 
-	return gitSha
+import { MODELS_BY_PROVIDER, PROVIDERS } from "./constants"
+import { inputEventTransform, noTransform } from "./transforms"
+import { ModelPicker } from "./ModelPicker"
+import { ApiErrorMessage } from "./ApiErrorMessage"
+import { ThinkingBudget } from "./ThinkingBudget"
+import { Verbosity } from "./Verbosity"
+import { TodoListSettingsControl } from "./TodoListSettingsControl"
+import { TemperatureControl } from "./TemperatureControl"
+import { RateLimitSecondsControl } from "./RateLimitSecondsControl"
+import { ConsecutiveMistakeLimitControl } from "./ConsecutiveMistakeLimitControl"
+import { BedrockCustomArn } from "./providers/BedrockCustomArn"
+// import { buildDocLink } from "@src/utils/docLinks"
+import { SetCachedStateField } from "./types"
+// import { RooBalanceDisplay } from "./providers/RooBalanceDisplay"
+// import { buildDocLink } from "@src/utils/docLinks"
+// import { RooBalanceDisplay } from "./providers/RooBalanceDisplay"
+// import { buildDocLink } from "@src/utils/docLinks"
+// import { BookOpenText } from "lucide-react"
+
+export interface ApiOptionsProps {
+	uriScheme: string | undefined
+	apiConfiguration: ProviderSettings
+	setApiConfigurationField: <K extends keyof ProviderSettings>(
+		field: K,
+		value: ProviderSettings[K],
+		isUserAction?: boolean,
+	) => void
+	fromWelcomeView?: boolean
+	errorMessage: string | undefined
+	setErrorMessage: React.Dispatch<React.SetStateAction<string | undefined>>
+	useCostrictCustomConfig?: boolean
+	debug?: boolean
+	setCachedStateField: SetCachedStateField<"useCostrictCustomConfig">
 }
 
-const wasmPlugin = (): Plugin => ({
-	name: "wasm",
-	async load(id) {
-		if (id.endsWith(".wasm")) {
-			const wasmBinary = await import(id)
+const ApiOptions = ({
+	uriScheme,
+	apiConfiguration,
+	setApiConfigurationField,
+	fromWelcomeView,
+	errorMessage,
+	setErrorMessage,
+	useCostrictCustomConfig,
+	debug = false,
+	setCachedStateField,
+}: ApiOptionsProps) => {
+	const { t } = useAppTranslation()
+	const {
+		setCostrictCodeMode,
+		organizationAllowList,
+		claudeCodeIsAuthenticated /* cloudIsAuthenticated */,
+		openAiCodexIsAuthenticated,
+	} = useExtensionState()
 
-			return `
-           			const wasmModule = new WebAssembly.Module(${wasmBinary.default});
-           			export default wasmModule;
-         		`
+	const [customHeaders, setCustomHeaders] = useState<[string, string][]>(() => {
+		const headers = apiConfiguration?.openAiHeaders || {}
+		return Object.entries(headers)
+	})
+
+	useEffect(() => {
+		const propHeaders = apiConfiguration?.openAiHeaders || {}
+
+		if (JSON.stringify(customHeaders) !== JSON.stringify(Object.entries(propHeaders))) {
+			setCustomHeaders(Object.entries(propHeaders))
 		}
-	},
-})
+	}, [apiConfiguration?.openAiHeaders, customHeaders])
 
-const persistPortPlugin = (): Plugin => ({
-	name: "write-port-to-file",
-	configureServer(viteDevServer) {
-		viteDevServer?.httpServer?.once("listening", () => {
-			const address = viteDevServer?.httpServer?.address()
-			const port = address && typeof address === "object" ? address.port : null
+	// Helper to convert array of tuples to object (filtering out empty keys).
 
-			if (port) {
-				fs.writeFileSync(resolve(__dirname, "..", ".vite-port"), port.toString())
-				console.log(`[Vite Plugin] Server started on port ${port}`)
-			} else {
-				console.warn("[Vite Plugin] Could not determine server port")
+	// Debounced effect to update the main configuration when local
+	// customHeaders state stabilizes.
+	useDebounce(
+		() => {
+			const currentConfigHeaders = apiConfiguration?.openAiHeaders || {}
+			const newHeadersObject = convertHeadersToObject(customHeaders)
+
+			// Only update if the processed object is different from the current config.
+			if (JSON.stringify(currentConfigHeaders) !== JSON.stringify(newHeadersObject)) {
+				setApiConfigurationField("openAiHeaders", newHeadersObject, false)
 			}
-		})
-	},
-})
+		},
+		300,
+		[customHeaders, apiConfiguration?.openAiHeaders, setApiConfigurationField],
+	)
+	const apiModelIdKey = apiConfiguration.apiProvider === "costrict" ? "costrictModelId" : "apiModelId"
 
-// https://vitejs.dev/config/
-export default defineConfig(({ mode }) => {
-	let outDir = "../src/webview-ui/build"
+	const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState(false)
+	const [showProviderChangeWarning, setShowProviderChangeWarning] = useState(false)
+	const [pendingProviderChange, setPendingProviderChange] = useState<ProviderName | null>(null)
 
-	const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "src", "package.json"), "utf8"))
-	const gitSha = getGitSha()
+	const handleInputChange = useCallback(
+		<K extends keyof ProviderSettings, E>(
+			field: K,
+			transform: (event: E) => ProviderSettings[K] = inputEventTransform,
+		) =>
+			(event: E | Event) => {
+				setApiConfigurationField(field, transform(event as E))
+			},
+		[setApiConfigurationField],
+	)
 
-	const buildTime = new Date().toISOString()
+	const {
+		provider: selectedProvider,
+		id: selectedModelId,
+		info: selectedModelInfo,
+	} = useSelectedModel(apiConfiguration)
+	const activeSelectedProvider: ProviderName | undefined = isRetiredProvider(selectedProvider)
+		? undefined
+		: selectedProvider
+	const isRetiredSelectedProvider =
+		typeof apiConfiguration.apiProvider === "string" && isRetiredProvider(apiConfiguration.apiProvider)
 
-	const define: Record<string, any> = {
-		"process.platform": JSON.stringify(process.platform),
-		"process.env.VSCODE_TEXTMATE_DEBUG": JSON.stringify(process.env.VSCODE_TEXTMATE_DEBUG),
-		"process.env.COSTRICT_PKG_NAME": JSON.stringify(pkg.name),
-		"process.env.COSTRICT_PKG_VERSION": JSON.stringify(pkg.version),
-		"process.env.COSTRICT_PKG_OUTPUT_CHANNEL": JSON.stringify("CoStrict"),
-		"process.env.COSTRICT_PUBLIC_KEY": JSON.stringify(
-			process.env.COSTRICT_PUBLIC_KEY || process.env.ZGSM_PUBLIC_KEY || "",
-		),
-		"process.env.COSTRICT_ENABLE_DEBUG_MODE": JSON.stringify(process.env.COSTRICT_ENABLE_DEBUG_MODE || "false"),
-		"process.env.COSTRICT_PKG_BUILD_TIME": JSON.stringify(buildTime),
-		...(gitSha ? { "process.env.COSTRICT_PKG_SHA": JSON.stringify(gitSha) } : {}),
-	}
+	const { data: routerModels, refetch: refetchRouterModels } = useRouterModels()
 
-	// TODO: We can use `@roo-code/build` to generate `define` once the
-	// monorepo is deployed.
-	if (mode === "nightly") {
-		outDir = "../apps/vscode-nightly/build/webview-ui/build"
+	const { data: openRouterModelProviders } = useOpenRouterModelProviders(
+		apiConfiguration?.openRouterModelId,
+		apiConfiguration?.openRouterBaseUrl,
+		{
+			enabled:
+				!!apiConfiguration?.openRouterModelId &&
+				routerModels?.openrouter &&
+				Object.keys(routerModels.openrouter).length > 1 &&
+				apiConfiguration.openRouterModelId in routerModels.openrouter,
+		},
+	)
 
-		const nightlyPkg = JSON.parse(
-			fs.readFileSync(path.join(__dirname, "..", "apps", "vscode-nightly", "package.nightly.json"), "utf8"),
+	// Update `apiModelId` whenever `selectedModelId` changes.
+	useEffect(() => {
+		if (isRetiredSelectedProvider) {
+			return
+		}
+
+		if (selectedModelId && apiConfiguration[apiModelIdKey] !== selectedModelId) {
+			// Pass false as third parameter to indicate this is not a user action
+			// This is an internal sync, not a user-initiated change
+			setApiConfigurationField(apiModelIdKey, selectedModelId, false)
+		}
+	}, [
+		selectedModelId,
+		apiModelIdKey,
+		setApiConfigurationField,
+		apiConfiguration.apiModelId,
+		isRetiredSelectedProvider,
+		apiConfiguration,
+	])
+
+	// Debounced refresh model updates, only executed 250ms after the user
+	// stops typing.
+	useDebounce(
+		() => {
+			if (selectedProvider === "costrict") {
+				// Use our custom headers state to build the headers object.
+				const headerObject = convertHeadersToObject(customHeaders)
+				vscode.postMessage({
+					type: "requestRouterModels",
+					values: {
+						baseUrl: apiConfiguration?.costrictBaseUrl?.trim() || (window as any).COSTRICT_BASE_URL,
+						apiKey: apiConfiguration?.costrictAccessToken,
+						customHeaders: {}, // Reserved for any additional headers
+						openAiHeaders: headerObject,
+					},
+				})
+			} else if (selectedProvider === "openai") {
+				// Use our custom headers state to build the headers object.
+				const headerObject = convertHeadersToObject(customHeaders)
+
+				vscode.postMessage({
+					type: "requestOpenAiModels",
+					values: {
+						baseUrl: apiConfiguration?.openAiBaseUrl,
+						apiKey: apiConfiguration?.openAiApiKey,
+						customHeaders: {}, // Reserved for any additional headers.
+						openAiHeaders: headerObject,
+					},
+				})
+			} else if (selectedProvider === "ollama") {
+				vscode.postMessage({ type: "requestOllamaModels" })
+			} else if (selectedProvider === "lmstudio") {
+				vscode.postMessage({ type: "requestLmStudioModels" })
+			} else if (selectedProvider === "vscode-lm") {
+				vscode.postMessage({ type: "requestVsCodeLmModels" })
+			} else if (
+				selectedProvider === "litellm" /* || selectedProvider === "roo" */ ||
+				selectedProvider === "poe"
+			) {
+				vscode.postMessage({ type: "requestRouterModels" })
+			}
+		},
+		250,
+		[
+			selectedProvider,
+			apiConfiguration?.requestyApiKey,
+			apiConfiguration?.openAiBaseUrl,
+			apiConfiguration?.openAiApiKey,
+			apiConfiguration?.ollamaBaseUrl,
+			apiConfiguration?.lmStudioBaseUrl,
+			apiConfiguration?.litellmBaseUrl,
+			apiConfiguration?.litellmApiKey,
+			apiConfiguration?.poeApiKey,
+			apiConfiguration?.poeBaseUrl,
+			customHeaders,
+		],
+	)
+
+	useEffect(() => {
+		if (isRetiredSelectedProvider) {
+			setErrorMessage(undefined)
+			return
+		}
+
+		const apiValidationResult = validateApiConfigurationExcludingModelErrors(
+			apiConfiguration,
+			routerModels,
+			organizationAllowList,
 		)
+		setErrorMessage(apiValidationResult)
+	}, [apiConfiguration, routerModels, organizationAllowList, setErrorMessage, isRetiredSelectedProvider])
 
-		define["process.env.COSTRICT_PKG_NAME"] = JSON.stringify(nightlyPkg.name)
-		define["process.env.COSTRICT_PKG_VERSION"] = JSON.stringify(nightlyPkg.version)
-		define["process.env.COSTRICT_PKG_OUTPUT_CHANNEL"] = JSON.stringify("Costrict-Nightly")
-	}
+	const onProviderChange = useCallback(
+		(value: ProviderName) => {
+			setApiConfigurationField("apiProvider", value)
 
-	const plugins: PluginOption[] = [
-		react({
-			babel: {
-				plugins: [["babel-plugin-react-compiler", { target: "18" }]],
-			},
-		}),
-		tailwindcss(),
-		persistPortPlugin(),
-		wasmPlugin(),
-		sourcemapPlugin(),
-	]
+			// It would be much easier to have a single attribute that stores
+			// the modelId, but we have a separate attribute for each of
+			// OpenRouter and Requesty.
+			// If you switch to one of these providers and the corresponding
+			// modelId is not set then you immediately end up in an error state.
+			// To address that we set the modelId to the default value for th
+			// provider if it's not already set.
+			const validateAndResetModel = (
+				provider: ProviderName,
+				modelId: string | undefined,
+				field: keyof ProviderSettings,
+				defaultValue?: string,
+			) => {
+				// in case we haven't set a default value for a provider
+				if (!defaultValue) return
 
-	return {
-		plugins,
-		resolve: {
-			alias: {
-				"@": resolve(__dirname, "./src"),
-				"@src": resolve(__dirname, "./src"),
-				"@roo": resolve(__dirname, "../src/shared"),
-			},
-		},
-		build: {
-			outDir,
-			emptyOutDir: true,
-			reportCompressedSize: false,
-			target: "es2022",
-			// Generate complete source maps with original TypeScript sources
-			sourcemap: mode !== "production",
-			// Ensure source maps are properly included in the build
-			minify: mode === "production" ? "esbuild" : false,
-			// Use a single combined CSS bundle so all webviews share styles
-			cssCodeSplit: false,
-			rollupOptions: {
-				// Externalize vscode module - it's imported by file-search.ts which is
-				// dynamically imported by roo-config/index.ts, but should never be bundled
-				// in the webview since it's not available in the browser context
-				external: ["vscode"],
-				input: {
-					index: resolve(__dirname, "index.html"),
+				// 1) If nothing is set, initialize to the provider default.
+				if (!modelId) {
+					setApiConfigurationField(field, defaultValue, false)
+					return
+				}
+
+				// 2) If something *is* set, ensure it's valid for the newly selected provider.
+				//
+				// Without this, switching providers can leave the UI showing a model from the
+				// previously selected provider (including model IDs that don't exist for the
+				// newly selected provider).
+				//
+				// Note: We only validate providers with static model lists.
+				const staticModels = MODELS_BY_PROVIDER[provider]
+				if (!staticModels) {
+					return
+				}
+
+				// Bedrock has a special “custom-arn” pseudo-model that isn't part of MODELS_BY_PROVIDER.
+				if (provider === "bedrock" && modelId === "custom-arn") {
+					return
+				}
+
+				const filteredModels = filterModels(staticModels, provider, organizationAllowList)
+				const isValidModel = !!filteredModels && Object.prototype.hasOwnProperty.call(filteredModels, modelId)
+				if (!isValidModel) {
+					setApiConfigurationField(field, defaultValue, false)
+				}
+			}
+
+			// Define a mapping object that associates each provider with its model configuration
+			const PROVIDER_MODEL_CONFIG: Partial<
+				Record<
+					ProviderName,
+					{
+						field: keyof ProviderSettings
+						default?: string
+					}
+				>
+			> = {
+				openrouter: { field: "openRouterModelId", default: openRouterDefaultModelId },
+				requesty: { field: "requestyModelId", default: requestyDefaultModelId },
+				unbound: { field: "unboundModelId", default: unboundDefaultModelId },
+				litellm: { field: "litellmModelId", default: litellmDefaultModelId },
+				anthropic: { field: "apiModelId", default: anthropicDefaultModelId },
+				"claude-code": { field: "apiModelId", default: claudeCodeDefaultModelId },
+				"openai-codex": { field: "apiModelId", default: openAiCodexDefaultModelId },
+				"qwen-code": { field: "apiModelId", default: qwenCodeDefaultModelId },
+				"openai-native": { field: "apiModelId", default: openAiNativeDefaultModelId },
+				gemini: { field: "apiModelId", default: geminiDefaultModelId },
+				deepseek: { field: "apiModelId", default: deepSeekDefaultModelId },
+				moonshot: { field: "apiModelId", default: moonshotDefaultModelId },
+				minimax: { field: "apiModelId", default: minimaxDefaultModelId },
+				mimo: { field: "apiModelId", default: mimoDefaultModelId },
+				mistral: { field: "apiModelId", default: mistralDefaultModelId },
+				xai: { field: "apiModelId", default: xaiDefaultModelId },
+				baseten: { field: "apiModelId", default: basetenDefaultModelId },
+				bedrock: { field: "apiModelId", default: bedrockDefaultModelId },
+				vertex: { field: "apiModelId", default: vertexDefaultModelId },
+				sambanova: { field: "apiModelId", default: sambaNovaDefaultModelId },
+				zai: {
+					field: "apiModelId",
+					default:
+						apiConfiguration.zaiApiLine === "china_coding"
+							? mainlandZAiDefaultModelId
+							: internationalZAiDefaultModelId,
 				},
-				output: {
-					entryFileNames: `assets/[name].js`,
-					chunkFileNames: (chunkInfo) => {
-						if (chunkInfo.name === "mermaid-bundle") {
-							return `assets/mermaid-bundle.js`
-						}
-						// Default naming for other chunks, ensuring uniqueness from entry
-						return `assets/chunk-[hash].js`
-					},
-					assetFileNames: (assetInfo) => {
-						const name = assetInfo.name || ""
+				fireworks: { field: "apiModelId", default: fireworksDefaultModelId },
+				poe: { field: "apiModelId", default: poeDefaultModelId },
+				roo: { field: "apiModelId", default: rooDefaultModelId },
+				"vercel-ai-gateway": { field: "vercelAiGatewayModelId", default: vercelAiGatewayDefaultModelId },
+				openai: { field: "openAiModelId" },
+				costrict: { field: "costrictModelId" },
+				ollama: { field: "ollamaModelId" },
+				lmstudio: { field: "lmStudioModelId" },
+			}
 
-						// Force all CSS into a single predictable file used by both webviews
-						if (name.endsWith(".css")) {
-							return "assets/index.css"
-						}
+			const config = PROVIDER_MODEL_CONFIG[value]
+			if (config) {
+				validateAndResetModel(
+					value,
+					apiConfiguration[config.field] as string | undefined,
+					config.field,
+					config.default,
+				)
+			}
+		},
+		[setApiConfigurationField, apiConfiguration, organizationAllowList],
+	)
 
-						if (name.endsWith(".woff2") || name.endsWith(".woff") || name.endsWith(".ttf")) {
-							return "assets/fonts/[name][extname]"
-						}
-						// Ensure source maps are included in the build
-						if (name.endsWith(".map")) {
-							return "assets/[name]"
-						}
-						return "assets/[name][extname]"
-					},
-					manualChunks: (id, { getModuleInfo }) => {
-						// Consolidate all mermaid code and its direct large dependencies (like dagre)
-						// into a single chunk. The 'channel.js' error often points to dagre.
-						if (
-							id.includes("node_modules/mermaid") ||
-							id.includes("node_modules/dagre") || // dagre is a common dep for graph layout
-							id.includes("node_modules/cytoscape") // another potential graph lib
-							// Add other known large mermaid dependencies if identified
-						) {
-							return "mermaid-bundle"
-						}
+	const executeProviderChange = useCallback(
+		async (value: ProviderName) => {
+			// Show confirmation dialog when switching from costrict to other providers
+			if (!fromWelcomeView && selectedProvider === "costrict" && value !== "costrict") {
+				setPendingProviderChange(value)
+				setShowProviderChangeWarning(true)
+				return
+			}
 
-						// Check if the module is part of any explicitly defined mermaid-related dynamic import
-						// This is a more advanced check if simple path matching isn't enough.
-						const moduleInfo = getModuleInfo(id)
-						if (moduleInfo?.importers.some((importer) => importer.includes("node_modules/mermaid"))) {
-							return "mermaid-bundle"
-						}
-						if (
-							moduleInfo?.dynamicImporters.some((importer) => importer.includes("node_modules/mermaid"))
-						) {
-							return "mermaid-bundle"
-						}
-					},
-				},
-			},
+			// Execute the actual provider switching logic
+			onProviderChange(value)
 		},
-		server: {
-			hmr: {
-				host: "localhost",
-				protocol: "ws",
-			},
-			cors: {
-				origin: "*",
-				methods: "*",
-				allowedHeaders: "*",
-			},
-		},
-		define,
-		optimizeDeps: {
-			include: [
-				"mermaid",
-				"dagre", // Explicitly include dagre for pre-bundling
-				// Add other known large mermaid dependencies if identified
-			],
-			exclude: ["@vscode/codicons", "vscode-oniguruma", "shiki", "vscode"],
-		},
-		assetsInclude: ["**/*.wasm", "**/*.wav"],
-	}
-})
+		[selectedProvider, fromWelcomeView, onProviderChange],
+	)
+
+	const handleProviderChangeConfirm = useCallback(() => {
+		if (pendingProviderChange) {
+			onProviderChange(pendingProviderChange)
+			setCostrictCodeMode("vibe")
+			vscode.postMessage({
+				type: "costrictCodeMode",
+				text: "vibe",
+			})
+			vscode.postMessage({
+				type: "mode",
+				text: "code",
+			})
+			setPendingProviderChange(null)
+			setShowProviderChangeWarning(false)
+		}
+	}, [pendingProviderChange, onProviderChange, setCostrictCodeMode])
+
+	const modelValidationError = useMemo(() => {
+		return getModelValidationError(apiConfiguration, routerModels, organizationAllowList)
+	}, [apiConfiguration, routerModels, organizationAllowList])
+
+	// const docs = useMemo(() => {
+	// 	const provider = PROVIDERS.find(({ value }) => value === selectedProvider)
+	// 	const name = provider?.label
+
+	// 	if (!name) {
+	// 		return undefined
+	// 	}
+
+	// 	// Get the URL slug - use custom mapping if available, otherwise use the provider key.
+	// 	const slugs: Record<string, string> = {
+	// 		"openai-native": "openai",
+	// 		openai: "openai-compatible",
+	// 	}
+
+	// 	const slug = slugs[selectedProvider] || selectedProvider
+	// 	return {
+	// 		url: buildDocLink(`providers/${slug}`, "provider_docs"),
+	// 		name,
+	// 	}
+	// }, [selectedProvider])
+
+	// const defaultProtocol =
+	// 	selectedModelInfo?.defaultToolProtocol ??
+	// 	(selectedProvider === "costrict" ? TOOL_PROTOCOL.XML : TOOL_PROTOCOL.NATIVE)
+	// const showToolProtocolSelector = selectedModelInfo?.supportsNativeTools ?? true
+	// Convert providers to SearchableSelect options
+	const providerOptions = useMemo(() => {
+		// First filter by organization allow list
+		const allowedProviders = filterProviders(PROVIDERS, organizationAllowList)
+
+		// Then filter out static providers that have no models (unless currently selected)
+		const providersWithModels = allowedProviders.filter(({ value }) => {
+			// Always show the currently selected provider to avoid breaking existing configurations
+			// Use apiConfiguration.apiProvider directly since that's what's actually selected
+			if (value === apiConfiguration.apiProvider) {
+				return true
+			}
+
+			// Check if this is a static provider (has models in MODELS_BY_PROVIDER)
+			const staticModels = MODELS_BY_PROVIDER[value as ProviderName]
+
+			// If it's a static provider, check if it has any models after filtering
+			if (staticModels) {
+				const filteredModels = filterModels(staticModels, value as ProviderName, organizationAllowList)
+				// Hide the provider if it has no models after filtering
+				return filteredModels && Object.keys(filteredModels).length > 0
+			}
+
+			// If it's a dynamic provider (not in MODELS_BY_PROVIDER), always show it
+			// to avoid race conditions with async model fetching
+			return true
+		})
+
+		const options = providersWithModels.map(({ value, label }) => ({
+			value,
+			label,
+		}))
+		// Pin "costrict" to the top if not on welcome screen
+		if (!fromWelcomeView) {
+			const costrictIndex = options.findIndex((opt) => opt.value === "costrict")
+			if (costrictIndex > 0) {
+				const [rooOption] = options.splice(costrictIndex, 1)
+				options.unshift(rooOption)
+			}
+		} else {
+			// Filter out roo from the welcome view
+			const filteredOptions = options.filter((opt) => opt.value !== "roo")
+			options.length = 0
+			options.push(...filteredOptions)
+
+			const openRouterIndex = options.findIndex((opt) => opt.value === "openrouter")
+			const costrictIndex = options.findIndex((opt) => opt.value === "costrict")
+			if (openRouterIndex > 0) {
+				options.splice(costrictIndex, 1)
+			}
+		}
+
+		return options
+	}, [organizationAllowList, apiConfiguration.apiProvider, fromWelcomeView])
+
+	return (
+		<div className="flex flex-col gap-3">
+			<div className="flex flex-col gap-1 relative">
+				<div className="flex justify-between items-center">
+					<label className="block font-medium mb-1">{t("settings:providers.apiProvider")}</label>
+					{/* {docs && (
+						<div className="text-xs text-vscode-descriptionForeground">
+							<VSCodeLink href={docs.url} className="hover:text-vscode-foreground" target="_blank">
+								{t("settings:providers.providerDocumentation", { provider: docs.name })}
+							</VSCodeLink>
+						</div>
+					)} */}
+				</div>
+				<SearchableSelect
+					value={selectedProvider}
+					onValueChange={(value) => executeProviderChange(value as ProviderName)}
+					options={providerOptions}
+					placeholder={t("settings:common.select")}
+					searchPlaceholder={t("settings:providers.searchProviderPlaceholder")}
+					emptyMessage={t("settings:providers.noProviderMatchFound")}
+					className="w-full"
+					data-testid="provider-select"
+				/>
+			</div>
+
+			{errorMessage && <ApiErrorMessage errorMessage={errorMessage} />}
+			{isRetiredSelectedProvider ? (
+				<div
+					className="rounded-md border border-vscode-panel-border px-3 py-2 text-sm text-vscode-descriptionForeground"
+					data-testid="retired-provider-message">
+					{t("settings:providers.retiredProviderMessage")}
+				</div>
+			) : (
+				<>
+					{!fromWelcomeView && selectedProvider === "costrict" && (
+						<CostrictAI
+							debug={costrictDebugModeBuildEnabled && debug}
+							fromWelcomeView={fromWelcomeView}
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							organizationAllowList={organizationAllowList}
+							modelValidationError={modelValidationError}
+							useCostrictCustomConfig={
+								costrictDebugModeBuildEnabled &&
+								debug &&
+								useCostrictCustomConfig === true &&
+								apiConfiguration.costrictCustomConfigConsentVersion ===
+									COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION
+							}
+							setCachedStateField={setCachedStateField}
+							refetchRouterModels={refetchRouterModels}
+						/>
+					)}
+					{selectedProvider === "claude-code" && (
+						<ClaudeCode
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							simplifySettings={fromWelcomeView}
+							claudeCodeIsAuthenticated={claudeCodeIsAuthenticated}
+						/>
+					)}
+					{selectedProvider === "openrouter" && (
+						<OpenRouter
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							routerModels={routerModels}
+							selectedModelId={selectedModelId}
+							uriScheme={uriScheme}
+							simplifySettings={fromWelcomeView}
+							organizationAllowList={organizationAllowList}
+							modelValidationError={modelValidationError}
+						/>
+					)}
+
+					{selectedProvider === "requesty" && (
+						<Requesty
+							uriScheme={uriScheme}
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							routerModels={routerModels}
+							refetchRouterModels={refetchRouterModels}
+							organizationAllowList={organizationAllowList}
+							modelValidationError={modelValidationError}
+							simplifySettings={fromWelcomeView}
+						/>
+					)}
+
+					{selectedProvider === "unbound" && (
+						<Unbound
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							routerModels={routerModels}
+							refetchRouterModels={refetchRouterModels}
+							organizationAllowList={organizationAllowList}
+							modelValidationError={modelValidationError}
+							simplifySettings={fromWelcomeView}
+						/>
+					)}
+
+					{selectedProvider === "anthropic" && (
+						<Anthropic
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							simplifySettings={fromWelcomeView}
+						/>
+					)}
+
+					{selectedProvider === "openai-codex" && (
+						<OpenAICodex
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							simplifySettings={fromWelcomeView}
+							openAiCodexIsAuthenticated={openAiCodexIsAuthenticated}
+						/>
+					)}
+
+					{selectedProvider === "openai-native" && (
+						<OpenAI
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							selectedModelInfo={selectedModelInfo}
+							simplifySettings={fromWelcomeView}
+						/>
+					)}
+
+					{selectedProvider === "mistral" && (
+						<Mistral
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							simplifySettings={fromWelcomeView}
+						/>
+					)}
+
+					{selectedProvider === "baseten" && (
+						<Baseten
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							simplifySettings={fromWelcomeView}
+						/>
+					)}
+
+					{selectedProvider === "bedrock" && (
+						<Bedrock
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							selectedModelInfo={selectedModelInfo}
+							simplifySettings={fromWelcomeView}
+						/>
+					)}
+
+					{selectedProvider === "vertex" && (
+						<Vertex
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+						/>
+					)}
+
+					{selectedProvider === "gemini" && (
+						<Gemini
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+						/>
+					)}
+
+					{selectedProvider === "openai" && (
+						<OpenAICompatible
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							organizationAllowList={organizationAllowList}
+							modelValidationError={modelValidationError}
+							simplifySettings={fromWelcomeView}
+						/>
+					)}
+
+					{selectedProvider === "lmstudio" && (
+						<LMStudio
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+						/>
+					)}
+
+					{selectedProvider === "deepseek" && (
+						<DeepSeek
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							simplifySettings={fromWelcomeView}
+						/>
+					)}
+
+					{selectedProvider === "qwen-code" && (
+						<QwenCode
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							simplifySettings={fromWelcomeView}
+						/>
+					)}
+
+					{selectedProvider === "moonshot" && (
+						<Moonshot
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							simplifySettings={fromWelcomeView}
+						/>
+					)}
+
+					{selectedProvider === "minimax" && (
+						<MiniMax
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+						/>
+					)}
+
+					{selectedProvider === "mimo" && (
+						<Mimo apiConfiguration={apiConfiguration} setApiConfigurationField={setApiConfigurationField} />
+					)}
+
+					{selectedProvider === "vscode-lm" && (
+						<VSCodeLM
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+						/>
+					)}
+
+					{selectedProvider === "ollama" && (
+						<Ollama
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+						/>
+					)}
+
+					{selectedProvider === "xai" && (
+						<XAI apiConfiguration={apiConfiguration} setApiConfigurationField={setApiConfigurationField} />
+					)}
+
+					{selectedProvider === "litellm" && (
+						<LiteLLM
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							organizationAllowList={organizationAllowList}
+							modelValidationError={modelValidationError}
+							simplifySettings={fromWelcomeView}
+						/>
+					)}
+
+					{selectedProvider === "sambanova" && (
+						<SambaNova
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+						/>
+					)}
+
+					{selectedProvider === "zai" && (
+						<ZAi apiConfiguration={apiConfiguration} setApiConfigurationField={setApiConfigurationField} />
+					)}
+
+					{selectedProvider === "vercel-ai-gateway" && (
+						<VercelAiGateway
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							routerModels={routerModels}
+							organizationAllowList={organizationAllowList}
+							modelValidationError={modelValidationError}
+							simplifySettings={fromWelcomeView}
+						/>
+					)}
+
+					{selectedProvider === "fireworks" && (
+						<Fireworks
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+						/>
+					)}
+					{selectedProvider === "poe" && (
+						<Poe
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							organizationAllowList={organizationAllowList}
+							modelValidationError={modelValidationError}
+							simplifySettings={fromWelcomeView}
+						/>
+					)}
+					{/* {selectedProvider === "roo" && (
+						<Roo
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							routerModels={routerModels}
+							cloudIsAuthenticated={cloudIsAuthenticated}
+							organizationAllowList={organizationAllowList}
+							modelValidationError={modelValidationError}
+							simplifySettings={fromWelcomeView}
+						/>
+					)} */}
+
+					{/* Generic model picker for providers with static models */}
+					{activeSelectedProvider && shouldUseGenericModelPicker(activeSelectedProvider) && (
+						<>
+							<ModelPicker
+								apiConfiguration={apiConfiguration}
+								setApiConfigurationField={setApiConfigurationField}
+								defaultModelId={getDefaultModelIdForProvider(activeSelectedProvider, apiConfiguration)}
+								models={getStaticModelsForProvider(
+									activeSelectedProvider,
+									t("settings:labels.useCustomArn"),
+								)}
+								modelIdKey="apiModelId"
+								serviceName={getProviderServiceConfig(activeSelectedProvider).serviceName}
+								serviceUrl={getProviderServiceConfig(activeSelectedProvider).serviceUrl}
+								organizationAllowList={organizationAllowList}
+								errorMessage={modelValidationError}
+								simplifySettings={fromWelcomeView}
+								onModelChange={(modelId) =>
+									handleModelChangeSideEffects(
+										activeSelectedProvider,
+										modelId,
+										setApiConfigurationField,
+									)
+								}
+							/>
+
+							{selectedProvider === "bedrock" && selectedModelId === "custom-arn" && (
+								<BedrockCustomArn
+									apiConfiguration={apiConfiguration}
+									setApiConfigurationField={setApiConfigurationField}
+								/>
+							)}
+						</>
+					)}
+
+					{!fromWelcomeView && (
+						<ThinkingBudget
+							key={`${selectedProvider}-${selectedModelId}`}
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							modelInfo={selectedModelInfo}
+						/>
+					)}
+
+					{/* Gate Verbosity UI by capability flag */}
+					{!fromWelcomeView && selectedModelInfo?.supportsVerbosity && (
+						<Verbosity
+							apiConfiguration={apiConfiguration}
+							setApiConfigurationField={setApiConfigurationField}
+							modelInfo={selectedModelInfo}
+						/>
+					)}
+
+					{!fromWelcomeView && (
+						<Collapsible open={isAdvancedSettingsOpen} onOpenChange={setIsAdvancedSettingsOpen}>
+							<CollapsibleTrigger className="flex items-center gap-1 w-full cursor-pointer hover:opacity-80 mb-2">
+								<span
+									className={`codicon codicon-chevron-${isAdvancedSettingsOpen ? "down" : "right"}`}></span>
+								<span className="font-medium">{t("settings:advancedSettings.title")}</span>
+							</CollapsibleTrigger>
+							<CollapsibleContent className="space-y-3">
+								<TodoListSettingsControl
+									todoListEnabled={apiConfiguration.todoListEnabled}
+									onChange={(field, value) => setApiConfigurationField(field, value)}
+								/>
+								{selectedModelInfo?.supportsTemperature !== false && (
+									<TemperatureControl
+										value={apiConfiguration.modelTemperature}
+										onChange={handleInputChange("modelTemperature", noTransform)}
+										maxValue={2}
+										defaultValue={selectedModelInfo?.defaultTemperature}
+									/>
+								)}
+								<RateLimitSecondsControl
+									value={apiConfiguration.rateLimitSeconds ?? 1}
+									onChange={(value) => setApiConfigurationField("rateLimitSeconds", value)}
+								/>
+								<ConsecutiveMistakeLimitControl
+									value={
+										apiConfiguration.consecutiveMistakeLimit !== undefined
+											? apiConfiguration.consecutiveMistakeLimit
+											: DEFAULT_CONSECUTIVE_MISTAKE_LIMIT
+									}
+									onChange={(value) => setApiConfigurationField("consecutiveMistakeLimit", value)}
+								/>
+								{selectedProvider === "poe" && (
+									<VSCodeTextField
+										value={apiConfiguration?.poeBaseUrl || ""}
+										onInput={handleInputChange("poeBaseUrl")}
+										placeholder="https://api.poe.com/v1"
+										className="w-full">
+										<label className="block font-medium mb-1">
+											{t("settings:providers.poeBaseUrl")}
+										</label>
+									</VSCodeTextField>
+								)}
+								{selectedProvider === "openrouter" &&
+									openRouterModelProviders &&
+									Object.keys(openRouterModelProviders).length > 0 && (
+										<div>
+											<div className="flex items-center gap-1">
+												<label className="block font-medium mb-1">
+													{t("settings:providers.openRouter.providerRouting.title")}
+												</label>
+												<a href={`https://openrouter.ai/${selectedModelId}/providers`}>
+													<ExternalLinkIcon className="w-4 h-4" />
+												</a>
+											</div>
+											<Select
+												value={
+													apiConfiguration?.openRouterSpecificProvider ||
+													OPENROUTER_DEFAULT_PROVIDER_NAME
+												}
+												onValueChange={(value) =>
+													setApiConfigurationField("openRouterSpecificProvider", value)
+												}>
+												<SelectTrigger className="w-full">
+													<SelectValue placeholder={t("settings:common.select")} />
+												</SelectTrigger>
+												<SelectContent>
+													<SelectItem value={OPENROUTER_DEFAULT_PROVIDER_NAME}>
+														{OPENROUTER_DEFAULT_PROVIDER_NAME}
+													</SelectItem>
+													{Object.entries(openRouterModelProviders).map(
+														([value, { label }]) => (
+															<SelectItem key={value} value={value}>
+																{label}
+															</SelectItem>
+														),
+													)}
+												</SelectContent>
+											</Select>
+											<div className="text-sm text-vscode-descriptionForeground mt-1">
+												{t("settings:providers.openRouter.providerRouting.description")}{" "}
+												<a href="https://openrouter.ai/docs/features/provider-routing">
+													{t("settings:providers.openRouter.providerRouting.learnMore")}.
+												</a>
+											</div>
+										</div>
+									)}
+							</CollapsibleContent>
+						</Collapsible>
+					)}
+				</>
+			)}
+			<ProviderChangeWarningDialog
+				open={showProviderChangeWarning}
+				onOpenChange={setShowProviderChangeWarning}
+				onConfirm={handleProviderChangeConfirm}
+			/>
+		</div>
+	)
+}
+
+export default memo(ApiOptions)

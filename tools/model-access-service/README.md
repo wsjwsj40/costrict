@@ -9,6 +9,12 @@
 - `GET /admin/`：内嵌管理页面。
 
 管理页面使用 `admin.token` 登录。页面对数据库的修改通过同源、受管理员令牌保护的内部接口完成。
+
+配置 `gateway.permissionUrl` 后，单个或批量修改用户套餐、删除用户套餐配置时，
+服务会先调用网关权限接口。`gateway.completionModel` 会固定加入网关模型列表，且自动去重；
+网关同步失败时套餐修改不会写入数据库。对应环境变量为
+`MODEL_GATEWAY_PERMISSION_URL`、`MODEL_GATEWAY_TOKEN`、
+`MODEL_GATEWAY_COMPLETION_MODEL` 和 `MODEL_GATEWAY_TIMEOUT_SECONDS`。
 用户权限页面支持多行邮箱分配、CSV 导入、列表多选后批量变更套餐，以及
 批量删除显式配置。批量设置为默认 Free 套餐也会删除显式配置。
 
