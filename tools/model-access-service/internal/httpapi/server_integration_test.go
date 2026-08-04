@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -95,6 +96,73 @@ func TestModelListUsesEmailPlanAndNeverReturnsAuto(t *testing.T) {
 				t.Fatalf("%s got %v, want %v", test.email, got, test.want)
 			}
 		}
+	}
+}
+
+func TestFirstModelListRequestRegistersFreeUserAndQueuesOneSync(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	data, err := store.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "001_init.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := data.Migrate(ctx, string(migration)); err != nil {
+		t.Fatal(err)
+	}
+
+	email := fmt.Sprintf("new-free-%d@example.com", time.Now().UnixNano())
+	authenticator, sign := integrationAuthenticator(t)
+	server := httptest.NewServer(New(data, authenticator, "admin-secret").Handler())
+	defer server.Close()
+
+	requestModels := func() {
+		request, _ := http.NewRequest(http.MethodGet, server.URL+"/ai-gateway/api/v1/models", nil)
+		request.Header.Set("Authorization", "Bearer "+sign(email))
+		response, requestErr := http.DefaultClient.Do(request)
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("model list status = %d", response.StatusCode)
+		}
+	}
+
+	requestModels()
+	state, err := data.AdminState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, user := range state.Users {
+		if user.Email == email && user.PlanCode == "free" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("new user %s was not registered as free", email)
+	}
+	if len(state.SyncTasks) == 0 || state.SyncTasks[0].Reason != "new user assigned to default plan" {
+		t.Fatalf("initial sync task was not created: %#v", state.SyncTasks)
+	}
+	initialTaskID := state.SyncTasks[0].ID
+
+	requestModels()
+	state, err = data.AdminState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.SyncTasks) == 0 || state.SyncTasks[0].ID != initialTaskID {
+		t.Fatalf("repeat model list request created another sync task: %#v", state.SyncTasks)
 	}
 }
 

@@ -147,6 +147,28 @@ func (s *Store) VisibleModels(ctx context.Context, email string) ([]map[string]a
 	return result, rows.Err()
 }
 
+// EnsureDefaultUser records a previously unseen user in the default plan. The
+// boolean result is true only for the request that created the row, allowing
+// callers to enqueue one initial gateway synchronization without duplicates.
+func (s *Store) EnsureDefaultUser(ctx context.Context, email string) (string, bool, error) {
+	normalized, err := NormalizeEmails([]string{email})
+	if err != nil {
+		return "", false, err
+	}
+	planCode, err := s.DefaultPlanCode(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	tag, err := s.db.Exec(ctx, `
+		INSERT INTO model_access_user(email, plan_code)
+		VALUES($1, $2)
+		ON CONFLICT (email) DO NOTHING`, normalized[0], planCode)
+	if err != nil {
+		return "", false, err
+	}
+	return planCode, tag.RowsAffected() == 1, nil
+}
+
 func (s *Store) AdminState(ctx context.Context) (AdminState, error) {
 	state := AdminState{Models: []Model{}, Plans: []Plan{}, Users: []UserPermission{}, SyncTasks: []SyncTask{}}
 	rows, err := s.db.Query(ctx, "SELECT id, public_info, enabled, sort_order FROM model_access_catalog ORDER BY sort_order, id")

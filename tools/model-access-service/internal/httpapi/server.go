@@ -69,10 +69,22 @@ func (s *Server) models(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
 		return
 	}
+	planCode, created, err := s.store.EnsureDefaultUser(r.Context(), email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "database_error", "failed to register model access user")
+		return
+	}
 	models, err := s.store.VisibleModels(r.Context(), email)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database_error", "failed to load models")
 		return
+	}
+	if created {
+		if _, err := s.enqueueUsers(r.Context(), "new user assigned to default plan", []string{email}, planCode); err != nil {
+			// Registration and the visible model response remain valid. Keep this
+			// request available while making a failed queue insertion observable.
+			slog.Error("enqueue initial gateway permission sync", "email", email, "error", err)
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"code": 0, "message": "success", "data": models})
 }
