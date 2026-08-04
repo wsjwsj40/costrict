@@ -145,7 +145,11 @@ import { ModelFallbackManager } from "./ModelFallbackManager"
 import { refreshModels } from "../../api/providers/fetchers/modelCache"
 import { mergeConsecutiveApiMessages } from "./mergeConsecutiveApiMessages"
 import { resolveToolAlias } from "../prompts/tools/filter-tools-for-mode"
-import { isForbiddenModelRequest, selectPermissionReplacementModel } from "./modelPermissionRecovery"
+import {
+	describeModelPermissionError,
+	isForbiddenModelRequest,
+	selectPermissionReplacementModel,
+} from "./modelPermissionRecovery"
 
 const MAX_EXPONENTIAL_BACKOFF_SECONDS = 600 // 10 minutes
 const DEFAULT_USAGE_COLLECTION_TIMEOUT_MS = 5000 // 5 seconds
@@ -4944,6 +4948,11 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			yield firstChunk.value
 			this.isWaitingForFirstChunk = false
 		} catch (error) {
+			this.providerRef
+				.deref()
+				?.log(
+					`[ModelPermissionRecovery] first-chunk error provider=${this.apiConfiguration.apiProvider} attempted=${Boolean(options.permissionRefreshAttempted)} forbidden=${isForbiddenModelRequest(error)} error=${describeModelPermissionError(error)}`,
+				)
 			if (
 				this.apiConfiguration.apiProvider === "costrict" &&
 				!options.permissionRefreshAttempted &&
@@ -5047,7 +5056,29 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// it's saying "yield all remaining values from this iterator". This
 		// effectively passes along all subsequent chunks from the original
 		// stream.
-		yield* iterator
+		try {
+			yield* iterator
+		} catch (error) {
+			this.providerRef
+				.deref()
+				?.log(
+					`[ModelPermissionRecovery] downstream-stream error provider=${this.apiConfiguration.apiProvider} attempted=${Boolean(options.permissionRefreshAttempted)} forbidden=${isForbiddenModelRequest(error)} error=${describeModelPermissionError(error)}`,
+				)
+			if (
+				this.apiConfiguration.apiProvider === "costrict" &&
+				!options.permissionRefreshAttempted &&
+				isForbiddenModelRequest(error) &&
+				(await this.refreshForbiddenCostrictModel())
+			) {
+				this.currentRequestAbortController = undefined
+				yield* this.attemptApiRequest(retryAttempt, {
+					skipProviderRateLimit: true,
+					permissionRefreshAttempted: true,
+				})
+				return
+			}
+			throw error
+		}
 	}
 
 	private async refreshForbiddenCostrictModel(): Promise<boolean> {
@@ -5056,16 +5087,37 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 		const state = await provider.getState()
 		const currentModel = this.apiConfiguration.costrictModelId
-		const models = await refreshModels({
-			provider: "costrict",
-			baseUrl: this.apiConfiguration.costrictBaseUrl,
-			apiKey: this.apiConfiguration.costrictAccessToken,
-			openAiHeaders: this.apiConfiguration.openAiHeaders,
-		})
+		const latestConfiguration = state.apiConfiguration
+		provider.log(`[ModelPermissionRecovery] 403 detected, currentModel=${currentModel || "-"}`)
+
+		let models
+		try {
+			models = await refreshModels(
+				{
+					provider: "costrict",
+					baseUrl: latestConfiguration.costrictBaseUrl,
+					apiKey: latestConfiguration.costrictAccessToken,
+					openAiHeaders: latestConfiguration.openAiHeaders,
+				},
+				{ fallbackToCacheOnError: false },
+			)
+		} catch (error) {
+			provider.log(
+				`[ModelPermissionRecovery] model refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+			)
+			return false
+		}
 		const modelIds = Object.keys(models)
+		provider.log(`[ModelPermissionRecovery] refreshedModels=${JSON.stringify(modelIds)}`)
 		const nextModel = selectPermissionReplacementModel(models, currentModel)
-		if (!nextModel) return false
-		const nextConfiguration = { ...this.apiConfiguration, costrictModelId: nextModel }
+		if (!nextModel) {
+			provider.log(
+				`[ModelPermissionRecovery] no replacement selected; current model is still allowed or the model list is empty`,
+			)
+			return false
+		}
+		provider.log(`[ModelPermissionRecovery] switching ${currentModel || "-"} -> ${nextModel}`)
+		const nextConfiguration = { ...latestConfiguration, costrictModelId: nextModel }
 		if (state.currentApiConfigName) {
 			await provider.upsertProviderProfile(state.currentApiConfigName, nextConfiguration)
 		}
@@ -5075,7 +5127,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			openAiModels: modelIds,
 			fullResponseData: Object.entries(models).map(([id, info]) => ({ id, ...info })),
 		})
-		vscode.window.showInformationMessage(t("chat:modelAutoSwitched", { from: currentModel || "-", to: nextModel }))
+		vscode.window.showInformationMessage(
+			t("common:modelAutoSwitched", { from: currentModel || "-", to: nextModel }),
+		)
 		return true
 	}
 

@@ -261,6 +261,7 @@
 		"label": "Docs",
 		"url": "https://docs.roocode.com"
 	},
+	"modelAutoSwitched": "原模型 {{from}} 已下線，已自動切換為 {{to}}。",
 	"smartMistakeDetector": {
 		"errorCountNearLimit": "錯誤數量接近上限（{{count}} 次錯誤，加權分數：{{weightedScore}}/{{baseLimit}}）",
 		"warningHighErrorCount": "警告：錯誤數量較高，請檢查操作（{{count}} 次錯誤，加權分數：{{weightedScore}}/{{baseLimit}}）",

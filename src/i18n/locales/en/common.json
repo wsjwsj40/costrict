@@ -253,6 +253,7 @@
 		"label": "Docs",
 		"url": "https://docs.roocode.com"
 	},
+	"modelAutoSwitched": "Model {{from}} is no longer available; switched to {{to}}.",
 	"smartMistakeDetector": {
 		"errorCountNearLimit": "Error count near limit ({{count}} errors, weighted score: {{weightedScore}}/{{baseLimit}})",
 		"warningHighErrorCount": "Warning: High error count, please check operations ({{count}} errors, weighted score: {{weightedScore}}/{{baseLimit}})",

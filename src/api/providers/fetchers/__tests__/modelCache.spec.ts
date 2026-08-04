@@ -450,6 +450,25 @@ describe("empty cache protection", () => {
 			expect(result).toEqual(existingModels)
 		})
 
+		it("does not return stale cache when strict refresh fails", async () => {
+			const existingModels = {
+				"costrict/revoked-model": {
+					maxTokens: 8192,
+					contextWindow: 128000,
+					supportsPromptCache: false,
+					description: "Previously allowed model",
+				},
+			}
+
+			mockGet.mockReturnValue(existingModels)
+			mockGetCostrictModels.mockRejectedValue(new Error("permission list unavailable"))
+
+			const { refreshModels } = await import("../modelCache")
+			await expect(refreshModels({ provider: "costrict" }, { fallbackToCacheOnError: false })).rejects.toThrow(
+				"permission list unavailable",
+			)
+		})
+
 		it("returns empty object when API errors and no cache exists", async () => {
 			mockGet.mockReturnValue(undefined)
 			mockGetOpenRouterModels.mockRejectedValue(new Error("API error"))
