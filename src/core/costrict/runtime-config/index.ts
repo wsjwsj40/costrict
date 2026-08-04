@@ -36,6 +36,11 @@ const DEFAULT_RUNTIME_READY_WAIT_MS = 2_000
 const EXTENDED_RUNTIME_READY_WAIT_MS = 60_000
 const logger = createLogger(Package.outputChannel)
 
+export const canReuseCompletionService = (
+	service: CostrictWellKnownService | undefined,
+	runningPids: number[],
+): boolean => Boolean(service?.port && service.status !== "stopped" && runningPids.length > 0)
+
 export const readCostrictWellKnownConfig = (): CostrictWellKnownConfig => {
 	try {
 		const wellKnownPath = path.join(os.homedir(), ".costrict", "share", ".well-known.json")
@@ -169,8 +174,14 @@ const spawnDetached = (
 
 export const ensureCompletionRuntimeReady = async (): Promise<void> => {
 	const existingService = getCompletionAgentServiceConfig()
-	if (existingService?.port && existingService.status !== "stopped") {
+	const existingCompletionPids = await processIsRunning(COMPLETION_AGENT_NAME)
+	if (canReuseCompletionService(existingService, existingCompletionPids)) {
 		return
+	}
+	if (existingService?.port && existingService.status !== "stopped") {
+		logger.warn(
+			`[runtime-config] ignoring stale completion-agent service entry on port ${existingService.port}; no matching process is running`,
+		)
 	}
 
 	const { ensureCostrictRuntimeInstalled, getRuntimeBinaryPath } = await import("./runtimeInstaller")
