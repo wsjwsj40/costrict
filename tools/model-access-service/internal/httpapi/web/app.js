@@ -31,6 +31,9 @@ function render() {
 	const { models, plans, users, syncTasks = [] } = state.data
 	$("#metric-models").textContent = models.filter((m) => m.enabled).length
 	$("#metric-plans").textContent = plans.length
+	$("#metric-plan-names").textContent = plans.map((p) => p.name).join(" / ") || "-"
+	const defaultPlan = plans.find((p) => p.isDefault)
+	$("#metric-default-plan").textContent = defaultPlan ? `新用户默认 ${defaultPlan.name}` : "尚未设置默认套餐"
 	$("#metric-users").textContent = users.length
 	$("#metric-sync").textContent = syncTasks.filter((task) => ["pending", "running"].includes(task.status)).length
 
@@ -79,8 +82,9 @@ function render() {
 	$("#plan-cards").innerHTML = plans
 		.map(
 			(p) => `<article class="plan-card ${p.code === "pro" ? "pro" : ""}">
-    <div class="plan-name">${escapeHTML(p.name)}</div>
-    <div class="plan-meta">${p.isDefault ? "默认套餐 · " : ""}${p.modelIds.length} 个可见模型</div>
+	<div class="plan-card-head"><div><div class="plan-name">${escapeHTML(p.name)}</div><small>${escapeHTML(p.code)}</small></div>
+	<div class="row-actions"><button data-edit-plan="${attr(p.code)}">编辑</button>${p.isDefault ? "" : `<button class="danger" data-delete-plan="${attr(p.code)}">删除</button>`}</div></div>
+	<div class="plan-meta">${p.isDefault ? "默认套餐 · " : ""}${p.modelIds.length} 个可见模型</div>
     <div class="model-checks">${models.map((m) => `<label><input type="checkbox" data-plan="${attr(p.code)}" value="${attr(m.id)}" ${p.modelIds.includes(m.id) ? "checked" : ""} ${!m.enabled ? "disabled" : ""}> ${escapeHTML(m.publicInfo.name || m.id)}</label>`).join("") || "<span class='muted'>请先添加模型</span>"}</div>
     <button class="primary" data-save-plan="${attr(p.code)}">保存 ${escapeHTML(p.name)} 权限</button>
   </article>`,
@@ -95,7 +99,6 @@ function render() {
 		.map((p) => `<option value="${attr(p.code)}">${escapeHTML(p.name)}</option>`)
 		.join("")
 	$("#batch-user-form select").innerHTML = plans
-		.filter((p) => !p.isDefault)
 		.map((p) => `<option value="${attr(p.code)}">${escapeHTML(p.name)}</option>`)
 		.join("")
 }
@@ -206,6 +209,34 @@ function openUser(user = null) {
 	$("#user-dialog").showModal()
 }
 
+function openPlan(plan = null) {
+	const form = $("#plan-form")
+	clearOperationError($("#plan-dialog"))
+	form.reset()
+	form.dataset.editing = plan ? "true" : "false"
+	form.elements.code.readOnly = Boolean(plan)
+	form.elements.isDefault.disabled = Boolean(plan?.isDefault)
+	if (plan) {
+		form.elements.code.value = plan.code
+		form.elements.name.value = plan.name
+		form.elements.isDefault.checked = plan.isDefault
+	}
+	$("#plan-dialog").showModal()
+}
+
+function openDeletePlan(plan) {
+	const form = $("#delete-plan-form")
+	clearOperationError($("#delete-plan-dialog"))
+	form.reset()
+	form.elements.code.value = plan.code
+	$("#delete-plan-message").textContent = `确认删除套餐 ${plan.name}（${plan.code}）？`
+	form.elements.replacementPlanCode.innerHTML = state.data.plans
+		.filter((candidate) => candidate.code !== plan.code)
+		.map((candidate) => `<option value="${attr(candidate.code)}">${escapeHTML(candidate.name)}</option>`)
+		.join("")
+	$("#delete-plan-dialog").showModal()
+}
+
 function openBatchUsers() {
 	const form = $("#batch-user-form")
 	clearOperationError($("#batch-user-dialog"))
@@ -248,6 +279,7 @@ $("#refresh").addEventListener("click", async () => {
 	toast("数据已刷新")
 })
 $("#add-model").addEventListener("click", () => openModel())
+$("#add-plan").addEventListener("click", () => openPlan())
 $("#add-user").addEventListener("click", () => openUser())
 $("#batch-add-users").addEventListener("click", openBatchUsers)
 $("#user-search").addEventListener("input", renderUsers)
@@ -324,6 +356,37 @@ $("#model-form").addEventListener("submit", async (e) => {
 	toast("模型已保存")
 })
 
+$("#plan-form").addEventListener("submit", async (e) => {
+	e.preventDefault()
+	const f = e.currentTarget
+	const code = f.elements.code.value.trim().toLowerCase()
+	const editing = f.dataset.editing === "true"
+	await api(editing ? `/plans/${encodeURIComponent(code)}` : "/plans", {
+		method: editing ? "PUT" : "POST",
+		body: JSON.stringify({
+			...(editing ? {} : { code }),
+			name: f.elements.name.value.trim(),
+			isDefault: f.elements.isDefault.checked,
+		}),
+	})
+	f.closest("dialog").close()
+	await load()
+	toast(editing ? "套餐已更新" : "套餐已创建，请配置可见模型")
+})
+
+$("#delete-plan-form").addEventListener("submit", async (e) => {
+	e.preventDefault()
+	const f = e.currentTarget
+	const code = f.elements.code.value
+	const result = await api(`/plans/${encodeURIComponent(code)}`, {
+		method: "DELETE",
+		body: JSON.stringify({ replacementPlanCode: f.elements.replacementPlanCode.value }),
+	})
+	f.closest("dialog").close()
+	await load()
+	toast(`套餐已删除，已迁移 ${result.migratedCount} 个用户`)
+})
+
 $("#user-form").addEventListener("submit", async (e) => {
 	e.preventDefault()
 	const f = e.currentTarget
@@ -372,6 +435,8 @@ document.addEventListener("click", async (e) => {
 	const button = e.target.closest("button")
 	if (!button) return
 	if (button.dataset.editModel) openModel(state.data.models.find((m) => m.id === button.dataset.editModel))
+	if (button.dataset.editPlan) openPlan(state.data.plans.find((p) => p.code === button.dataset.editPlan))
+	if (button.dataset.deletePlan) openDeletePlan(state.data.plans.find((p) => p.code === button.dataset.deletePlan))
 	if (button.dataset.editUser) openUser(state.data.users.find((u) => u.email === button.dataset.editUser))
 	if (button.dataset.savePlan) {
 		const ids = $$(`input[data-plan="${CSS.escape(button.dataset.savePlan)}"]:checked`).map((i) => i.value)

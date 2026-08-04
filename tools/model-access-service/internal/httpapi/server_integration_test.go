@@ -166,6 +166,141 @@ func TestFirstModelListRequestRegistersFreeUserAndQueuesOneSync(t *testing.T) {
 	}
 }
 
+func TestDowngradingUserToDefaultPlanKeepsUserRecord(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	data, err := store.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "001_init.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := data.Migrate(ctx, string(migration)); err != nil {
+		t.Fatal(err)
+	}
+
+	email := fmt.Sprintf("downgrade-%d@example.com", time.Now().UnixNano())
+	t.Cleanup(func() { _, _ = data.DeleteUsers(context.Background(), []string{email}) })
+	if err := data.SetUserPlan(ctx, email, "plus"); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.SetUserPlan(ctx, email, "free"); err != nil {
+		t.Fatal(err)
+	}
+	state, err := data.AdminState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, user := range state.Users {
+		if user.Email == email {
+			if user.PlanCode != "free" {
+				t.Fatalf("downgraded user plan = %s, want free", user.PlanCode)
+			}
+			return
+		}
+	}
+	t.Fatalf("downgraded user %s disappeared from admin state", email)
+}
+
+func TestAdminCanCreateUpdateAndDeletePlanWithUserMigration(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is not set")
+	}
+	ctx := context.Background()
+	data, err := store.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer data.Close()
+	migration, err := os.ReadFile(filepath.Join("..", "..", "migrations", "001_init.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := data.Migrate(ctx, string(migration)); err != nil {
+		t.Fatal(err)
+	}
+
+	suffix := time.Now().UnixNano()
+	planCode := fmt.Sprintf("team_%d", suffix)
+	email := fmt.Sprintf("team-%d@example.com", suffix)
+	server := httptest.NewServer(New(data, nil, "admin-secret").Handler())
+	defer server.Close()
+	t.Cleanup(func() {
+		_, _ = data.DeleteUsers(context.Background(), []string{email})
+		_, _ = data.DeletePlan(context.Background(), planCode, "free")
+	})
+
+	doAdminJSON := func(method, path, body string) *http.Response {
+		t.Helper()
+		request, _ := http.NewRequest(method, server.URL+path, strings.NewReader(body))
+		request.Header.Set("Authorization", "Bearer admin-secret")
+		request.Header.Set("Content-Type", "application/json")
+		response, requestErr := http.DefaultClient.Do(request)
+		if requestErr != nil {
+			t.Fatal(requestErr)
+		}
+		return response
+	}
+
+	response := doAdminJSON(http.MethodPost, "/admin/api/plans", fmt.Sprintf(`{"code":%q,"name":"Team","isDefault":false}`, planCode))
+	if response.StatusCode != http.StatusCreated {
+		defer response.Body.Close()
+		t.Fatalf("create plan status = %d", response.StatusCode)
+	}
+	response.Body.Close()
+
+	response = doAdminJSON(http.MethodPut, "/admin/api/plans/"+planCode, `{"name":"Team Plus","isDefault":false}`)
+	if response.StatusCode != http.StatusOK {
+		defer response.Body.Close()
+		t.Fatalf("update plan status = %d", response.StatusCode)
+	}
+	response.Body.Close()
+
+	if err := data.SetUserPlan(ctx, email, planCode); err != nil {
+		t.Fatal(err)
+	}
+	response = doAdminJSON(http.MethodDelete, "/admin/api/plans/"+planCode, `{"replacementPlanCode":"free"}`)
+	if response.StatusCode != http.StatusAccepted {
+		defer response.Body.Close()
+		t.Fatalf("delete plan status = %d", response.StatusCode)
+	}
+	var deleted struct {
+		MigratedCount int   `json:"migratedCount"`
+		TaskID        int64 `json:"taskId"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&deleted); err != nil {
+		response.Body.Close()
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if deleted.MigratedCount != 1 || deleted.TaskID == 0 {
+		t.Fatalf("delete result = %#v", deleted)
+	}
+
+	state, err := data.AdminState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, plan := range state.Plans {
+		if plan.Code == planCode {
+			t.Fatalf("deleted plan %s still exists", planCode)
+		}
+	}
+	for _, user := range state.Users {
+		if user.Email == email && user.PlanCode == "free" {
+			return
+		}
+	}
+	t.Fatalf("user %s was not migrated to free", email)
+}
+
 func TestAdminBatchUsersCanSetAndDeletePlans(t *testing.T) {
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {

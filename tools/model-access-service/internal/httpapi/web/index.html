@@ -61,11 +61,11 @@
 							<span>可用模型</span><strong id="metric-models">0</strong><small>不包含 Auto</small>
 						</article>
 						<article>
-							<span>权限套餐</span><strong id="metric-plans">3</strong><small>Free / Plus / Pro</small>
+							<span>权限套餐</span><strong id="metric-plans">0</strong><small id="metric-plan-names">-</small>
 						</article>
 						<article>
 							<span>已配置用户</span><strong id="metric-users">0</strong
-							><small>未配置用户默认 Free</small>
+							><small id="metric-default-plan">新用户使用默认套餐</small>
 						</article>
 						<article>
 							<span>同步任务</span><strong id="metric-sync">0</strong><small>后台分批同步网关</small>
@@ -108,7 +108,16 @@
 				</section>
 
 				<section id="plans-view" class="view hidden">
-					<div id="plan-cards" class="plan-grid"></div>
+					<article class="panel">
+						<div class="panel-head">
+							<div>
+								<h3>权限套餐</h3>
+								<p>创建套餐并配置模型；系统始终保留一个默认套餐</p>
+							</div>
+							<button id="add-plan" class="primary compact">添加套餐</button>
+						</div>
+						<div id="plan-cards" class="plan-grid"></div>
+					</article>
 				</section>
 
 				<section id="users-view" class="view hidden">
@@ -161,6 +170,47 @@
 				<div class="dialog-actions">
 					<button type="button" class="secondary close-dialog">取消</button
 					><button class="primary" type="submit">保存模型</button>
+				</div>
+			</form>
+		</dialog>
+
+		<dialog id="plan-dialog">
+			<form id="plan-form">
+				<div class="dialog-head">
+					<div>
+						<p class="eyebrow">ACCESS PLAN</p>
+						<h3>套餐配置</h3>
+					</div>
+					<button type="button" class="icon-button close-dialog">×</button>
+				</div>
+				<label>套餐代码<input name="code" required maxlength="32" pattern="[a-z0-9][a-z0-9_-]{0,31}" placeholder="例如 enterprise" /></label>
+				<p class="field-hint">保存后套餐代码不可修改；仅支持小写字母、数字、下划线和连字符。</p>
+				<label>显示名称<input name="name" required maxlength="64" placeholder="例如 Enterprise" /></label>
+				<label class="check"><input name="isDefault" type="checkbox" /> 设为默认套餐</label>
+				<p class="field-hint">新用户首次获取模型列表时会自动加入默认套餐。</p>
+				<div class="dialog-actions">
+					<button type="button" class="secondary close-dialog">取消</button
+					><button class="primary" type="submit">保存套餐</button>
+				</div>
+			</form>
+		</dialog>
+
+		<dialog id="delete-plan-dialog">
+			<form id="delete-plan-form">
+				<div class="dialog-head">
+					<div>
+						<p class="eyebrow">DELETE PLAN</p>
+						<h3>删除套餐</h3>
+					</div>
+					<button type="button" class="icon-button close-dialog">×</button>
+				</div>
+				<input name="code" type="hidden" />
+				<p id="delete-plan-message"></p>
+				<label>用户迁移到<select name="replacementPlanCode" required></select></label>
+				<p class="field-hint">套餐内的所有用户会先迁移，并创建后台网关权限同步任务。</p>
+				<div class="dialog-actions">
+					<button type="button" class="secondary close-dialog">取消</button
+					><button class="primary danger-button" type="submit">迁移用户并删除</button>
 				</div>
 			</form>
 		</dialog>

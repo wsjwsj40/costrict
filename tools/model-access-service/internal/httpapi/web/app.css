@@ -379,7 +379,7 @@ tr:last-child td {
 }
 .plan-grid {
 	display: grid;
-	grid-template-columns: repeat(3, 1fr);
+	grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 	gap: 16px;
 }
 .plan-card {
@@ -398,6 +398,15 @@ tr:last-child td {
 	font-weight: 850;
 	text-transform: capitalize;
 	letter-spacing: -0.03em;
+}
+.plan-card-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+}
+.plan-card-head .row-actions {
+	flex-shrink: 0;
 }
 .plan-card .plan-meta {
 	color: var(--muted);

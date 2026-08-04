@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -61,6 +62,8 @@ type SyncItem struct {
 	ModelIDs []string
 	Attempts int
 }
+
+var planCodePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
 func New(ctx context.Context, databaseURL string) (*Store, error) {
 	db, err := pgxpool.New(ctx, databaseURL)
@@ -279,7 +282,15 @@ func (s *Store) ModelEnabled(ctx context.Context, id string) (bool, bool, error)
 }
 
 func (s *Store) SetPlanModels(ctx context.Context, code string, modelIDs []string) error {
+	code = strings.ToLower(strings.TrimSpace(code))
 	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		var exists bool
+		if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM model_access_plan WHERE code=$1)", code).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return errors.New("plan does not exist")
+		}
 		if _, err := tx.Exec(ctx, "DELETE FROM model_access_plan_model WHERE plan_code=$1", code); err != nil {
 			return err
 		}
@@ -294,6 +305,125 @@ func (s *Store) SetPlanModels(ctx context.Context, code string, modelIDs []strin
 		}
 		return nil
 	})
+}
+
+func normalizePlan(code, name string) (string, string, error) {
+	code = strings.ToLower(strings.TrimSpace(code))
+	name = strings.TrimSpace(name)
+	if !planCodePattern.MatchString(code) {
+		return "", "", errors.New("plan code must be 1-32 lowercase letters, numbers, underscores, or hyphens")
+	}
+	if name == "" || len([]rune(name)) > 64 {
+		return "", "", errors.New("plan name must be 1-64 characters")
+	}
+	return code, name, nil
+}
+
+func (s *Store) CreatePlan(ctx context.Context, code, name string, isDefault bool) error {
+	code, name, err := normalizePlan(code, name)
+	if err != nil {
+		return err
+	}
+	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		if isDefault {
+			if _, err := tx.Exec(ctx, "UPDATE model_access_plan SET is_default=FALSE,updated_at=NOW() WHERE is_default=TRUE"); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(ctx, "INSERT INTO model_access_plan(code,name,is_default) VALUES($1,$2,$3)", code, name, isDefault)
+		return err
+	})
+}
+
+func (s *Store) UpdatePlan(ctx context.Context, code, name string, isDefault bool) error {
+	code, name, err := normalizePlan(code, name)
+	if err != nil {
+		return err
+	}
+	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		var exists bool
+		if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM model_access_plan WHERE code=$1)", code).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return errors.New("plan does not exist")
+		}
+		if !isDefault {
+			var currentDefault bool
+			if err := tx.QueryRow(ctx, "SELECT is_default FROM model_access_plan WHERE code=$1", code).Scan(&currentDefault); err != nil {
+				return err
+			}
+			if currentDefault {
+				return errors.New("default plan cannot be unset without selecting another default plan")
+			}
+		}
+		if isDefault {
+			if _, err := tx.Exec(ctx, "UPDATE model_access_plan SET is_default=FALSE,updated_at=NOW() WHERE is_default=TRUE AND code<>$1", code); err != nil {
+				return err
+			}
+		}
+		tag, err := tx.Exec(ctx, "UPDATE model_access_plan SET name=$2,is_default=$3,updated_at=NOW() WHERE code=$1", code, name, isDefault)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return errors.New("plan does not exist")
+		}
+		return nil
+	})
+}
+
+// DeletePlan migrates every explicitly recorded user to replacementPlanCode
+// before removing the plan. The returned emails must be synchronized to the
+// gateway using the replacement plan's models.
+func (s *Store) DeletePlan(ctx context.Context, code, replacementPlanCode string) ([]string, error) {
+	code = strings.ToLower(strings.TrimSpace(code))
+	replacementPlanCode = strings.ToLower(strings.TrimSpace(replacementPlanCode))
+	if code == replacementPlanCode {
+		return nil, errors.New("replacement plan must be different")
+	}
+	emails := []string{}
+	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		var isDefault bool
+		if err := tx.QueryRow(ctx, "SELECT is_default FROM model_access_plan WHERE code=$1", code).Scan(&isDefault); errors.Is(err, pgx.ErrNoRows) {
+			return errors.New("plan does not exist")
+		} else if err != nil {
+			return err
+		}
+		if isDefault {
+			return errors.New("default plan cannot be deleted")
+		}
+		var replacementExists bool
+		if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM model_access_plan WHERE code=$1)", replacementPlanCode).Scan(&replacementExists); err != nil {
+			return err
+		}
+		if !replacementExists {
+			return errors.New("replacement plan does not exist")
+		}
+		rows, err := tx.Query(ctx, "SELECT email FROM model_access_user WHERE plan_code=$1 ORDER BY email", code)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var email string
+			if err := rows.Scan(&email); err != nil {
+				rows.Close()
+				return err
+			}
+			emails = append(emails, email)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		if _, err := tx.Exec(ctx, "UPDATE model_access_user SET plan_code=$2,updated_at=NOW() WHERE plan_code=$1", code, replacementPlanCode); err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, "DELETE FROM model_access_plan WHERE code=$1", code)
+		return err
+	})
+	return emails, err
 }
 
 func (s *Store) EnabledModelIDsForPlan(ctx context.Context, code string) ([]string, error) {
@@ -486,17 +616,12 @@ func (s *Store) SetUsersPlan(ctx context.Context, emails []string, planCode stri
 	}
 
 	err = pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
-		var isDefault bool
-		if err := tx.QueryRow(ctx, "SELECT is_default FROM model_access_plan WHERE code=$1", planCode).Scan(&isDefault); errors.Is(err, pgx.ErrNoRows) {
-			return errors.New("plan does not exist")
-		} else if err != nil {
+		var exists bool
+		if err := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM model_access_plan WHERE code=$1)", planCode).Scan(&exists); err != nil {
 			return err
 		}
-		// The default plan is implicit. Downgrading to it removes explicit
-		// overrides instead of accumulating redundant Free user rows.
-		if isDefault {
-			_, err := tx.Exec(ctx, "DELETE FROM model_access_user WHERE email = ANY($1)", normalized)
-			return err
+		if !exists {
+			return errors.New("plan does not exist")
 		}
 		for _, email := range normalized {
 			if _, err := tx.Exec(ctx, `

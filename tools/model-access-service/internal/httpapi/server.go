@@ -44,6 +44,9 @@ func New(data *store.Store, authenticator *auth.Authenticator, adminToken string
 	mux.HandleFunc("GET /admin/api/state", s.admin(s.state))
 	mux.HandleFunc("PUT /admin/api/models/{id}", s.admin(s.putModel))
 	mux.HandleFunc("DELETE /admin/api/models/{id}", s.admin(s.deleteModel))
+	mux.HandleFunc("POST /admin/api/plans", s.admin(s.createPlan))
+	mux.HandleFunc("PUT /admin/api/plans/{code}", s.admin(s.updatePlan))
+	mux.HandleFunc("DELETE /admin/api/plans/{code}", s.admin(s.deletePlan))
 	mux.HandleFunc("PUT /admin/api/plans/{code}/models", s.admin(s.putPlanModels))
 	mux.HandleFunc("PUT /admin/api/users/{email}", s.admin(s.putUser))
 	mux.HandleFunc("DELETE /admin/api/users/{email}", s.admin(s.deleteUser))
@@ -191,6 +194,66 @@ func (s *Server) putPlanModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"taskIds": tasks})
+}
+
+func (s *Server) createPlan(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Code      string `json:"code"`
+		Name      string `json:"name"`
+		IsDefault bool   `json:"isDefault"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	if err := s.store.CreatePlan(r.Context(), body.Code, body.Name, body.IsDefault); err != nil {
+		writeError(w, 400, "invalid_plan", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"code": strings.ToLower(strings.TrimSpace(body.Code))})
+}
+
+func (s *Server) updatePlan(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name      string `json:"name"`
+		IsDefault bool   `json:"isDefault"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	if err := s.store.UpdatePlan(r.Context(), r.PathValue("code"), body.Name, body.IsDefault); err != nil {
+		writeError(w, 400, "invalid_plan", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"updated": true})
+}
+
+func (s *Server) deletePlan(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ReplacementPlanCode string `json:"replacementPlanCode"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, 400, "invalid_request", err.Error())
+		return
+	}
+	code := strings.ToLower(strings.TrimSpace(r.PathValue("code")))
+	replacement := strings.ToLower(strings.TrimSpace(body.ReplacementPlanCode))
+	if err := s.validatePlan(r.Context(), replacement); err != nil {
+		writeError(w, 400, "invalid_replacement_plan", err.Error())
+		return
+	}
+	emails, err := s.store.DeletePlan(r.Context(), code, replacement)
+	if err != nil {
+		writeError(w, 400, "invalid_plan", err.Error())
+		return
+	}
+	taskID, err := s.enqueueUsers(r.Context(), "plan deleted: "+code+"; users migrated to "+replacement, emails, replacement)
+	if err != nil {
+		writeError(w, 500, "task_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"migratedCount": len(emails), "taskId": taskID})
 }
 
 func (s *Server) putUser(w http.ResponseWriter, r *http.Request) {
