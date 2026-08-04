@@ -19,6 +19,8 @@
 		"vsix": "node scripts/generate-review-builtin.mjs && turbo vsix --log-order grouped --output-logs new-only",
 		"make-nightly": "node scripts/make-nightly-vsix.js",
 		"vsix:nightly": "pnpm vsix && pnpm make-nightly",
+		"make-dicode": "node scripts/make-dicode-vsix.js",
+		"vsix:dicode": "node scripts/make-dicode-vsix.js --build",
 		"clean": "turbo clean --log-order grouped --output-logs new-only && rimraf dist out bin .vite-port .turbo ",
 		"install:vsix": "pnpm install --frozen-lockfile && pnpm clean && pnpm vsix && node scripts/install-vsix.js",
 		"install:vsix:nightly": "pnpm install --frozen-lockfile && pnpm clean && pnpm vsix:nightly && node scripts/install-vsix.js --nightly",

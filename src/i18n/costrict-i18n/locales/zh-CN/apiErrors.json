@@ -28,7 +28,7 @@
 		"503": "1.请稍后重试\n2.请尝试切换其他模型\n3.请联系管理员",
 		"504": "1.请稍后重试\n2.请尝试切换其他模型\n3.请联系管理员",
 		"ai-gateway": {
-			"star_required": "请前往 https://github.com/zgsm-ai/costrict star 项目后继续使用",
+			"star_required": "请前往 https://github.com/atad-apts/costrict star 项目后继续使用",
 			"pleaseStarProject": "请先 star 项目",
 			"howToStar": "如何 star",
 			"insufficientCredits": "剩余 Credit 配额不足",

@@ -368,7 +368,7 @@ function getLoadingMarkup(logoSvg: string, loadingText = t("common:csCloud.loadi
           </div>
         </div>
         <div class="cloud-ui-loading-text">
-          <div class="cloud-ui-loading-brand">CoStrict</div>
+          <div class="cloud-ui-loading-brand">DiCode</div>
           <div class="cloud-ui-loading-status"><span class="cloud-ui-loading-spinner"></span><span>${escapeHtml(loadingText)}</span></div>
         </div>
       </div>
@@ -392,7 +392,7 @@ export function getCrashedHtml(reason?: string): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CoStrict Cloud</title>
+  <title>DiCode Cloud</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -547,7 +547,7 @@ export function getCrashedHtml(reason?: string): string {
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
       </svg>
     </div>
-    <div class="cs-brand">CoStrict Cloud</div>
+    <div class="cs-brand">DiCode Cloud</div>
     <div class="cs-title">${escapeHtml(i18n.title)}</div>
     <div class="cs-desc">${escapeHtml(i18n.desc)}</div>
     ${reason ? `<pre class="cs-detail">${escapeHtml(reason)}</pre>` : ""}
@@ -651,7 +651,7 @@ export function getAssistantUILoadingHtml(context: vscode.ExtensionContext, load
 	// an explicit `script-src 'nonce-...'`. Without it, CSP falls back to `default-src
 	// 'none'` and blocks ALL scripts — including the `acquireVsCodeApi` mock that the
 	// JetBrains host injects into this page to bridge webview ↔ Java IPC. That left the
-	// loading screen stuck on "Starting CoStrict Cloud..." forever. See cs-cloud issue:
+	// loading screen stuck on "Starting DiCode Cloud..." forever. See cs-cloud issue:
 	// loading page never advanced under the JetBrains plugin.
 	//
 	// The generated nonce is applied to any <script> tag in this HTML (currently none,
@@ -668,7 +668,7 @@ export function getAssistantUILoadingHtml(context: vscode.ExtensionContext, load
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy" content="${escapeHtml(csp)}" />
-  <title>CoStrict Assistant UI</title>
+  <title>DiCode Assistant UI</title>
   <style>
     html, body { width: 100%; height: 100%; margin: 0; padding: 0; border: 0; }
     body { overflow: hidden; background: var(--vscode-editor-background); color: var(--vscode-editor-foreground); }
@@ -751,7 +751,7 @@ export function getAssistantUIStaticHtml(
         window.__CS_CLOUD_BUILD_TIME__ = ${JSON.stringify(pluginBuildTime || "")};
 
         (function(){
-          var diagnosticPrefix = "[CoStrict Cloud UI]";
+          var diagnosticPrefix = "[DiCode Cloud UI]";
           window.addEventListener("error", function (event) {
             console.error(
               diagnosticPrefix + " window.error",
@@ -1099,7 +1099,7 @@ export function getAssistantUIIframeHtml(
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy" content="${escapeHtml(csp)}" />
-  <title>CoStrict Assistant UI</title>
+  <title>DiCode Assistant UI</title>
   <style>
     html, body { width: 100%; height: 100%; margin: 0; padding: 0; border: 0; }
     body { position: relative; overflow: hidden; background: var(--vscode-editor-background); color: var(--vscode-editor-foreground); display: flex; flex-direction: column; }
@@ -1251,7 +1251,7 @@ export function getAssistantUIIframeHtml(
       }
     });
   </script>
-  <iframe id="cloud-frame" src="${escapeHtml(frameUrl)}" title="CoStrict Assistant UI"></iframe>
+  <iframe id="cloud-frame" src="${escapeHtml(frameUrl)}" title="DiCode Assistant UI"></iframe>
   <script nonce="${nonce}">${getFormStatePersistenceScript()}</script>
 </body>
 </html>`

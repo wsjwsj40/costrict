@@ -69,6 +69,7 @@ export default defineConfig(({ mode }) => {
 		"process.env.COSTRICT_PUBLIC_KEY": JSON.stringify(
 			process.env.COSTRICT_PUBLIC_KEY || process.env.ZGSM_PUBLIC_KEY || "",
 		),
+		"process.env.COSTRICT_ENABLE_DEBUG_MODE": JSON.stringify(process.env.COSTRICT_ENABLE_DEBUG_MODE || "false"),
 		"process.env.COSTRICT_PKG_BUILD_TIME": JSON.stringify(buildTime),
 		...(gitSha ? { "process.env.COSTRICT_PKG_SHA": JSON.stringify(gitSha) } : {}),
 	}

@@ -18,7 +18,7 @@ const tmpDir = path.join(os.tmpdir(), "CheckpointServiceRevert")
 
 const initWorkspaceRepo = async ({
 	workspaceDir,
-	userName = "CoStrict",
+	userName = "DiCode",
 	userEmail = "zgsm@sangfor.com.cn",
 	testFileName = "test.txt",
 	textFileContent = "Hello, world!",

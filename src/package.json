@@ -2,7 +2,7 @@
 	"name": "zgsm",
 	"displayName": "%extension.displayName.long%",
 	"description": "%extension.description%",
-	"publisher": "zgsm-ai",
+	"publisher": "atad-apts",
 	"version": "3.0.16",
 	"icon": "assets/images/shenma_robot_logo_big.png",
 	"galleryBanner": {
@@ -14,13 +14,13 @@
 		"node": ">=20.19.2"
 	},
 	"author": {
-		"name": "zgsm-ai"
+		"name": "atad-apts"
 	},
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/zgsm-ai/costrict"
+		"url": "https://github.com/atad-apts/costrict"
 	},
-	"homepage": "https://github.com/zgsm-ai/costrict",
+	"homepage": "https://github.com/atad-apts/costrict",
 	"categories": [
 		"AI",
 		"Chat",
@@ -46,14 +46,7 @@
 		"zoo code",
 		"zoocode",
 		"roocode",
-		"costrict",
-		"costrict",
-		"shenma",
-		"诸葛神码",
-		"诸葛",
-		"神码",
-		"sangfor",
-		"深信服",
+		"dicode",
 		"strict",
 		"严肃",
 		"编程",
@@ -139,12 +132,17 @@
 			},
 			{
 				"command": "costrict.reconnectCsCloud",
-				"title": "CoStrict: Reconnect CoStrict Cloud",
+				"title": "DiCode: Reconnect DiCode Cloud",
 				"category": "%configuration.title%"
 			},
 			{
 				"command": "costrict.restartCsCloudServer",
-				"title": "CoStrict: Restart CoStrict Cloud Server",
+				"title": "DiCode: Restart DiCode Cloud Server",
+				"category": "%configuration.title%"
+			},
+			{
+				"command": "costrict.checkForUpdates",
+				"title": "Check for Updates",
 				"category": "%configuration.title%"
 			},
 			{
@@ -390,13 +388,11 @@
 				},
 				{
 					"command": "costrict.reviewFilesAndFolders",
-					"group": "costrict.explorerSubmenu@2",
-					"when": "!explorerResourceIsFolder"
+					"group": "costrict.explorerSubmenu@2"
 				},
 				{
 					"command": "costrict.securityFilesAndFolders",
-					"group": "costrict.explorerSubmenu@3",
-					"when": "!explorerResourceIsFolder"
+					"group": "costrict.explorerSubmenu@3"
 				}
 			],
 			"costrict": [
@@ -418,13 +414,11 @@
 				},
 				{
 					"command": "costrict.codeReview",
-					"group": "costrict@5",
-					"when": "editorHasSelection && workbenchState != 'empty'"
+					"group": "costrict@5"
 				},
 				{
 					"command": "costrict.securityReviewCode",
-					"group": "costrict@6",
-					"when": "editorHasSelection && workbenchState != 'empty'"
+					"group": "costrict@6"
 				},
 				{
 					"command": "costrict.view.issue",
@@ -780,7 +774,7 @@
 						"cloud"
 					],
 					"default": "classic",
-					"description": "Controls which UI mode CoStrict loads on startup. Changes apply after reloading the window."
+					"description": "Controls which UI mode DiCode loads on startup. Changes apply after reloading the window."
 				},
 				"costrict.csCloudBaseUrl": {
 					"type": "string",

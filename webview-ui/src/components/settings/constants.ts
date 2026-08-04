@@ -43,7 +43,7 @@ export const MODELS_BY_PROVIDER: Partial<Record<ProviderName, Record<string, Mod
 }
 
 export const PROVIDERS = [
-	{ value: "costrict", label: "CoStrict", proxy: false },
+	{ value: "costrict", label: "DiCode", proxy: false },
 	{ value: "human-relay", label: "Human Relay", proxy: false },
 	{ value: "openrouter", label: "OpenRouter", proxy: false },
 	{ value: "anthropic", label: "Anthropic", proxy: false },

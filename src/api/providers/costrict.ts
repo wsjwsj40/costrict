@@ -38,7 +38,8 @@ import { getModels } from "./fetchers/modelCache"
 import { getEditorType } from "../../utils/getEditorType"
 import { ChatCompletionChunk } from "openai/resources/index.mjs"
 import { convertToZAiFormat } from "../transform/zai-format"
-import { isDebug } from "../../utils/getDebugState"
+import { isCostrictModelDebugEnabled } from "../../utils/getDebugState"
+import { COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION } from "../../shared/costrictDebugMode"
 import { liteToolContractPrompt } from "../../core/prompts/tools/lite-descriptions"
 import { isJetbrainsPlatform } from "../../utils/platform"
 
@@ -365,7 +366,7 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 		return {
 			"Accept-Language": metadata?.language || "en",
 			...COSTRICT_DEFAULT_HEADERS,
-			...(this.options.useCostrictCustomConfig && isDebug() ? (this.options.openAiHeaders ?? {}) : {}),
+			...(this.isCustomModelConfigEnabled() ? (this.options.openAiHeaders ?? {}) : {}),
 			"User-Agent": `RooCode/3.52.1 ${isJetbrainsPlatform() ? "plugin_intellij" : "plugin_vscode"}/${Package.version}`,
 			"x-quota-identity": chatType || "system",
 			"X-Request-ID": requestId,
@@ -948,13 +949,12 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 	override getModel() {
 		const id = this?.options?.costrictModelId ?? costrictDefaultModelId
 		const defaultInfo = this.modelInfo
-		let info =
-			this.options.useCostrictCustomConfig && isDebug()
-				? {
-						...defaultInfo,
-						...(this.options.costrictAiCustomModelInfo ?? {}),
-					}
-				: defaultInfo
+		let info = this.isCustomModelConfigEnabled()
+			? {
+					...defaultInfo,
+					...(this.options.costrictAiCustomModelInfo ?? {}),
+				}
+			: defaultInfo
 		const params = getModelParams({ format: "costrict", modelId: id, model: info, settings: this.options })
 
 		if (info.id !== id) {
@@ -1209,7 +1209,7 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 		const isAutoMode = modelInfo.id === "Auto" || modelInfo.id === "auto"
 
 		// Only add max_completion_tokens if includeMaxTokens is true
-		if (this.options.useCostrictCustomConfig && isDebug()) {
+		if (this.isCustomModelConfigEnabled()) {
 			const maxTokens = this.options.modelMaxTokens || modelInfo.maxTokens
 			// Use user-configured modelMaxTokens if available, otherwise fall back to model's default maxTokens
 			// Using max_completion_tokens as max_tokens is deprecated
@@ -1238,6 +1238,14 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 				})
 			}
 		}
+	}
+
+	private isCustomModelConfigEnabled(): boolean {
+		return (
+			isCostrictModelDebugEnabled() &&
+			this.options.useCostrictCustomConfig === true &&
+			this.options.costrictCustomConfigConsentVersion === COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION
+		)
 	}
 
 	setChatType(type: "user" | "system"): void {

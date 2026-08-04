@@ -1,12 +1,12 @@
 {
-	"getCostrictApiKey": "Login to CoStrict",
-	"introduction": "<strong>CoStrict is an open-source, strict AI Coder for enterprises.</strong> It can be deployed privately, prioritizes controllable results and top-tier quality, and delivers three core capabilities — AI Agent, AI Code Review, and AI Completion. Log in to give it a try.",
-	"greeting": "Hi, I'm CoStrict!",
+	"getDiCodeApiKey": "Login to DiCode",
+	"introduction": "<strong>DiCode is an open-source, strict AI Coder for enterprises.</strong> It can be deployed privately, prioritizes controllable results and top-tier quality, and delivers three core capabilities — AI Agent, AI Code Review, and AI Completion. Log in to give it a try.",
+	"greeting": "Hi, I'm DiCode!",
 	"telemetry": {
-		"title": "Help Improve CoStrict",
-		"anonymousTelemetry": "Send anonymous error and usage data to help us fix bugs and improve the extension. No code, prompts, or personal information is ever sent (unless you connect to CoStrict). See our <privacyLink>privacy policy</privacyLink> for more details."
+		"title": "Help Improve DiCode",
+		"anonymousTelemetry": "Send anonymous error and usage data to help us fix bugs and improve the extension. No code, prompts, or personal information is ever sent (unless you connect to DiCode). See our <privacyLink>privacy policy</privacyLink> for more details."
 	},
-	"chooseProvider": "CoStrict needs an LLM provider to work. Choose yours:",
+	"chooseProvider": "DiCode needs an LLM provider to work. Choose yours:",
 	"vibe": {
 		"description": "Vibe coding alternates between clarifying requirements and generating code. It is ideal for rapid development and simple tasks, and empowers developers with strong prompt engineering skills to efficiently produce high-quality code."
 	},
@@ -19,12 +19,12 @@
 	"developmentMode": "Development Mode",
 	"commonFeatures": "Common Features",
 	"providerSignup": {
-		"rooCloudProvider": "CoStrict Provider",
-		"rooCloudDescription": "The simplest way to use CoStrict. A curated mix of free and paid models at a low cost",
+		"rooCloudProvider": "DiCode Provider",
+		"rooCloudDescription": "The simplest way to use DiCode. A curated mix of free and paid models at a low cost",
 		"learnMore": "learn more",
 		"useAnotherProvider": "Use another provider",
 		"useAnotherProviderDescription": "Enter an API key and get going.",
-		"noApiKeys": "Don't want to deal with keys? Go with the CoStrict Provider.",
+		"noApiKeys": "Don't want to deal with keys? Go with the DiCode Provider.",
 		"getStarted": "Get started"
 	}
 }

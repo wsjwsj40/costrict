@@ -12,27 +12,27 @@
 	"profilePicture": "Profile picture",
 	"logOut": "Log out",
 	"testApiAuthentication": "Test API Authentication",
-	"signIn": "Connect to CoStrict Cloud",
+	"signIn": "Connect to DiCode Cloud",
 	"connect": "Get started",
-	"cloudBenefitsTitle": "Try CoStrict Cloud",
-	"cloudBenefitProvider": "Access free and paid models that work great with CoStrict",
+	"cloudBenefitsTitle": "Try DiCode Cloud",
+	"cloudBenefitProvider": "Access free and paid models that work great with DiCode",
 	"cloudBenefitCloudAgents": "Give tasks to autonomous Cloud agents",
 	"cloudBenefitTriggers": "Get code reviews on GitHub, start tasks from Slack and more",
 	"cloudBenefitWalkaway": "Follow and control tasks from anywhere (including your phone)",
 	"cloudBenefitHistory": "Access your task history from anywhere and share them with others",
 	"cloudBenefitMetrics": "Get a holistic view of your token consumption",
-	"visitCloudWebsite": "Visit CoStrict Cloud",
+	"visitCloudWebsite": "Visit DiCode Cloud",
 	"taskSync": "Task sync",
-	"taskSyncDescription": "Sync your tasks for viewing and sharing on CoStrict Cloud",
+	"taskSyncDescription": "Sync your tasks for viewing and sharing on DiCode Cloud",
 	"taskSyncManagedByOrganization": "Task sync is managed by your organization",
 	"usageMetricsAlwaysReported": "Model usage info is always reported when logged in",
-	"cloudUrlPillLabel": "CoStrict Cloud URL",
+	"cloudUrlPillLabel": "DiCode Cloud URL",
 	"authWaiting": "Waiting for browser authentication...",
 	"havingTrouble": "Having trouble?",
 	"pasteCallbackUrl": "Copy the redirect URL from your browser and paste it here:",
 	"startOver": "Start over",
 	"personalAccount": "Personal Account",
-	"switchAccount": "Switch CoStrict Cloud Account",
+	"switchAccount": "Switch DiCode Cloud Account",
 	"createTeamAccount": "Create Team Account",
 	"quota": {
 		"totalQuota": "Total Quota",
@@ -41,8 +41,8 @@
 		"getMoreQuota": "Get More Quota"
 	},
 	"upsell": {
-		"autoApprovePowerUser": "Giving CoStrict some independence? Control it from anywhere with CoStrict Cloud. <learnMoreLink>Learn more</learnMoreLink>.",
+		"autoApprovePowerUser": "Giving DiCode some independence? Control it from anywhere with DiCode Cloud. <learnMoreLink>Learn more</learnMoreLink>.",
 		"longRunningTask": "This might take a while. Continue from anywhere with Cloud.",
-		"taskList": "Enjoying CoStrict? Check out CoStrict Cloud: follow and control your tasks from anywhere, run autonomous Cloud agents, get usage stats and more. <learnMoreLink>Learn more</learnMoreLink>."
+		"taskList": "Enjoying DiCode? Check out DiCode Cloud: follow and control your tasks from anywhere, run autonomous Cloud agents, get usage stats and more. <learnMoreLink>Learn more</learnMoreLink>."
 	}
 }

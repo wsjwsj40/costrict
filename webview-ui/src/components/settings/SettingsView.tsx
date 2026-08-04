@@ -43,6 +43,10 @@ import {
 } from "@roo-code/types"
 
 import { vscode } from "@src/utils/vscode"
+import {
+	COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION,
+	costrictDebugModeBuildEnabled,
+} from "../../../../src/shared/costrictDebugMode"
 import { cn } from "@src/lib/utils"
 import { useAppTranslation } from "@src/i18n/TranslationContext"
 import { ExtensionStateContextType, useExtensionState } from "@src/context/ExtensionStateContext"
@@ -322,7 +326,17 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 			}
 
 			setChangeDetected(true)
-			return { ...prevState, debug }
+			return {
+				...prevState,
+				debug,
+				useCostrictCustomConfig: false,
+				apiConfiguration: {
+					...prevState.apiConfiguration,
+					useCostrictCustomConfig: false,
+					costrictAiCustomModelInfo: undefined,
+					costrictCustomConfigConsentVersion: undefined,
+				},
+			}
 		})
 	}, [])
 
@@ -383,6 +397,15 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 	const handleSubmit = () => {
 		if (isSettingValid) {
 			setIsSaving(true)
+			const effectiveDebug = costrictDebugModeBuildEnabled && (debug ?? false)
+			const effectiveCostrictCustomConfig =
+				effectiveDebug &&
+				(useCostrictCustomConfig ?? false) &&
+				apiConfiguration.costrictCustomConfigConsentVersion === COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION
+			const apiConfigurationToSave = {
+				...apiConfiguration,
+				useCostrictCustomConfig: effectiveCostrictCustomConfig,
+			}
 			vscode.postMessage({
 				type: "updateSettings",
 				updatedSettings: {
@@ -450,24 +473,28 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 					experiments,
 					experimentSettings,
 					customSupportPrompts,
-					useCostrictCustomConfig: useCostrictCustomConfig ?? false,
+					useCostrictCustomConfig: effectiveCostrictCustomConfig,
 					autoCleanup,
-					debug,
+					debug: effectiveDebug,
 				},
 			})
 			// These have more complex logic so they aren't (yet) handled
 			// by the `updateSettings` message.
 
 			if (
-				apiConfiguration.useCostrictCustomConfig &&
-				apiConfiguration.includeMaxTokens === undefined &&
-				!Object.hasOwn(apiConfiguration, "includeMaxTokens")
+				apiConfigurationToSave.useCostrictCustomConfig &&
+				apiConfigurationToSave.includeMaxTokens === undefined &&
+				!Object.hasOwn(apiConfigurationToSave, "includeMaxTokens")
 			) {
-				apiConfiguration.includeMaxTokens = true
+				apiConfigurationToSave.includeMaxTokens = true
 			}
-			vscode.postMessage({ type: "upsertApiConfiguration", text: currentApiConfigName, apiConfiguration })
+			vscode.postMessage({
+				type: "upsertApiConfiguration",
+				text: currentApiConfigName,
+				apiConfiguration: apiConfigurationToSave,
+			})
 			vscode.postMessage({ type: "telemetrySetting", text: telemetrySetting })
-			vscode.postMessage({ type: "debugSetting", bool: cachedState.debug })
+			vscode.postMessage({ type: "debugSetting", bool: effectiveDebug })
 
 			setChangeDetected(false)
 		}
@@ -837,6 +864,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 										setApiConfigurationField={setApiConfigurationField}
 										errorMessage={errorMessage}
 										setErrorMessage={setErrorMessage}
+										debug={debug}
 										useCostrictCustomConfig={useCostrictCustomConfig}
 										setCachedStateField={setCachedStateField}
 									/>
@@ -1000,7 +1028,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 								telemetrySetting={telemetrySetting}
 								setTelemetrySetting={setTelemetrySetting}
 								debug={cachedState.debug}
-								setDebug={setDebug}
+								setDebug={costrictDebugModeBuildEnabled ? setDebug : undefined}
 							/>
 						)}
 					</SearchIndexProvider>

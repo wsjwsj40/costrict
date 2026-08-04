@@ -1,5 +1,5 @@
 {
-	"greeting": "Welcome to CoStrict!",
+	"greeting": "Welcome to DiCode!",
 	"performance": {
 		"firstToken": "First token arrival time",
 		"totalDuration": "SSE Total duration",
@@ -31,7 +31,7 @@
 		"sharePublicly": "Share Publicly",
 		"sharePubliclyDescription": "Anyone with the link can access",
 		"connectToCloud": "Connect to Cloud",
-		"connectToCloudDescription": "Sign in to CoStrict Cloud to share tasks",
+		"connectToCloudDescription": "Sign in to DiCode Cloud to share tasks",
 		"sharingDisabledByOrganization": "Sharing disabled by organization",
 		"shareSuccessOrganization": "Organization link copied to clipboard",
 		"shareSuccessPublic": "Public link copied to clipboard",
@@ -135,7 +135,7 @@
 		"placeholder": "Edit your message..."
 	},
 	"scrollToBottom": "Scroll to bottom of chat",
-	"about": "CoStrict is a whole AI dev team in your editor",
+	"about": "DiCode is a whole AI dev team in your editor",
 	"scrollToLatestCheckpoint": "Scroll to previous checkpoint",
 	"docs": "Check our <DocsLink>docs</DocsLink> to get started",
 	"onboarding": "What would you like to do?",
@@ -146,7 +146,7 @@
 		},
 		"modelAgnostic": {
 			"title": "Bring your own model, no markup or lock-in",
-			"description": "Use your own provider key or even run local inference — CoStrict doesn't charge for it"
+			"description": "Use your own provider key or even run local inference — DiCode doesn't charge for it"
 		}
 	},
 	"selectMode": "Select mode for interaction",
@@ -160,7 +160,7 @@
 		"title": "Modes",
 		"marketplace": "Mode Marketplace",
 		"settings": "Mode Settings",
-		"description": "Specialized personas that tailor CoStrict's behavior.",
+		"description": "Specialized personas that tailor DiCode's behavior.",
 		"searchPlaceholder": "Search modes...",
 		"noResults": "No results found"
 	},
@@ -200,7 +200,7 @@
 			"email": "Email",
 			"goToSettings": "Settings",
 			"connection": "Connection error. Make sure you have a working internet connection.",
-			"unknown": "Unknown API error. Please contact CoStrict support.",
+			"unknown": "Unknown API error. Please contact DiCode support.",
 			"claudeCodeNotAuthenticated": "You need to sign in to use Claude Code. Go to Settings and click \"Sign in to Claude Code\" to authenticate."
 		}
 	},
@@ -240,46 +240,46 @@
 		}
 	},
 	"skill": {
-		"wantsToLoad": "CoStrict wants to load a skill",
-		"didLoad": "CoStrict loaded a skill"
+		"wantsToLoad": "DiCode wants to load a skill",
+		"didLoad": "DiCode loaded a skill"
 	},
 	"fileOperations": {
-		"wantsToRead": "CoStrict wants to read this file",
-		"wantsToReadMultiple": "CoStrict wants to read multiple files",
-		"wantsToReadAndXMore": "CoStrict wants to read this file and {{count}} more",
-		"wantsToReadOutsideWorkspace": "CoStrict wants to read this file outside of the workspace",
-		"didRead": "CoStrict read this file",
-		"wantsToEdit": "CoStrict wants to edit this file",
-		"wantsToEditOutsideWorkspace": "CoStrict wants to edit this file outside of the workspace",
-		"wantsToEditProtected": "CoStrict wants to edit a protected configuration file",
-		"wantsToApplyBatchChanges": "CoStrict wants to apply changes to multiple files",
-		"wantsToGenerateImage": "CoStrict wants to generate an image",
-		"wantsToGenerateImageOutsideWorkspace": "CoStrict wants to generate an image outside of the workspace",
-		"wantsToGenerateImageProtected": "CoStrict wants to generate an image in a protected location",
-		"didGenerateImage": "CoStrict generated an image",
-		"wantsToCreate": "CoStrict wants to create a new file",
-		"wantsToInsert": "CoStrict wants to insert content into this file",
-		"wantsToInsertWithLineNumber": "CoStrict wants to insert content into this file at line {{lineNumber}}",
-		"wantsToInsertAtEnd": "CoStrict wants to append content to the end of this file"
+		"wantsToRead": "DiCode wants to read this file",
+		"wantsToReadMultiple": "DiCode wants to read multiple files",
+		"wantsToReadAndXMore": "DiCode wants to read this file and {{count}} more",
+		"wantsToReadOutsideWorkspace": "DiCode wants to read this file outside of the workspace",
+		"didRead": "DiCode read this file",
+		"wantsToEdit": "DiCode wants to edit this file",
+		"wantsToEditOutsideWorkspace": "DiCode wants to edit this file outside of the workspace",
+		"wantsToEditProtected": "DiCode wants to edit a protected configuration file",
+		"wantsToApplyBatchChanges": "DiCode wants to apply changes to multiple files",
+		"wantsToGenerateImage": "DiCode wants to generate an image",
+		"wantsToGenerateImageOutsideWorkspace": "DiCode wants to generate an image outside of the workspace",
+		"wantsToGenerateImageProtected": "DiCode wants to generate an image in a protected location",
+		"didGenerateImage": "DiCode generated an image",
+		"wantsToCreate": "DiCode wants to create a new file",
+		"wantsToInsert": "DiCode wants to insert content into this file",
+		"wantsToInsertWithLineNumber": "DiCode wants to insert content into this file at line {{lineNumber}}",
+		"wantsToInsertAtEnd": "DiCode wants to append content to the end of this file"
 	},
 	"directoryOperations": {
-		"wantsToViewTopLevel": "CoStrict wants to view the top level files in this directory",
-		"didViewTopLevel": "CoStrict viewed the top level files in this directory",
-		"wantsToViewTopLevelOutsideWorkspace": "CoStrict wants to view the top level files in this directory (outside workspace)",
-		"didViewTopLevelOutsideWorkspace": "CoStrict viewed the top level files in this directory (outside workspace)",
-		"wantsToViewRecursive": "CoStrict wants to recursively view all files in this directory",
-		"didViewRecursive": "CoStrict recursively viewed all files in this directory",
-		"wantsToViewRecursiveOutsideWorkspace": "CoStrict wants to recursively view all files in this directory (outside workspace)",
-		"didViewRecursiveOutsideWorkspace": "CoStrict recursively viewed all files in this directory (outside workspace)",
-		"wantsToViewMultipleDirectories": "CoStrict wants to view multiple directories",
-		"wantsToSearch": "CoStrict wants to search this directory for <code>{{regex}}</code>",
-		"didSearch": "CoStrict searched this directory for <code>{{regex}}</code>",
-		"wantsToSearchOutsideWorkspace": "CoStrict wants to search this directory (outside workspace) for <code>{{regex}}</code>",
-		"didSearchOutsideWorkspace": "CoStrict searched this directory (outside workspace) for <code>{{regex}}</code>"
+		"wantsToViewTopLevel": "DiCode wants to view the top level files in this directory",
+		"didViewTopLevel": "DiCode viewed the top level files in this directory",
+		"wantsToViewTopLevelOutsideWorkspace": "DiCode wants to view the top level files in this directory (outside workspace)",
+		"didViewTopLevelOutsideWorkspace": "DiCode viewed the top level files in this directory (outside workspace)",
+		"wantsToViewRecursive": "DiCode wants to recursively view all files in this directory",
+		"didViewRecursive": "DiCode recursively viewed all files in this directory",
+		"wantsToViewRecursiveOutsideWorkspace": "DiCode wants to recursively view all files in this directory (outside workspace)",
+		"didViewRecursiveOutsideWorkspace": "DiCode recursively viewed all files in this directory (outside workspace)",
+		"wantsToViewMultipleDirectories": "DiCode wants to view multiple directories",
+		"wantsToSearch": "DiCode wants to search this directory for <code>{{regex}}</code>",
+		"didSearch": "DiCode searched this directory for <code>{{regex}}</code>",
+		"wantsToSearchOutsideWorkspace": "DiCode wants to search this directory (outside workspace) for <code>{{regex}}</code>",
+		"didSearchOutsideWorkspace": "DiCode searched this directory (outside workspace) for <code>{{regex}}</code>"
 	},
 	"codebaseSearch": {
-		"wantsToSearch": "CoStrict wants to search the codebase for <code>{{query}}</code>",
-		"wantsToSearchWithPath": "CoStrict wants to search the codebase for <code>{{query}}</code> in <code>{{path}}</code>",
+		"wantsToSearch": "DiCode wants to search the codebase for <code>{{query}}</code>",
+		"wantsToSearchWithPath": "DiCode wants to search the codebase for <code>{{query}}</code> in <code>{{path}}</code>",
 		"didSearch_one": "Found 1 result",
 		"didSearch_other": "Found {{count}} results",
 		"resultTooltip": "Similarity score: {{score}} (click to open file)"
@@ -307,25 +307,25 @@
 	"response": "Response",
 	"arguments": "Arguments",
 	"text": {
-		"rooSaid": "CoStrict said"
+		"rooSaid": "DiCode said"
 	},
 	"feedback": {
 		"youSaid": "{{username}} said",
 		"defaultUserName": "You"
 	},
 	"mcp": {
-		"wantsToUseTool": "CoStrict wants to use a tool on the {{serverName}} MCP server",
-		"wantsToAccessResource": "CoStrict wants to access a resource on the {{serverName}} MCP server"
+		"wantsToUseTool": "DiCode wants to use a tool on the {{serverName}} MCP server",
+		"wantsToAccessResource": "DiCode wants to access a resource on the {{serverName}} MCP server"
 	},
 	"modes": {
-		"wantsToSwitch": "CoStrict wants to switch to {{mode}} mode",
-		"wantsToSwitchWithReason": "CoStrict wants to switch to {{mode}} mode because: {{reason}}",
-		"didSwitch": "CoStrict switched to {{mode}} mode",
-		"didSwitchWithReason": "CoStrict switched to {{mode}} mode because: {{reason}}"
+		"wantsToSwitch": "DiCode wants to switch to {{mode}} mode",
+		"wantsToSwitchWithReason": "DiCode wants to switch to {{mode}} mode because: {{reason}}",
+		"didSwitch": "DiCode switched to {{mode}} mode",
+		"didSwitchWithReason": "DiCode switched to {{mode}} mode because: {{reason}}"
 	},
 	"subtasks": {
-		"wantsToCreate": "CoStrict wants to create a new subtask in {{mode}} mode",
-		"wantsToFinish": "CoStrict wants to mark this as completed",
+		"wantsToCreate": "DiCode wants to create a new subtask in {{mode}} mode",
+		"wantsToFinish": "DiCode wants to mark this as completed",
 		"newTaskContent": "Subtask Instructions",
 		"completionContent": "Subtask Completed",
 		"viewSubtask": "View Subtask",
@@ -335,7 +335,7 @@
 		"goToSubtask": "View Subtask"
 	},
 	"questions": {
-		"hasQuestion": "CoStrict has a question"
+		"hasQuestion": "DiCode has a question"
 	},
 	"taskCompleted": "Task Completed",
 	"error": "Error",
@@ -352,12 +352,12 @@
 		"copyToClipboard": "Copy basic error info",
 		"copied": "Copied!",
 		"diagnostics": "Get detailed error info",
-		"proxyProvider": "You seem to be using a proxy-based provider. Make sure to check its logs and to ensure it's not rewriting CoStrict's requests."
+		"proxyProvider": "You seem to be using a proxy-based provider. Make sure to check its logs and to ensure it's not rewriting DiCode's requests."
 	},
 	"diffError": {
 		"title": "Edit unsuccessful, trying another approach"
 	},
-	"troubleMessage": "CoStrict is having trouble...",
+	"troubleMessage": "DiCode is having trouble...",
 	"powershell": {
 		"issues": "It seems like you're having Windows PowerShell issues, please see this"
 	},
@@ -379,25 +379,25 @@
 		"triggerLabelAll": "BRRR"
 	},
 	"announcement": {
-		"title": "CoStrict {{version}} Released",
-		"support": "Please support CoStrict by starring us on <githubLink>GitHub</githubLink>.",
+		"title": "DiCode {{version}} Released",
+		"support": "Please support DiCode by starring us on <githubLink>GitHub</githubLink>.",
 		"stealthModel": {
-			"feature": "<bold>Limited-time FREE stealth model</bold> - Code Supernova: Now upgraded with a <bold>1M token context window</bold>! A versatile agentic coding model that supports image inputs, accessible through CoStrict Cloud.",
+			"feature": "<bold>Limited-time FREE stealth model</bold> - Code Supernova: Now upgraded with a <bold>1M token context window</bold>! A versatile agentic coding model that supports image inputs, accessible through DiCode Cloud.",
 			"note": "(Note: prompts and completions are logged by the model creator and used to improve the model)",
-			"connectButton": "Connect to CoStrict Cloud",
-			"selectModel": "Select <code>roo/code-supernova</code> from the CoStrict Cloud provider in Settings to get started.",
+			"connectButton": "Connect to DiCode Cloud",
+			"selectModel": "Select <code>roo/code-supernova</code> from the DiCode Cloud provider in Settings to get started.",
 			"goToSettingsButton": "Go to Settings"
 		},
 		"handoff": {
-			"heading": "The CoStrict plugin is not going away.",
-			"description": "You may have seen the recent announcement that CoStrict hit 3 million installs and the original team is going all-in on Roomote. We know that news was hard for a lot of you. This plugin means a lot to us and to you, and we hear you. The good news: <bold>a community team has stepped up to carry CoStrict forward</bold>, and we're working with them on an official handoff so the plugin you rely on keeps getting maintained and improved.",
+			"heading": "The DiCode plugin is not going away.",
+			"description": "You may have seen the recent announcement that DiCode hit 3 million installs and the original team is going all-in on Roomote. We know that news was hard for a lot of you. This plugin means a lot to us and to you, and we hear you. The good news: <bold>a community team has stepped up to carry DiCode forward</bold>, and we're working with them on an official handoff so the plugin you rely on keeps getting maintained and improved.",
 			"readMore": "Read the original announcement from Matt Rubens"
 		},
 		"release": {
 			"heading": "What's New:",
-			"gpt54": "Poe Provider: Added Poe as an AI provider so you can access Poe models directly in CoStrict.",
+			"gpt54": "Poe Provider: Added Poe as an AI provider so you can access Poe models directly in DiCode.",
 			"slashSkills": "xAI and MiniMax Improvements: Migrated the xAI provider to the Responses API, added Grok-4.20 defaults, and fixed MiniMax model listings and context window handling for a more reliable setup.",
-			"gpt55": "GPT-5.5 via OpenAI Codex: Added GPT-5.5 support in the OpenAI Codex provider so you can use the latest model straight from CoStrict.",
+			"gpt55": "GPT-5.5 via OpenAI Codex: Added GPT-5.5 support in the OpenAI Codex provider so you can use the latest model straight from DiCode.",
 			"claudeOpus47": "Claude Opus 4.7 on Vertex AI: Added Claude Opus 4.7 to the Vertex AI provider for Anthropic's newest flagship reasoning model.",
 			"checkpointNav": "Previous Checkpoint Navigation: Added controls in chat to jump back through prior checkpoints, with full i18n support."
 		},
@@ -431,7 +431,7 @@
 	"profileViolationWarning": "The current profile isn't compatible with your organization's settings",
 	"shellIntegration": {
 		"title": "Command Execution Warning",
-		"description": "Your command is being executed without VSCode terminal shell integration. To suppress this warning you can disable shell integration in the <strong>Terminal</strong> section of the <settingsLink>CoStrict settings</settingsLink> or troubleshoot VSCode terminal integration using the link below.",
+		"description": "Your command is being executed without VSCode terminal shell integration. To suppress this warning you can disable shell integration in the <strong>Terminal</strong> section of the <settingsLink>DiCode settings</settingsLink> or troubleshoot VSCode terminal integration using the link below.",
 		"troubleshooting": "Click here for shell integration documentation."
 	},
 	"indexingStatus": {
@@ -482,18 +482,18 @@
 		"clickToEdit": "Click to edit message"
 	},
 	"slashCommand": {
-		"wantsToRun": "CoStrict wants to run a slash command",
-		"didRun": "CoStrict ran a slash command"
+		"wantsToRun": "DiCode wants to run a slash command",
+		"didRun": "DiCode ran a slash command"
 	},
 	"ask": {
 		"autoApprovedRequestLimitReached": {
 			"title": "Auto-Approved Request Limit Reached",
-			"description": "CoStrict has reached the auto-approved limit of {{count}} API request(s). Would you like to reset the count and proceed with the task?",
+			"description": "DiCode has reached the auto-approved limit of {{count}} API request(s). Would you like to reset the count and proceed with the task?",
 			"button": "Reset and Continue"
 		},
 		"autoApprovedCostLimitReached": {
 			"title": "Auto-Approved Cost Limit Reached",
-			"description": "CoStrict has reached the auto-approved cost limit of ${{count}}. Would you like to reset the cost and proceed with the task?",
+			"description": "DiCode has reached the auto-approved cost limit of ${{count}}. Would you like to reset the cost and proceed with the task?",
 			"button": "Reset and Continue"
 		}
 	},
@@ -521,11 +521,11 @@
 		"openMcpSettings": "Open MCP Settings"
 	},
 	"readCommandOutput": {
-		"title": "CoStrict read command output"
+		"title": "DiCode read command output"
 	},
 	"retiredProvider": {
 		"title": "Provider no longer supported",
-		"message": "Sorry, this provider is no longer supported. We saw very few CoStrict users actually using it and we need to reduce the surface area of our codebase so we can keep shipping fast and serving our community well in this space. It was a really hard decision but it lets us focus on what matters most to you. It sucks, we know.",
+		"message": "Sorry, this provider is no longer supported. We saw very few DiCode users actually using it and we need to reduce the surface area of our codebase so we can keep shipping fast and serving our community well in this space. It was a really hard decision but it lets us focus on what matters most to you. It sucks, we know.",
 		"openSettings": "Open Settings"
 	}
 }

@@ -1,0 +1,223 @@
+From 17ca2560556a6c7e40753d721d3aa428b1c3b058 Mon Sep 17 00:00:00 2001
+From: wsjwsj40 <1309342119@qq.com>
+Date: Thu, 30 Jul 2026 01:39:31 +0000
+Subject: [PATCH] feat: deploy model access service
+
+---
+ MODEL_ACCESS_CHANGES.md                   | 56 +++++++++++++++++++++++
+ config/postgres/initdb.d/01_create_db.sql |  3 +-
+ configure.sh                              | 11 +++++
+ costrict.sh                               |  4 ++
+ docker-compose.yml.tpl                    | 23 ++++++++--
+ k8s/costrict.yaml.tpl                     | 19 ++++++++
+ scripts/apisix_router/ai-gateway.sh       |  4 +-
+ scripts/newest-images.list                |  2 +-
+ 8 files changed, 114 insertions(+), 8 deletions(-)
+ create mode 100644 MODEL_ACCESS_CHANGES.md
+
+diff --git a/MODEL_ACCESS_CHANGES.md b/MODEL_ACCESS_CHANGES.md
+new file mode 100644
+index 0000000..821a20e
+--- /dev/null
++++ b/MODEL_ACCESS_CHANGES.md
+@@ -0,0 +1,56 @@
++# Model Access Service 部署变更
++
++## 修改文件
++
++1. `config/postgres/initdb.d/01_create_db.sql`
++   - 新集群初始化 PostgreSQL 时创建 `model_access` 数据库。
++
++2. `configure.sh`
++   - 新增 `MODEL_ACCESS_DATABASE`。
++   - 新增 Casdoor JWKS 地址 `MODEL_ACCESS_JWKS_URL`。
++   - 新增 JWT 邮箱字段 `MODEL_ACCESS_JWT_EMAIL_FIELD`。
++   - 新增管理页面令牌 `MODEL_ACCESS_ADMIN_TOKEN`。
++
++3. `scripts/newest-images.list`
++   - 将 `IMAGE_MODEL_PROXY` 更新为 `costrict-model-proxy-access:v0.1.0`。
++
++4. `k8s/costrict.yaml.tpl`
++   - 给 `model-proxy` 注入 PostgreSQL、JWT 和管理令牌环境变量。
++
++5. `docker-compose.yml.tpl`
++   - 同步增加 model-proxy 环境变量及 PostgreSQL、Casdoor 依赖。
++
++6. `scripts/apisix_router/ai-gateway.sh`
++   - 保留 `/ai-gateway/api/v1/models`。
++   - 新增管理页面路由 `/admin` 和 `/admin/*`。
++
++7. `costrict.sh`
++   - 在 `check` 阶段检查新增的模型权限配置。
++
++## 现有 K8s 集群升级
++
++确认数据库是否存在：
++
++```bash
++kubectl exec -n costrict deploy/postgres -- \
++  psql -U zgsm -d postgres -tAc \
++  "SELECT 1 FROM pg_database WHERE datname='model_access';"
++```
++
++如果没有输出 `1`，创建数据库：
++
++```bash
++kubectl exec -n costrict deploy/postgres -- \
++  createdb -U zgsm model_access
++```
++
++修改 `configure.sh` 中的管理员令牌和 JWT 邮箱字段，然后执行：
++
++```bash
++bash costrict.sh prepare
++bash costrict.sh up
++bash apisix_router_setting.sh
++```
++
++`prepare` 只生成 `k8s/costrict.yaml`；`up` 才会更新 ConfigMap 并执行
++`kubectl apply`；最后一个命令更新 APISIX 管理页面路由。
+diff --git a/config/postgres/initdb.d/01_create_db.sql b/config/postgres/initdb.d/01_create_db.sql
+index 1936ee2..567b63b 100755
+--- a/config/postgres/initdb.d/01_create_db.sql
++++ b/config/postgres/initdb.d/01_create_db.sql
+@@ -2,4 +2,5 @@
+ CREATE DATABASE casdoor;
+ CREATE DATABASE quota_manager;
+ CREATE DATABASE auth;
+-CREATE DATABASE nacos;
+\ No newline at end of file
++CREATE DATABASE nacos;
++CREATE DATABASE model_access;
+diff --git a/configure.sh b/configure.sh
+index ee1cb1c..b4c6db0 100755
+--- a/configure.sh
++++ b/configure.sh
+@@ -137,6 +137,17 @@ OIDC_DISCOVERY_ADDR="${OIDC_CASDOOR_ADDR}/.well-known/openid-configuration"
+ OIDC_INTROSPECTION_ENDPOINT="${OIDC_CASDOOR_ADDR}/api/login/oauth/introspect"
+ OIDC_TOKEN_ENDPOINT=""
+ 
++#---------------------------------------------------------
++# 模型权限服务设置
++#---------------------------------------------------------
++# 新 model-proxy 仅提供按用户邮箱过滤的模型列表和管理页面，不代理模型请求。
++MODEL_ACCESS_DATABASE="model_access"
++MODEL_ACCESS_JWKS_URL="${OIDC_CASDOOR_ADDR}/.well-known/jwks"
++# JWT 中邮箱字段的路径；嵌套字段使用点号分隔，例如 properties.oauth_Custom_email。
++MODEL_ACCESS_JWT_EMAIL_FIELD="email"
++# 管理页面使用的令牌。生产部署前必须替换为随机高强度字符串。
++MODEL_ACCESS_ADMIN_TOKEN="change-this-model-access-admin-token"
++
+ #-------------------------------------------------------------------------------
+ #   以下设置请根据部署环境信息进行修改
+ #-------------------------------------------------------------------------------
+diff --git a/costrict.sh b/costrict.sh
+index 1e5982f..3bf0def 100755
+--- a/costrict.sh
++++ b/costrict.sh
+@@ -243,6 +243,10 @@ cmd_check() {
+     "K8S_NODEPORT_NACOS"
+     "K8S_NODEPORT_OIDC_AUTH"
+     "K8S_NODEPORT_CHATRAG"
++    "MODEL_ACCESS_DATABASE"
++    "MODEL_ACCESS_JWKS_URL"
++    "MODEL_ACCESS_JWT_EMAIL_FIELD"
++    "MODEL_ACCESS_ADMIN_TOKEN"
+   )
+   for v in "${env_vars[@]}"; do
+     _check_env "${v}"
+diff --git a/docker-compose.yml.tpl b/docker-compose.yml.tpl
+index 48b4910..43adc3f 100644
+--- a/docker-compose.yml.tpl
++++ b/docker-compose.yml.tpl
+@@ -91,11 +91,24 @@ services:
+     networks:
+       - shenma
+ 
+-  model-proxy:
+-    image: {{IMAGE_MODEL_PROXY}}
+-    restart: always
+-    volumes:
+-      - ./config/model-proxy/config.yaml:/app/config.yaml
++  model-proxy:
++    image: {{IMAGE_MODEL_PROXY}}
++    restart: always
++    environment:
++      DATABASE_HOST: postgres
++      DATABASE_PORT: "5432"
++      DATABASE_USER: "{{POSTGRES_USER}}"
++      DATABASE_PASSWORD: "{{PASSWORD_POSTGRES}}"
++      DATABASE_DBNAME: "{{MODEL_ACCESS_DATABASE}}"
++      DATABASE_SSLMODE: disable
++      JWT_JWKS_URL: "{{MODEL_ACCESS_JWKS_URL}}"
++      JWT_EMAIL_FIELD: "{{MODEL_ACCESS_JWT_EMAIL_FIELD}}"
++      ADMIN_TOKEN: "{{MODEL_ACCESS_ADMIN_TOKEN}}"
++    volumes:
++      - ./config/model-proxy/config.yaml:/app/config.yaml:ro
++    depends_on:
++      - postgres
++      - casdoor
+     # port mapping is only debug 
+     # ports:
+     #   - "{{PORT_MODEL_PROXY}}:8080"
+diff --git a/k8s/costrict.yaml.tpl b/k8s/costrict.yaml.tpl
+index 910d32a..3749990 100644
+--- a/k8s/costrict.yaml.tpl
++++ b/k8s/costrict.yaml.tpl
+@@ -600,6 +600,25 @@ spec:
+         - name: model-proxy
+           image: {{IMAGE_MODEL_PROXY}}
+           imagePullPolicy: IfNotPresent
++          env:
++            - name: DATABASE_HOST
++              value: "postgres"
++            - name: DATABASE_PORT
++              value: "5432"
++            - name: DATABASE_USER
++              value: "{{POSTGRES_USER}}"
++            - name: DATABASE_PASSWORD
++              value: "{{PASSWORD_POSTGRES}}"
++            - name: DATABASE_DBNAME
++              value: "{{MODEL_ACCESS_DATABASE}}"
++            - name: DATABASE_SSLMODE
++              value: "disable"
++            - name: JWT_JWKS_URL
++              value: "{{MODEL_ACCESS_JWKS_URL}}"
++            - name: JWT_EMAIL_FIELD
++              value: "{{MODEL_ACCESS_JWT_EMAIL_FIELD}}"
++            - name: ADMIN_TOKEN
++              value: "{{MODEL_ACCESS_ADMIN_TOKEN}}"
+           ports:
+             - name: http
+               containerPort: 8080
+diff --git a/scripts/apisix_router/ai-gateway.sh b/scripts/apisix_router/ai-gateway.sh
+index 17f7dbb..f10d19f 100755
+--- a/scripts/apisix_router/ai-gateway.sh
++++ b/scripts/apisix_router/ai-gateway.sh
+@@ -10,7 +10,9 @@ curl -i http://$APISIX_ADDR/apisix/admin/upstreams -H "$AUTH" -H "$TYPE" -X PUT
+ 
+ curl -i http://$APISIX_ADDR/apisix/admin/routes -H "$AUTH" -H "$TYPE" -X PUT -d '{
+     "uris": [
+-      "/ai-gateway/api/v1/models"
++      "/ai-gateway/api/v1/models",
++      "/admin",
++      "/admin/*"
+     ],
+     "id": "ai-gateway",
+     "name": "ai-gateway",
+diff --git a/scripts/newest-images.list b/scripts/newest-images.list
+index 81226ed..85873d4 100644
+--- a/scripts/newest-images.list
++++ b/scripts/newest-images.list
+@@ -5,7 +5,7 @@ IMAGE_POSTGRES=postgres:15-alpine
+ IMAGE_NGINX=nginx:1.27.1
+ IMAGE_GRAFANA=grafana/grafana:11.2.0
+ IMAGE_PROMETHEUS=quay.io/prometheus/prometheus:v2.54.0
+-IMAGE_MODEL_PROXY=ghcr.io/zgsm-sangfor/costrict-model-proxy:v0.0.4
++IMAGE_MODEL_PROXY=costrict-model-proxy-access:v0.1.0
+ IMAGE_CASDOOR=zgsm/casdoor:v2.1.3
+ IMAGE_CHATRAG=zgsm/chat-rag:v1.5.22
+ IMAGE_CODE_COMPLETION=zgsm/code-completion:v1.7.105
+-- 
+2.53.0
+

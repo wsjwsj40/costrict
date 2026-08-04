@@ -11,7 +11,7 @@
 Clone the Roo Code repo:
 
 ```sh
-git clone https://github.com/zgsm-ai/costrict.git
+git clone https://github.com/atad-apts/costrict.git
 cd Roo-Code
 ```
 

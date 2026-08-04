@@ -1,18 +1,8 @@
-import { HTMLAttributes, useState } from "react"
+import { HTMLAttributes } from "react"
 import { useAppTranslation } from "@/i18n/TranslationContext"
 import { Trans } from "react-i18next"
 
-import {
-	Info,
-	Download,
-	Upload,
-	TriangleAlert,
-	Bug,
-	Lightbulb,
-	Shield,
-	MessageCircle,
-	MessagesSquare,
-} from "lucide-react"
+import { Info, Download, Upload, TriangleAlert, Bug, MessageCircle, MessagesSquare } from "lucide-react"
 import { VSCodeCheckbox, VSCodeLink } from "@vscode/webview-ui-toolkit/react"
 
 import type { TelemetrySetting } from "@roo-code/types"
@@ -48,10 +38,6 @@ function formatBuildTime(isoString: string | undefined): string | undefined {
 
 export const About = ({ telemetrySetting, setTelemetrySetting, debug, setDebug, className, ...props }: AboutProps) => {
 	const { t } = useAppTranslation()
-	const [imagesBaseUri] = useState(() => {
-		const w = window as any
-		return w.COSTRICT_BASE_URI || ""
-	})
 
 	const buildTime = formatBuildTime(Package.buildTime)
 	const versionDescription = Package.sha
@@ -95,48 +81,44 @@ export const About = ({ telemetrySetting, setTelemetrySetting, debug, setDebug, 
 					<div className="flex items-start gap-2">
 						<Bug className="size-4 text-vscode-descriptionForeground shrink-0" />
 						<span>
-							{t("settings:about.bugReport.label")}{" "}
-							<VSCodeLink href="https://github.com/zgsm-ai/costrict/issues/new?template=bug_report.yml">
-								{t("settings:about.bugReport.link")}
-							</VSCodeLink>
+							问题反馈 <VSCodeLink href="https://gcyai.byd.com/modify/message_board">留言板</VSCodeLink>
 						</span>
 					</div>
 					<div className="flex items-start gap-2">
-						<Lightbulb className="size-4 text-vscode-descriptionForeground shrink-0" />
+						<Download className="size-4 text-vscode-descriptionForeground shrink-0" />
 						<span>
-							{t("settings:about.featureRequest.label")}{" "}
-							<VSCodeLink href="https://github.com/zgsm-ai/costrict/issues/new?template=feature_request.yml">
-								{t("settings:about.featureRequest.link")}
-							</VSCodeLink>
+							版本检查 运行{" "}
+							<VSCodeLink
+								href="#"
+								onClick={(event) => {
+									event.preventDefault()
+									vscode.postMessage({ type: "checkForUpdates" })
+								}}>
+								Dicode: Check for Updates
+							</VSCodeLink>{" "}
+							检查版本
 						</span>
 					</div>
 					<div className="flex items-start gap-2">
-						<Shield className="size-4 text-vscode-descriptionForeground shrink-0" />
+						<Info className="size-4 text-vscode-descriptionForeground shrink-0" />
 						<span>
-							{t("settings:about.securityIssue.label")}{" "}
-							<VSCodeLink href="https://github.com/zgsm-ai/costrict/security/policy">
-								{t("settings:about.securityIssue.link")}
-							</VSCodeLink>
+							了解更多信息{" "}
+							<VSCodeLink href="https://aiservice.byd.com/dicode/">DiCode 官方网站</VSCodeLink>
 						</span>
 					</div>
 					<div className="flex items-start gap-2">
 						<MessageCircle className="size-4 text-vscode-descriptionForeground shrink-0" />
 						<span>
-							{t("settings:about.contact.label")}{" "}
-							<VSCodeLink href="mailto:zgsm@sangfor.com.cn">zgsm@sangfor.com.cn</VSCodeLink>
+							联系我们 曾心怡 <VSCodeLink href="mailto:zeng.xinyi@byd.com">zeng.xinyi@byd.com</VSCodeLink>
 						</span>
 					</div>
 					<div className="flex items-start gap-2">
 						<MessagesSquare className="size-4 text-vscode-descriptionForeground shrink-0" />
 						<span>
-							{t("settings:about.community")}
-							<img
-								width={100}
-								height={100}
-								src={imagesBaseUri + "/wechat.png"}
-								alt="wechat qrcode"
-								className="mt-4"
-							/>
+							获取使用技巧或与其他 DiCode 用户交流{" "}
+							<VSCodeLink href="https://aiservice.byd.com/dicode/communication">
+								查看 DiCode 用户交流群最新二维码
+							</VSCodeLink>
 						</span>
 					</div>
 					{setDebug && (

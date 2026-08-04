@@ -14,7 +14,7 @@ export class HistoryManager {
 
 	constructor() {
 		this.logger = createLogger(Package.outputChannel)
-		this.storageDir = path.join(os.homedir(), ".costrict", "review")
+		this.storageDir = path.join(os.homedir(), ".dicode", "review")
 		this.historyFilePath = path.join(this.storageDir, "history.jsonl")
 		this.ensureStorageDir().catch((error) => {
 			this.logger.error(`[HistoryManager] Failed to create storage directory: ${error}`)

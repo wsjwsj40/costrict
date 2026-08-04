@@ -100,6 +100,7 @@ import { ensureProjectWikiSubtasksExists } from "../costrict/wiki/projectWikiHel
 import { setPendingTodoList } from "../tools/UpdateTodoListTool"
 import { getEditorType } from "../../utils/getEditorType"
 import { updateDefaultDebug } from "../../utils/getDebugState"
+import { costrictDebugModeBuildEnabled } from "../../shared/costrictDebugMode"
 import {
 	handleListWorktrees,
 	handleCreateWorktree,
@@ -1142,6 +1143,9 @@ export const webviewMessageHandler = async (
 		case "fixHistory":
 			await provider.fixHistory()
 			break
+		case "checkForUpdates":
+			await vscode.commands.executeCommand(`${Package.commandIDPrefix}.checkForUpdates`)
+			break
 		case "flushRouterModels": {
 			const { apiConfiguration } = await provider.getState()
 			const routerNameFlush: RouterName = toRouterName(message.text)
@@ -1619,7 +1623,7 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "openKeyboardShortcuts": {
-			// Open VSCode keyboard shortcuts settings and optionally filter to show the CoStrict commands
+			// Open VSCode keyboard shortcuts settings and optionally filter to show the DiCode commands
 			const searchQuery = message.text || ""
 			if (searchQuery) {
 				// Open with a search query pre-filled
@@ -2708,10 +2712,16 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "debugSetting": {
+			const configuration = vscode.workspace.getConfiguration(Package.commandIDPrefix)
+			const previousDebug = configuration.get<boolean>("debug", false)
+			const nextDebug = costrictDebugModeBuildEnabled && (message.bool ?? false)
 			await vscode.workspace
 				.getConfiguration(Package.commandIDPrefix)
-				.update("debug", message.bool ?? false, vscode.ConfigurationTarget.Global)
-			updateDefaultDebug(message.bool ?? false)
+				.update("debug", nextDebug, vscode.ConfigurationTarget.Global)
+			updateDefaultDebug(nextDebug)
+			if (previousDebug !== nextDebug) {
+				await provider.setValue("useCostrictCustomConfig", false)
+			}
 			await provider.postStateToWebview()
 			break
 		}

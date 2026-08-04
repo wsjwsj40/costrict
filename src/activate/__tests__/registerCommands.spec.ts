@@ -59,7 +59,7 @@ vi.mock("vscode", async () => {
 				extensionUri: { fsPath: "/mock/extension/path", path: "/mock/extension/path", scheme: "file" },
 				packageJSON: {
 					name: "costrict",
-					publisher: "zgsm-ai",
+					publisher: "atad-apts",
 					version: "2.0.27",
 				},
 			}),
@@ -109,6 +109,6 @@ describe("registerCommands", () => {
 		const result = getVisibleProviderOrLog(mockOutputChannel)
 
 		expect(result).toBeUndefined()
-		expect(mockOutputChannel.appendLine).toHaveBeenCalledWith("Cannot find any visible CoStrict instances.")
+		expect(mockOutputChannel.appendLine).toHaveBeenCalledWith("Cannot find any visible DiCode instances.")
 	})
 })

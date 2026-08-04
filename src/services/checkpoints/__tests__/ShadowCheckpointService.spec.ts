@@ -22,7 +22,7 @@ const tmpDir = path.join(os.tmpdir(), "CheckpointService")
 
 const initWorkspaceRepo = async ({
 	workspaceDir,
-	userName = "CoStrict",
+	userName = "DiCode",
 	userEmail = "zgsm@sangfor.com.cn",
 	testFileName = "test.txt",
 	textFileContent = "Hello, world!",
@@ -418,7 +418,7 @@ describe.each([[RepoPerTaskCheckpointService, "RepoPerTaskCheckpointService"]])(
 				await fs.mkdir(workspaceDir, { recursive: true })
 				const mainGit = simpleGit(workspaceDir)
 				await mainGit.init()
-				await mainGit.addConfig("user.name", "CoStrict")
+				await mainGit.addConfig("user.name", "DiCode")
 				await mainGit.addConfig("user.email", "zgsm@sangfor.com.cn")
 
 				// Create a nested repo inside the workspace.
@@ -426,7 +426,7 @@ describe.each([[RepoPerTaskCheckpointService, "RepoPerTaskCheckpointService"]])(
 				await fs.mkdir(nestedRepoPath, { recursive: true })
 				const nestedGit = simpleGit(nestedRepoPath)
 				await nestedGit.init()
-				await nestedGit.addConfig("user.name", "CoStrict")
+				await nestedGit.addConfig("user.name", "DiCode")
 				await nestedGit.addConfig("user.email", "zgsm@sangfor.com.cn")
 
 				// Add a file to the nested repo.
@@ -488,7 +488,7 @@ describe.each([[RepoPerTaskCheckpointService, "RepoPerTaskCheckpointService"]])(
 				await fs.mkdir(workspaceDir, { recursive: true })
 				const mainGit = simpleGit(workspaceDir)
 				await mainGit.init()
-				await mainGit.addConfig("user.name", "CoStrict")
+				await mainGit.addConfig("user.name", "DiCode")
 				await mainGit.addConfig("user.email", "zgsm@sangfor.com.cn")
 
 				// Create a test file in the main workspace.

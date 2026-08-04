@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="zh-CN">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>模型权限中心</title>
+		<link rel="stylesheet" href="app.css" />
+	</head>
+	<body>
+		<div id="login" class="login-shell">
+			<section class="login-card">
+				<div class="brand-mark">M</div>
+				<p class="eyebrow">COSTRICT CONTROL PLANE</p>
+				<h1>模型权限中心</h1>
+				<p class="muted">管理模型目录、套餐可见范围与用户套餐。</p>
+				<form id="login-form">
+					<label>管理员令牌</label>
+					<input
+						id="admin-token"
+						type="password"
+						autocomplete="current-password"
+						placeholder="输入 ADMIN_TOKEN"
+						required />
+					<button class="primary" type="submit">进入控制台</button>
+					<p id="login-error" class="error"></p>
+				</form>
+			</section>
+		</div>
+
+		<div id="app" class="app-shell hidden">
+			<aside>
+				<div class="brand">
+					<div class="brand-mark small">M</div>
+					<div><strong>模型权限中心</strong><span>Control plane</span></div>
+				</div>
+				<nav>
+					<button class="nav active" data-view="overview">概览</button>
+					<button class="nav" data-view="models">模型目录</button>
+					<button class="nav" data-view="plans">套餐权限</button>
+					<button class="nav" data-view="users">用户权限</button>
+					<button class="nav" data-view="sync">同步任务</button>
+				</nav>
+				<div class="aside-foot">
+					<span class="status-dot"></span> 服务已连接
+					<button id="logout" class="text-button">退出</button>
+				</div>
+			</aside>
+
+			<main>
+				<header>
+					<div>
+						<p class="eyebrow">ACCESS MANAGEMENT</p>
+						<h2 id="page-title">权限概览</h2>
+					</div>
+					<button id="refresh" class="secondary">刷新数据</button>
+				</header>
+
+				<section id="overview-view" class="view">
+					<div class="metrics">
+						<article>
+							<span>可用模型</span><strong id="metric-models">0</strong><small>不包含 Auto</small>
+						</article>
+						<article>
+							<span>权限套餐</span><strong id="metric-plans">3</strong><small>Free / Plus / Pro</small>
+						</article>
+						<article>
+							<span>已配置用户</span><strong id="metric-users">0</strong
+							><small>未配置用户默认 Free</small>
+						</article>
+						<article>
+							<span>同步任务</span><strong id="metric-sync">0</strong><small>后台分批同步网关</small>
+						</article>
+					</div>
+					<article class="panel">
+						<div class="panel-head">
+							<div>
+								<h3>套餐覆盖情况</h3>
+								<p>每个套餐当前可见的模型数量</p>
+							</div>
+						</div>
+						<div id="coverage" class="coverage"></div>
+					</article>
+				</section>
+
+				<section id="sync-view" class="view hidden">
+					<article class="panel">
+						<div class="panel-head">
+							<div>
+								<h3>网关权限同步任务</h3>
+								<p>后台分批执行；失败项会自动重试</p>
+							</div>
+						</div>
+						<div id="sync-table"></div>
+					</article>
+				</section>
+
+				<section id="models-view" class="view hidden">
+					<article class="panel">
+						<div class="panel-head">
+							<div>
+								<h3>模型目录</h3>
+								<p>模型 ID 必须与内部网关接受的 ID 完全一致</p>
+							</div>
+							<button id="add-model" class="primary compact">添加模型</button>
+						</div>
+						<div id="models-table"></div>
+					</article>
+				</section>
+
+				<section id="plans-view" class="view hidden">
+					<div id="plan-cards" class="plan-grid"></div>
+				</section>
+
+				<section id="users-view" class="view hidden">
+					<article class="panel">
+						<div class="panel-head">
+							<div>
+								<h3>用户套餐</h3>
+								<p>通过 Token 中的邮箱匹配；未配置用户使用默认 Free</p>
+							</div>
+							<div class="head-actions">
+								<button id="batch-add-users" class="secondary compact">批量导入</button>
+								<button id="add-user" class="primary compact">分配用户</button>
+							</div>
+						</div>
+						<div class="toolbar user-toolbar">
+							<input id="user-search" placeholder="搜索邮箱" />
+							<span id="selection-count" class="selection-count">未选择用户</span>
+							<select id="bulk-plan" aria-label="批量设置套餐"></select>
+							<button id="bulk-set-plan" class="secondary compact" disabled>批量变更套餐</button>
+							<button id="bulk-delete-users" class="secondary danger-button compact" disabled>
+								批量删除配置
+							</button>
+						</div>
+						<div id="users-table"></div>
+					</article>
+				</section>
+			</main>
+		</div>
+
+		<dialog id="model-dialog">
+			<form id="model-form">
+				<div class="dialog-head">
+					<div>
+						<p class="eyebrow">MODEL CATALOG</p>
+						<h3>模型配置</h3>
+					</div>
+					<button type="button" class="icon-button close-dialog">×</button>
+				</div>
+				<label>模型 ID<input name="id" required placeholder="例如 claude-sonnet" /></label>
+				<div class="two-col">
+					<label>显示名称<input name="name" required placeholder="Claude Sonnet" /></label>
+					<label>排序<input name="sortOrder" type="number" value="0" /></label>
+				</div>
+				<div class="two-col">
+					<label>上下文窗口<input name="contextWindow" type="number" value="128000" /></label>
+					<label>最大输出 Token<input name="maxTokens" type="number" value="8192" /></label>
+				</div>
+				<label>描述<textarea name="description" rows="3"></textarea></label>
+				<label class="check"><input name="enabled" type="checkbox" checked /> 启用并允许加入套餐</label>
+				<div class="dialog-actions">
+					<button type="button" class="secondary close-dialog">取消</button
+					><button class="primary" type="submit">保存模型</button>
+				</div>
+			</form>
+		</dialog>
+
+		<dialog id="user-dialog">
+			<form id="user-form">
+				<div class="dialog-head">
+					<div>
+						<p class="eyebrow">USER ACCESS</p>
+						<h3>分配用户套餐</h3>
+					</div>
+					<button type="button" class="icon-button close-dialog">×</button>
+				</div>
+				<label>用户邮箱<input name="email" type="email" required placeholder="user@example.com" /></label>
+				<label>套餐<select name="planCode"></select></label>
+				<div class="dialog-actions">
+					<button type="button" class="secondary close-dialog">取消</button
+					><button class="primary" type="submit">保存权限</button>
+				</div>
+			</form>
+		</dialog>
+
+		<dialog id="batch-user-dialog">
+			<form id="batch-user-form">
+				<div class="dialog-head">
+					<div>
+						<p class="eyebrow">BATCH USER ACCESS</p>
+						<h3>批量分配用户套餐</h3>
+					</div>
+					<button type="button" class="icon-button close-dialog">×</button>
+				</div>
+				<label
+					>用户邮箱
+					<textarea
+						name="emails"
+						rows="9"
+						required
+						placeholder="每行一个邮箱，也支持逗号或分号分隔"></textarea>
+				</label>
+				<div class="import-row">
+					<label class="file-picker"
+						>导入 CSV 文件<input id="batch-user-csv" type="file" accept=".csv,text/csv"
+					/></label>
+					<span id="batch-email-count" class="muted">已识别 0 个邮箱</span>
+				</div>
+				<p class="field-hint">CSV 可以包含表头和其他列，系统会自动提取其中的邮箱并去重。</p>
+				<label>统一分配套餐<select name="planCode"></select></label>
+				<div class="dialog-actions">
+					<button type="button" class="secondary close-dialog">取消</button
+					><button class="primary" type="submit">批量保存权限</button>
+				</div>
+			</form>
+		</dialog>
+
+		<div id="toast" class="toast"></div>
+		<script src="app.js"></script>
+	</body>
+</html>

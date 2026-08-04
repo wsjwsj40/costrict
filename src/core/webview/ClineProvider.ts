@@ -57,6 +57,7 @@ import { TelemetryService } from "@roo-code/telemetry"
 import { CloudService, getRooCodeApiUrl } from "@roo-code/cloud"
 
 import { Package } from "../../shared/package"
+import { COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION, costrictDebugModeBuildEnabled } from "../../shared/costrictDebugMode"
 import { findLast } from "../../shared/array"
 import { supportPrompt, type SupportPromptType } from "../../shared/support-prompt"
 import { GlobalFileNames } from "../../shared/globalFileNames"
@@ -438,18 +439,22 @@ export class ClineProvider
 		try {
 			await this.taskHistoryStore.initialize()
 
-			// Migration: backfill per-task files from globalState on first run
+			// Migration: backfill per-task files from globalState.
+			//
+			// Do this on every startup. The migration itself is idempotent and this
+			// also repairs installations where VS Code retained globalState across
+			// an uninstall/reinstall but the file-backed index (or individual
+			// history_item.json files) was lost.
 			const migrationKey = "taskHistoryMigratedToFiles"
 			const alreadyMigrated = this.context.globalState.get<boolean>(migrationKey)
+			const legacyHistory = this.context.globalState.get<HistoryItem[]>("taskHistory") ?? []
+
+			if (legacyHistory.length > 0) {
+				this.log(`[initializeTaskHistoryStore] Reconciling ${legacyHistory.length} entries from globalState`)
+				await this.taskHistoryStore.migrateFromGlobalState(legacyHistory)
+			}
 
 			if (!alreadyMigrated) {
-				const legacyHistory = this.context.globalState.get<HistoryItem[]>("taskHistory") ?? []
-
-				if (legacyHistory.length > 0) {
-					this.log(`[initializeTaskHistoryStore] Migrating ${legacyHistory.length} entries from globalState`)
-					await this.taskHistoryStore.migrateFromGlobalState(legacyHistory)
-				}
-
 				await this.context.globalState.update(migrationKey, true)
 				this.log("[initializeTaskHistoryStore] Migration complete")
 			}
@@ -1582,7 +1587,7 @@ export class ClineProvider
 						window.AUDIO_BASE_URI = "${audioUri}"
 						window.MATERIAL_ICONS_BASE_URI = "${materialIconsUri}"
 					</script>
-					<title>CoStrict</title>
+					<title>DiCode</title>
 				</head>
 				<body data-platform="${platform}">
 					<div id="root"></div>
@@ -1673,7 +1678,7 @@ export class ClineProvider
 					"defaultLanguage": "${language}",
 				})
 			</script>
-            <title>CoStrict</title>
+            <title>DiCode</title>
           </head>
           <body data-platform="${platform}">
             <noscript>You need to enable JavaScript to run this app.</noscript>
@@ -2822,7 +2827,7 @@ export class ClineProvider
 			openRouterImageApiKey,
 			openRouterImageGenerationSelectedModel,
 			autoCleanup,
-			debug,
+			debug: storedDebug,
 			hasClosedCodeReviewWelcomeTips,
 			lockApiConfigAcrossModes,
 		} = await this.buildBaseState({ includeTaskHistory: options?.includeTaskHistory ?? true })
@@ -2857,15 +2862,18 @@ export class ClineProvider
 		const currentTask = this.getCurrentTask()
 		const filteredTaskHistory = (taskHistory ?? []).filter((item: HistoryItem) => item.ts && item.task)
 
-		if (!debug) {
-			apiConfiguration.useCostrictCustomConfig = false
-		}
+		const costrictModelDebugEnabled = costrictDebugModeBuildEnabled && storedDebug
+		const costrictCustomConfigEnabled =
+			costrictModelDebugEnabled &&
+			(useCostrictCustomConfig ?? false) &&
+			apiConfiguration.costrictCustomConfigConsentVersion === COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION
+		apiConfiguration.useCostrictCustomConfig = costrictCustomConfigEnabled
 
 		return {
 			version: this.context.extension?.packageJSON?.version ?? "",
 			apiConfiguration,
 			autoCleanup,
-			debug,
+			debug: costrictModelDebugEnabled,
 			customInstructions,
 			alwaysAllowReadOnly: alwaysAllowReadOnly ?? false,
 			alwaysAllowReadOnlyOutsideWorkspace: alwaysAllowReadOnlyOutsideWorkspace ?? true,
@@ -2901,7 +2909,7 @@ export class ClineProvider
 			ttsSpeed: ttsSpeed ?? 1.0,
 			customStoragePath,
 			enableCheckpoints: enableCheckpoints ?? true,
-			useCostrictCustomConfig: useCostrictCustomConfig ?? false,
+			useCostrictCustomConfig: costrictCustomConfigEnabled,
 			checkpointTimeout: checkpointTimeout ?? DEFAULT_CHECKPOINT_TIMEOUT_SECONDS,
 			shouldShowAnnouncement:
 				telemetrySetting !== "disabled" && lastShownAnnouncementId !== this.latestAnnouncementId,
@@ -3130,10 +3138,16 @@ export class ClineProvider
 		// }
 
 		const customStoragePath = this.getCachedCustomStoragePath()
+		const costrictCustomConfigEnabled =
+			costrictDebugModeBuildEnabled &&
+			(stateValues.debug ?? false) &&
+			(stateValues.useCostrictCustomConfig ?? false) &&
+			apiConfiguration.costrictCustomConfigConsentVersion === COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION
+		apiConfiguration.useCostrictCustomConfig = costrictCustomConfigEnabled
 
 		// Return the same structure as before.
 		return {
-			debug: stateValues.debug ?? false,
+			debug: costrictDebugModeBuildEnabled && (stateValues.debug ?? false),
 			autoCleanup: stateValues.autoCleanup ?? DEFAULT_AUTO_CLEANUP_SETTINGS,
 			apiConfiguration,
 			lastShownAnnouncementId: stateValues.lastShownAnnouncementId,
@@ -3163,7 +3177,7 @@ export class ClineProvider
 			ttsSpeed: stateValues.ttsSpeed ?? 1.0,
 			customStoragePath,
 			enableCheckpoints: stateValues.enableCheckpoints ?? true,
-			useCostrictCustomConfig: stateValues.useCostrictCustomConfig ?? false,
+			useCostrictCustomConfig: costrictCustomConfigEnabled,
 			checkpointTimeout: stateValues.checkpointTimeout ?? DEFAULT_CHECKPOINT_TIMEOUT_SECONDS,
 			soundVolume: stateValues.soundVolume,
 			writeDelayMs: stateValues.writeDelayMs ?? DEFAULT_WRITE_DELAY_MS,
@@ -3769,11 +3783,10 @@ export class ClineProvider
 		// This ensures the stream fails quickly rather than waiting for network timeout
 		task.cancelCurrentRequest()
 
-		// Begin abort (non-blocking)
-		task.abortTask()
-
-		// Immediately mark the original instance as abandoned to prevent any residual activity
-		task.abandoned = true
+		// Wait for the final UI messages and history metadata to be durably saved
+		// before rehydrating this task. Rehydrating while abortTask() is still
+		// flushing can create a new Task from an empty/stale ui_messages.json.
+		await task.abortTask()
 
 		await pWaitFor(
 			() =>
@@ -3984,7 +3997,11 @@ export class ClineProvider
 	}
 
 	public get cwd() {
-		return this.currentWorkspacePath || getWorkspacePath()
+		// Keep no-workspace windows consistent with Task's fallback directory.
+		// Chat history is grouped by cwd in the webview; returning an empty string
+		// here while Task persists "Desktop" makes successfully saved history
+		// invisible until a workspace is opened.
+		return this.currentWorkspacePath || getWorkspacePath(path.join(os.homedir(), "Desktop"))
 	}
 	public getCostrictAuthCommands() {
 		return this.costrictAuthCommands

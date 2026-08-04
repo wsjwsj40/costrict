@@ -1,0 +1,135 @@
+From 620a1cdc599799e5ba4ec92b99d8085c2c83e7cd Mon Sep 17 00:00:00 2001
+From: wsjwsj40 <1309342119@qq.com>
+Date: Mon, 3 Aug 2026 03:32:07 +0000
+Subject: [PATCH] feat: configure asynchronous gateway sync
+
+---
+ MODEL_ACCESS_CHANGES.md    | 6 ++++--
+ configure.sh               | 5 +++++
+ costrict.sh                | 4 ++++
+ docker-compose.yml.tpl     | 4 ++++
+ k8s/costrict.yaml.tpl      | 8 ++++++++
+ scripts/newest-images.list | 2 +-
+ 6 files changed, 26 insertions(+), 3 deletions(-)
+
+diff --git a/MODEL_ACCESS_CHANGES.md b/MODEL_ACCESS_CHANGES.md
+index 865f99d..dec5396 100644
+--- a/MODEL_ACCESS_CHANGES.md
++++ b/MODEL_ACCESS_CHANGES.md
+@@ -12,7 +12,7 @@
+    - 新增管理页面令牌 `MODEL_ACCESS_ADMIN_TOKEN`。
+ 
+ 3. `scripts/newest-images.list`
+-   - 将 `IMAGE_MODEL_PROXY` 更新为 `costrict-model-proxy-access:v0.2.0`。
++   - 将 `IMAGE_MODEL_PROXY` 更新为 `costrict-model-proxy-access:v0.3.0`。
+ 
+ 4. `k8s/costrict.yaml.tpl`
+    - 给 `model-proxy` 注入 PostgreSQL、JWT 和管理令牌环境变量。
+@@ -30,7 +30,9 @@
+ 8. 网关权限同步
+    - 用户单个或批量升级、降级、删除套餐配置时，同步调用网关权限接口。
+    - `MODEL_GATEWAY_COMPLETION_MODEL` 固定加入每个用户的网关模型列表。
+-   - 网关同步失败时拒绝写入新的用户套餐，避免权限状态不一致。
++   - 网关同步失败时记录失败明细并自动重试，管理页面展示最终状态。
++   - v0.3.0 改为持久化后台同步任务，支持批次、重试、严格比对返回模型和管理页面进度展示。
++   - 使用网关默认模型列表接口，在启用模型或修改套餐前拒绝网关不支持的模型。
+ 
+ ## 现有 K8s 集群升级
+ 
+diff --git a/configure.sh b/configure.sh
+index eb5328f..0e3fc9f 100755
+--- a/configure.sh
++++ b/configure.sh
+@@ -149,10 +149,15 @@ MODEL_ACCESS_JWT_EMAIL_FIELD="email"
+ MODEL_ACCESS_ADMIN_TOKEN="change-this-model-access-admin-token"
+ # 用户套餐变更时同步网关模型权限。URL 留空表示禁用同步。
+ MODEL_GATEWAY_PERMISSION_URL="https://yice.byd.com/ai-gate/api/opentoken/key/condition"
++# 网关应用默认支持模型列表接口，用于保存前校验模型 ID。
++MODEL_GATEWAY_SUPPORTED_MODELS_URL="http://10.111.175.240:3002/api/opentoken/key/app_support_models"
+ MODEL_GATEWAY_TOKEN="change-this-new-open-token"
+ # 代码补全固定使用的模型，会在同步时自动追加且去重。
+ MODEL_GATEWAY_COMPLETION_MODEL="DeepSeek-Coder-V2-Lite-Base"
+ MODEL_GATEWAY_TIMEOUT_SECONDS="10"
++MODEL_GATEWAY_BATCH_SIZE="20"
++MODEL_GATEWAY_POLL_SECONDS="2"
++MODEL_GATEWAY_MAX_ATTEMPTS="3"
+ 
+ #-------------------------------------------------------------------------------
+ #   以下设置请根据部署环境信息进行修改
+diff --git a/costrict.sh b/costrict.sh
+index b169e7a..bf0e7a6 100755
+--- a/costrict.sh
++++ b/costrict.sh
+@@ -247,9 +247,13 @@ cmd_check() {
+     "MODEL_ACCESS_JWKS_URL"
+     "MODEL_ACCESS_JWT_EMAIL_FIELD"
+ 	"MODEL_GATEWAY_PERMISSION_URL"
++	"MODEL_GATEWAY_SUPPORTED_MODELS_URL"
+ 	"MODEL_GATEWAY_TOKEN"
+ 	"MODEL_GATEWAY_COMPLETION_MODEL"
+ 	"MODEL_GATEWAY_TIMEOUT_SECONDS"
++	"MODEL_GATEWAY_BATCH_SIZE"
++	"MODEL_GATEWAY_POLL_SECONDS"
++	"MODEL_GATEWAY_MAX_ATTEMPTS"
+     "MODEL_ACCESS_ADMIN_TOKEN"
+   )
+   for v in "${env_vars[@]}"; do
+diff --git a/docker-compose.yml.tpl b/docker-compose.yml.tpl
+index 699e0a5..54f839c 100644
+--- a/docker-compose.yml.tpl
++++ b/docker-compose.yml.tpl
+@@ -105,9 +105,13 @@ services:
+       JWT_EMAIL_FIELD: "{{MODEL_ACCESS_JWT_EMAIL_FIELD}}"
+       ADMIN_TOKEN: "{{MODEL_ACCESS_ADMIN_TOKEN}}"
+       MODEL_GATEWAY_PERMISSION_URL: "{{MODEL_GATEWAY_PERMISSION_URL}}"
++      MODEL_GATEWAY_SUPPORTED_MODELS_URL: "{{MODEL_GATEWAY_SUPPORTED_MODELS_URL}}"
+       MODEL_GATEWAY_TOKEN: "{{MODEL_GATEWAY_TOKEN}}"
+       MODEL_GATEWAY_COMPLETION_MODEL: "{{MODEL_GATEWAY_COMPLETION_MODEL}}"
+       MODEL_GATEWAY_TIMEOUT_SECONDS: "{{MODEL_GATEWAY_TIMEOUT_SECONDS}}"
++      MODEL_GATEWAY_BATCH_SIZE: "{{MODEL_GATEWAY_BATCH_SIZE}}"
++      MODEL_GATEWAY_POLL_SECONDS: "{{MODEL_GATEWAY_POLL_SECONDS}}"
++      MODEL_GATEWAY_MAX_ATTEMPTS: "{{MODEL_GATEWAY_MAX_ATTEMPTS}}"
+     volumes:
+       - ./config/model-proxy/config.yaml:/app/config.yaml:ro
+     depends_on:
+diff --git a/k8s/costrict.yaml.tpl b/k8s/costrict.yaml.tpl
+index 3db18b9..f7f4a0d 100644
+--- a/k8s/costrict.yaml.tpl
++++ b/k8s/costrict.yaml.tpl
+@@ -621,12 +621,20 @@ spec:
+               value: "{{MODEL_ACCESS_ADMIN_TOKEN}}"
+             - name: MODEL_GATEWAY_PERMISSION_URL
+               value: "{{MODEL_GATEWAY_PERMISSION_URL}}"
++            - name: MODEL_GATEWAY_SUPPORTED_MODELS_URL
++              value: "{{MODEL_GATEWAY_SUPPORTED_MODELS_URL}}"
+             - name: MODEL_GATEWAY_TOKEN
+               value: "{{MODEL_GATEWAY_TOKEN}}"
+             - name: MODEL_GATEWAY_COMPLETION_MODEL
+               value: "{{MODEL_GATEWAY_COMPLETION_MODEL}}"
+             - name: MODEL_GATEWAY_TIMEOUT_SECONDS
+               value: "{{MODEL_GATEWAY_TIMEOUT_SECONDS}}"
++            - name: MODEL_GATEWAY_BATCH_SIZE
++              value: "{{MODEL_GATEWAY_BATCH_SIZE}}"
++            - name: MODEL_GATEWAY_POLL_SECONDS
++              value: "{{MODEL_GATEWAY_POLL_SECONDS}}"
++            - name: MODEL_GATEWAY_MAX_ATTEMPTS
++              value: "{{MODEL_GATEWAY_MAX_ATTEMPTS}}"
+           ports:
+             - name: http
+               containerPort: 8080
+diff --git a/scripts/newest-images.list b/scripts/newest-images.list
+index c9979f5..59e68f0 100644
+--- a/scripts/newest-images.list
++++ b/scripts/newest-images.list
+@@ -5,7 +5,7 @@ IMAGE_POSTGRES=postgres:15-alpine
+ IMAGE_NGINX=nginx:1.27.1
+ IMAGE_GRAFANA=grafana/grafana:11.2.0
+ IMAGE_PROMETHEUS=quay.io/prometheus/prometheus:v2.54.0
+-IMAGE_MODEL_PROXY=costrict-model-proxy-access:v0.2.0
++IMAGE_MODEL_PROXY=costrict-model-proxy-access:v0.3.0
+ IMAGE_CASDOOR=zgsm/casdoor:v2.1.3
+ IMAGE_CHATRAG=zgsm/chat-rag:v1.5.22
+ IMAGE_CODE_COMPLETION=zgsm/code-completion:v1.7.105
+-- 
+2.53.0
+

@@ -269,6 +269,39 @@ describe("empty cache protection", () => {
 	})
 
 	describe("getModels", () => {
+		it("refreshes Costrict synchronously instead of promoting an expired disk cache", async () => {
+			const refreshedApiModels = [
+				{
+					id: "costrict/fresh-model",
+					maxTokens: 8192,
+					contextWindow: 256000,
+					supportsPromptCache: true,
+					description: "Fresh model",
+				},
+			]
+			mockGet.mockReturnValue(undefined)
+			vi.mocked(fsSync.existsSync).mockReturnValue(true)
+			vi.mocked(fsSync.readFileSync).mockReturnValue(
+				JSON.stringify({ "costrict/stale-model": { maxTokens: 4096, contextWindow: 128000 } }),
+			)
+			mockGetCostrictModels.mockResolvedValue(refreshedApiModels)
+
+			const result = await getModels({ provider: "costrict", baseUrl: "https://api.example.com" })
+
+			expect(result).toEqual({ "costrict/fresh-model": refreshedApiModels[0] })
+			expect(fsSync.readFileSync).not.toHaveBeenCalled()
+		})
+
+		it("replaces stale Costrict privileges with an authoritative empty response", async () => {
+			mockGet.mockReturnValue(undefined)
+			mockGetCostrictModels.mockResolvedValue([])
+
+			const result = await getModels({ provider: "costrict", baseUrl: "https://api.example.com" })
+
+			expect(result).toEqual({})
+			expect(mockSet).toHaveBeenCalledWith("costrict", {})
+		})
+
 		it("does not cache empty API responses", async () => {
 			// API returns empty object (simulating failure)
 			mockGetOpenRouterModels.mockResolvedValue({})
@@ -297,7 +330,7 @@ describe("empty cache protection", () => {
 			expect(mockSet).toHaveBeenCalledWith("openrouter", mockModels)
 		})
 
-		it("returns disk cache immediately and triggers background refresh when refreshOnDiskCacheHit is enabled", async () => {
+		it("does not return an expired Costrict disk cache when refreshOnDiskCacheHit is enabled", async () => {
 			const diskModels = {
 				"costrict/disk-model": {
 					maxTokens: 4096,
@@ -319,7 +352,7 @@ describe("empty cache protection", () => {
 				"costrict/fresh-model": refreshedApiModels[0],
 			}
 
-			mockGet.mockReturnValueOnce(undefined).mockReturnValueOnce(diskModels)
+			mockGet.mockReturnValue(undefined)
 			vi.mocked(fsSync.existsSync).mockReturnValue(true)
 			vi.mocked(fsSync.readFileSync).mockReturnValue(JSON.stringify(diskModels))
 			mockGetCostrictModels.mockResolvedValue(refreshedApiModels)
@@ -331,17 +364,14 @@ describe("empty cache protection", () => {
 				refreshOnDiskCacheHit: true,
 			})
 
-			expect(result).toEqual(diskModels)
+			expect(result).toEqual(refreshedModels)
 			expect(mockGetCostrictModels).toHaveBeenCalledWith(
 				"https://api.example.com",
 				"test-api-key",
 				undefined,
-				1000,
+				undefined,
 			)
-
-			await vi.waitFor(() => {
-				expect(mockSet).toHaveBeenCalledWith("costrict", refreshedModels)
-			})
+			expect(mockSet).toHaveBeenCalledWith("costrict", refreshedModels)
 		})
 	})
 

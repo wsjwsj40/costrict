@@ -1,6 +1,6 @@
 {
 	"name": "@roo-code/logger",
-	"description": "VS Code-backed logger utilities for CoStrict.",
+	"description": "VS Code-backed logger utilities for DiCode.",
 	"version": "0.0.0",
 	"type": "module",
 	"exports": {

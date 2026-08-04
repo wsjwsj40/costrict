@@ -82,16 +82,21 @@ export class TaskHistoryStore {
 			const tasksDir = await this.getTasksDir()
 			await fs.mkdir(tasksDir, { recursive: true })
 
-			// 1. Load existing index into the cache
+			// 1. Import tasks from known predecessor extension IDs. VS Code gives
+			// each extension ID a separate globalStorage directory, so a rebrand
+			// otherwise looks exactly like all history was deleted.
+			await this.importLegacyExtensionStorage(tasksDir)
+
+			// 2. Load existing index into the cache
 			await this.loadIndex()
 
-			// 2. Reconcile cache against actual task directories on disk
+			// 3. Reconcile cache against actual task directories on disk
 			await this.reconcile()
 
-			// 3. Start fs.watch for cross-instance reactivity
+			// 4. Start fs.watch for cross-instance reactivity
 			this.startWatcher()
 
-			// 4. Start periodic reconciliation as a defensive fallback
+			// 5. Start periodic reconciliation as a defensive fallback
 			this.startPeriodicReconciliation()
 		} finally {
 			// Mark initialization as complete so callers awaiting `initialized` can proceed
@@ -260,11 +265,13 @@ export class TaskHistoryStore {
 			const cacheIds = new Set(this.cache.keys())
 			let changed = false
 
-			// Tasks on disk but not in cache: read their history_item.json
+			// Tasks on disk but not in cache: read their history_item.json. Older
+			// installations may only have ui_messages.json, so recover a minimal
+			// history item from those durable messages instead of hiding the task.
 			for (const taskId of onDiskIds) {
 				if (!cacheIds.has(taskId)) {
 					try {
-						const item = await this.readTaskFile(taskId)
+						const item = (await this.readTaskFile(taskId)) ?? (await this.recoverTaskFile(taskId))
 						if (item) {
 							this.cache.set(taskId, item)
 							changed = true
@@ -347,7 +354,12 @@ export class TaskHistoryStore {
 			const filePath = path.join(taskDir, GlobalFileNames.historyItem)
 			try {
 				await fs.access(filePath)
-				// File already exists, skip (don't overwrite existing per-task files)
+				// File already exists. Do not overwrite it, but make sure it is
+				// represented in memory even if the index was lost.
+				const existing = await this.readTaskFile(item.id)
+				if (existing) {
+					this.cache.set(item.id, existing)
+				}
 			} catch {
 				// File doesn't exist, write it
 				await safeWriteJson(filePath, item)
@@ -457,6 +469,47 @@ export class TaskHistoryStore {
 		}
 	}
 
+	/**
+	 * Rebuild the minimum history metadata needed to make an older task visible.
+	 * Conversation files are the durable source here; token/cost metadata will be
+	 * recalculated the next time the task is opened and saved.
+	 */
+	private async recoverTaskFile(taskId: string): Promise<HistoryItem | null> {
+		const tasksDir = await this.getTasksDir()
+		const messagesPath = path.join(tasksDir, taskId, GlobalFileNames.uiMessages)
+
+		try {
+			const raw = await fs.readFile(messagesPath, "utf8")
+			const messages: Array<{ ts?: number; text?: string }> = JSON.parse(raw)
+			if (!Array.isArray(messages) || messages.length === 0) {
+				return null
+			}
+
+			const firstMessage = messages.find((message) => typeof message.text === "string" && message.text.trim())
+			if (!firstMessage?.text) {
+				return null
+			}
+
+			const timestamps = messages
+				.map((message) => message.ts)
+				.filter((timestamp): timestamp is number => typeof timestamp === "number")
+			const item: HistoryItem = {
+				id: taskId,
+				number: 0,
+				ts: timestamps.length > 0 ? Math.max(...timestamps) : Date.now(),
+				task: firstMessage.text.trim(),
+				tokensIn: 0,
+				tokensOut: 0,
+				totalCost: 0,
+			}
+
+			await this.writeTaskFile(item)
+			return item
+		} catch {
+			return null
+		}
+	}
+
 	// ────────────────────────────── Private: fs.watch ──────────────────────────────
 
 	/**
@@ -552,6 +605,33 @@ export class TaskHistoryStore {
 	private async getTasksDir(): Promise<string> {
 		const basePath = await getStorageBasePath(this.globalStoragePath)
 		return path.join(basePath, "tasks")
+	}
+
+	private async importLegacyExtensionStorage(tasksDir: string): Promise<void> {
+		const storageParent = path.dirname(this.globalStoragePath)
+		const currentStorageName = path.basename(this.globalStoragePath)
+		const legacyStorageNames = ["atad-apts.zgsm", "zgsm-ai.zgsm", "byd-ai.dicode"]
+
+		for (const storageName of legacyStorageNames) {
+			if (storageName === currentStorageName) {
+				continue
+			}
+
+			const legacyTasksDir = path.join(storageParent, storageName, "tasks")
+			try {
+				await fs.access(legacyTasksDir)
+				await fs.cp(legacyTasksDir, tasksDir, {
+					recursive: true,
+					force: false,
+					errorOnExist: false,
+				})
+			} catch (error) {
+				const code = (error as NodeJS.ErrnoException).code
+				if (code !== "ENOENT") {
+					console.error(`[TaskHistoryStore] Failed to import legacy storage ${storageName}:`, error)
+				}
+			}
+		}
 	}
 
 	/**

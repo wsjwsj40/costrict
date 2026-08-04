@@ -43,7 +43,7 @@
 		"ui": "UI",
 		"experimental": "Experimental",
 		"language": "Language",
-		"about": "About CoStrict"
+		"about": "About DiCode"
 	},
 	"about": {
 		"bugReport": {
@@ -61,7 +61,7 @@
 		"contact": {
 			"label": "Need to talk to us? Write"
 		},
-		"community": "Want tips or to just hang out with other CoStrict users? Contacts CoStrict Assistant on WeChat to join the group",
+		"community": "Want tips or to just hang out with other DiCode users? Contacts DiCode Assistant on WeChat to join the group",
 		"contactAndCommunity": "Contact & Community",
 		"manageSettings": "Manage Settings",
 		"debugMode": {
@@ -70,7 +70,7 @@
 		}
 	},
 	"slashCommands": {
-		"description": "Slash commands are shortcuts for reusable workflows and actions to be used on demand (like creating a PR, running a set of tasks, etc). <DocsLink>Learn more</DocsLink>",
+		"description": "Slash commands are shortcuts for reusable workflows and actions to be used on demand (like creating a PR, running a set of tasks, etc).",
 		"workspaceCommands": "Workspace Commands",
 		"globalCommands": "Global Commands",
 		"builtInCommands": "Built-in Commands",
@@ -106,7 +106,7 @@
 		"footer": "Use slash commands for quick access to frequently used prompts and workflows."
 	},
 	"skills": {
-		"description": "Skills encapsulate contextual instructions and workflows, which the agent can load on-demand. They can include general instructions, specific workflows and even scripts to be run as needed. <DocsLink>Learn more</DocsLink>",
+		"description": "Skills encapsulate contextual instructions and workflows, which the agent can load on-demand. They can include general instructions, specific workflows and even scripts to be run as needed.",
 		"workspaceSkills": "Workspace Skills",
 		"globalSkills": "Global Skills",
 		"noWorkspaceSkills": "No skills in this project yet.",
@@ -213,7 +213,7 @@
 		}
 	},
 	"prompts": {
-		"description": "Configure support prompts that are used for quick actions like enhancing prompts, explaining code, and fixing issues. These prompts help CoStrict provide better assistance for common development tasks."
+		"description": "Configure support prompts that are used for quick actions like enhancing prompts, explaining code, and fixing issues. These prompts help DiCode provide better assistance for common development tasks."
 	},
 	"codeIndex": {
 		"title": "Codebase Indexing",
@@ -334,10 +334,10 @@
 		"enabled": "Auto-Approve Enabled",
 		"readOnly": {
 			"label": "Read",
-			"description": "When enabled, CoStrict will automatically view directory contents and read files without requiring you to click the Approve button.",
+			"description": "When enabled, DiCode will automatically view directory contents and read files without requiring you to click the Approve button.",
 			"outsideWorkspace": {
 				"label": "Include files outside workspace",
-				"description": "Allow CoStrict to read files outside the current workspace without requiring approval."
+				"description": "Allow DiCode to read files outside the current workspace without requiring approval."
 			}
 		},
 		"write": {
@@ -346,11 +346,11 @@
 			"delayLabel": "Delay after writes to allow diagnostics to detect potential problems",
 			"outsideWorkspace": {
 				"label": "Include files outside workspace",
-				"description": "Allow CoStrict to create and edit files outside the current workspace without requiring approval."
+				"description": "Allow DiCode to create and edit files outside the current workspace without requiring approval."
 			},
 			"protected": {
 				"label": "Include protected files",
-				"description": "Allow CoStrict to create and edit protected files (like .rooignore and .roo/ configuration files) without requiring approval."
+				"description": "Allow DiCode to create and edit protected files (like .rooignore and .roo/ configuration files) without requiring approval."
 			}
 		},
 		"mcp": {
@@ -576,7 +576,7 @@
 			"draftModelDesc": "Draft model must be from the same model family for speculative decoding to work correctly.",
 			"selectDraftModel": "Select Draft Model",
 			"noModelsFound": "No draft models found. Please ensure LM Studio is running with Server Mode enabled.",
-			"description": "LM Studio allows you to run models locally on your computer. For instructions on how to get started, see their <a>quickstart guide</a>. You will also need to start LM Studio's <b>local server</b> feature to use it with this extension. <span>Note:</span> CoStrict uses complex prompts and works best with Claude models. Less capable models may not work as expected."
+			"description": "LM Studio allows you to run models locally on your computer. For instructions on how to get started, see their <a>quickstart guide</a>. You will also need to start LM Studio's <b>local server</b> feature to use it with this extension. <span>Note:</span> DiCode uses complex prompts and works best with Claude models. Less capable models may not work as expected."
 		},
 		"ollama": {
 			"baseUrl": "Base URL (optional)",
@@ -586,15 +586,15 @@
 			"numCtx": "Context Window Size (num_ctx)",
 			"numCtxHelp": "Override the model's default context window size. Leave empty to use the model's Modelfile configuration. Minimum value is 128.",
 			"description": "Ollama allows you to run models locally on your computer. For instructions on how to get started, see their quickstart guide.",
-			"warning": "Note: CoStrict uses complex prompts and works best with Claude models. Less capable models may not work as expected."
+			"warning": "Note: DiCode uses complex prompts and works best with Claude models. Less capable models may not work as expected."
 		},
 		"humanRelay": {
 			"description": "No API key is required, but the user needs to help copy and paste the information to the web chat AI.",
 			"instructions": "During use, a dialog box will pop up and the current message will be copied to the clipboard automatically. You need to paste these to web versions of AI (such as ChatGPT or Claude), then copy the AI's reply back to the dialog box and click the confirm button."
 		},
 		"roo": {
-			"authenticatedMessage": "Securely authenticated through your CoStrict Cloud account.",
-			"connectButton": "Connect to CoStrict Cloud"
+			"authenticatedMessage": "Securely authenticated through your DiCode Cloud account.",
+			"connectButton": "Connect to DiCode Cloud"
 		},
 		"openRouter": {
 			"providerRouting": {
@@ -604,7 +604,7 @@
 			}
 		},
 		"customModel": {
-			"capabilities": "Configure the capabilities and pricing for your custom OpenAI-compatible model. Be careful when specifying the model capabilities, as they can affect how CoStrict performs.",
+			"capabilities": "Configure the capabilities and pricing for your custom OpenAI-compatible model. Be careful when specifying the model capabilities, as they can affect how DiCode performs.",
 			"maxTokens": {
 				"label": "Max Output Tokens",
 				"description": "Maximum number of tokens the model can generate in a response."
@@ -651,7 +651,7 @@
 		},
 		"consecutiveMistakeLimit": {
 			"label": "Error & Repetition Limit",
-			"description": "Number of consecutive errors or repeated actions before showing 'CoStrict is having trouble' dialog. Set to 0 to disable this safety mechanism (it will never trigger).",
+			"description": "Number of consecutive errors or repeated actions before showing 'DiCode is having trouble' dialog. Set to 0 to disable this safety mechanism (it will never trigger).",
 			"unlimitedDescription": "Unlimited retries enabled (auto-proceed). The dialog will never appear.",
 			"warning": "⚠️ Setting to 0 allows unlimited retries which may consume significant API usage"
 		},
@@ -687,11 +687,11 @@
 		},
 		"enable": {
 			"label": "Enable automatic checkpoints",
-			"description": "When enabled, CoStrict will automatically create checkpoints during task execution, making it easy to review changes or revert to earlier states."
+			"description": "When enabled, DiCode will automatically create checkpoints during task execution, making it easy to review changes or revert to earlier states."
 		},
 		"customStoragePath": {
 			"label": "Custom storage path",
-			"description": "Custom storage path. Leave empty to use the default location. Supports absolute paths (e.g. 'D:\\CostrictCodeStorage')",
+			"description": "Custom storage path. Leave empty to use the default location. Supports absolute paths (e.g. 'D:\\DiCodeCodeStorage')",
 			"browse": "Browse",
 			"clear": "Clear",
 			"dialogTitle": "Select checkpoint storage folder"
@@ -700,12 +700,12 @@
 	"notifications": {
 		"sound": {
 			"label": "Enable sound effects",
-			"description": "When enabled, CoStrict will play sound effects for notifications and events.",
+			"description": "When enabled, DiCode will play sound effects for notifications and events.",
 			"volumeLabel": "Volume"
 		},
 		"tts": {
 			"label": "Enable text-to-speech",
-			"description": "When enabled, CoStrict will read aloud its responses using text-to-speech.",
+			"description": "When enabled, DiCode will read aloud its responses using text-to-speech.",
 			"speedLabel": "Speed"
 		}
 	},
@@ -713,7 +713,7 @@
 		"description": "Control what information is included in the AI's context window, affecting token usage and response quality",
 		"autoCondenseContextPercent": {
 			"label": "Threshold to trigger intelligent context condensing",
-			"description": "When the context window reaches this threshold, CoStrict will automatically condense it."
+			"description": "When the context window reaches this threshold, DiCode will automatically condense it."
 		},
 		"condensingApiConfiguration": {
 			"label": "API Configuration for Context Condensing",
@@ -729,7 +729,7 @@
 		},
 		"autoCondenseContext": {
 			"name": "Automatically trigger intelligent context condensing",
-			"description": "When enabled, CoStrict will automatically condense the context when the threshold is reached. When disabled, you can still manually trigger context condensing."
+			"description": "When enabled, DiCode will automatically condense the context when the threshold is reached. When disabled, you can still manually trigger context condensing."
 		},
 		"openTabs": {
 			"label": "Open tabs context limit",
@@ -749,7 +749,7 @@
 		},
 		"maxReadFile": {
 			"label": "File read auto-truncate threshold",
-			"description": "CoStrict reads this number of lines when the model omits start/end values. If this number is less than the file's total, CoStrict generates a line number index of code definitions. Special cases: -1 instructs CoStrict to read the entire file (without indexing), and 0 instructs it to read no lines and provides line indexes only for minimal context. Lower values minimize initial context usage, enabling precise subsequent line-range reads. Explicit start/end requests are not limited by this setting.",
+			"description": "DiCode reads this number of lines when the model omits start/end values. If this number is less than the file's total, DiCode generates a line number index of code definitions. Special cases: -1 instructs DiCode to read the entire file (without indexing), and 0 instructs it to read no lines and provides line indexes only for minimal context. Lower values minimize initial context usage, enabling precise subsequent line-range reads. Explicit start/end requests are not limited by this setting.",
 			"lines": "lines",
 			"always_full_read": "Always read entire file"
 		},
@@ -816,15 +816,15 @@
 		},
 		"outputLineLimit": {
 			"label": "Terminal output limit",
-			"description": "Keeps the first and last lines and drops the middle to stay under the limit. Lower to save tokens; raise to give CoStrict more middle detail. CoStrict sees a placeholder where the content is skipped."
+			"description": "Keeps the first and last lines and drops the middle to stay under the limit. Lower to save tokens; raise to give DiCode more middle detail. DiCode sees a placeholder where the content is skipped."
 		},
 		"outputCharacterLimit": {
 			"label": "Terminal character limit",
-			"description": "Overrides the line limit to prevent memory issues by enforcing a hard cap on output size. If exceeded, keeps the beginning and end and shows a placeholder to CoStrict where content is skipped."
+			"description": "Overrides the line limit to prevent memory issues by enforcing a hard cap on output size. If exceeded, keeps the beginning and end and shows a placeholder to DiCode where content is skipped."
 		},
 		"outputPreviewSize": {
 			"label": "Command output preview size",
-			"description": "Controls how much command output CoStrict sees directly. Full output is always saved and accessible when needed.",
+			"description": "Controls how much command output DiCode sees directly. Full output is always saved and accessible when needed.",
 			"options": {
 				"small": "Small (5KB)",
 				"medium": "Medium (10KB)",
@@ -837,7 +837,7 @@
 		},
 		"shellIntegrationDisabled": {
 			"label": "Use Inline Terminal (recommended)",
-			"description": "Run commands in the Inline Terminal (chat) to bypass shell profiles/integration for faster, more reliable runs. When disabled CoStrict uses the VS Code terminal with your shell profile, prompts, and plugins."
+			"description": "Run commands in the Inline Terminal (chat) to bypass shell profiles/integration for faster, more reliable runs. When disabled DiCode uses the VS Code terminal with your shell profile, prompts, and plugins."
 		},
 		"commandDelay": {
 			"label": "Terminal command delay",
@@ -874,7 +874,7 @@
 	"advanced": {
 		"diff": {
 			"label": "Enable editing through diffs",
-			"description": "When enabled, CoStrict will be able to edit files more quickly and will automatically reject truncated full-file writes",
+			"description": "When enabled, DiCode will be able to edit files more quickly and will automatically reject truncated full-file writes",
 			"strategy": {
 				"label": "Diff strategy",
 				"options": {
@@ -891,7 +891,7 @@
 		},
 		"todoList": {
 			"label": "Enable todo list tool",
-			"description": "When enabled, CoStrict can create and manage todo lists to track task progress. This helps organize complex tasks into manageable steps."
+			"description": "When enabled, DiCode can create and manage todo lists to track task progress. This helps organize complex tasks into manageable steps."
 		}
 	},
 	"experimental": {
@@ -901,15 +901,15 @@
 		},
 		"INSERT_BLOCK": {
 			"name": "Use experimental insert content tool",
-			"description": "Enable the experimental insert content tool, allowing CoStrict to insert content at specific line numbers without needing to create a diff."
+			"description": "Enable the experimental insert content tool, allowing DiCode to insert content at specific line numbers without needing to create a diff."
 		},
 		"CONCURRENT_FILE_READS": {
 			"name": "Enable concurrent file reads",
-			"description": "When enabled, CoStrict can read multiple files in a single request. When disabled, CoStrict must read files one at a time. Disabling this can help when working with less capable models or when you want more control over file access."
+			"description": "When enabled, DiCode can read multiple files in a single request. When disabled, DiCode must read files one at a time. Disabling this can help when working with less capable models or when you want more control over file access."
 		},
 		"MULTI_SEARCH_AND_REPLACE": {
 			"name": "Use experimental multi block diff tool",
-			"description": "When enabled, CoStrict will use multi block diff tool. This will try to update multiple code blocks in the file in one request."
+			"description": "When enabled, DiCode will use multi block diff tool. This will try to update multiple code blocks in the file in one request."
 		},
 		"MARKETPLACE": {
 			"name": "Enable Marketplace",
@@ -917,7 +917,7 @@
 		},
 		"PREVENT_FOCUS_DISRUPTION": {
 			"name": "Background editing",
-			"description": "Prevent editor focus disruption when enabled. File edits happen in the background without opening diff views or stealing focus. You can continue working uninterrupted while CoStrict makes changes. Files can be opened without focus to capture diagnostics or kept closed entirely."
+			"description": "Prevent editor focus disruption when enabled. File edits happen in the background without opening diff views or stealing focus. You can continue working uninterrupted while DiCode makes changes. Files can be opened without focus to capture diagnostics or kept closed entirely."
 		},
 		"ASSISTANT_MESSAGE_PARSER": {
 			"name": "Use new message parser",
@@ -929,7 +929,7 @@
 		},
 		"IMAGE_GENERATION": {
 			"name": "Enable AI image generation",
-			"description": "When enabled, CoStrict can generate images from text prompts using image generation models.",
+			"description": "When enabled, DiCode can generate images from text prompts using image generation models.",
 			"providerLabel": "Provider",
 			"providerDescription": "Select which provider to use for image generation.",
 			"openRouterApiKeyLabel": "OpenRouter API Key",
@@ -942,11 +942,11 @@
 		},
 		"RUN_SLASH_COMMAND": {
 			"name": "Enable model-initiated slash commands",
-			"description": "When enabled, CoStrict can run your slash commands to execute workflows."
+			"description": "When enabled, DiCode can run your slash commands to execute workflows."
 		},
 		"CUSTOM_TOOLS": {
 			"name": "Enable custom tools",
-			"description": "When enabled, CoStrict can load and use custom TypeScript/JavaScript tools from your project's .roo/tools directory or ~/.roo/tools for global tools. Note: these tools will automatically be auto-approved.",
+			"description": "When enabled, DiCode can load and use custom TypeScript/JavaScript tools from your project's .roo/tools directory or ~/.roo/tools for global tools. Note: these tools will automatically be auto-approved.",
 			"toolsHeader": "Available Custom Tools",
 			"noTools": "No custom tools loaded. Add .ts or .js files to your project's .roo/tools directory or ~/.roo/tools for global tools.",
 			"refreshButton": "Refresh",
@@ -958,7 +958,7 @@
 	},
 	"promptCaching": {
 		"label": "Disable prompt caching",
-		"description": "When checked, CoStrict will not use prompt caching for this model."
+		"description": "When checked, DiCode will not use prompt caching for this model."
 	},
 	"temperature": {
 		"useCustom": "Use custom temperature",
@@ -988,7 +988,7 @@
 		}
 	},
 	"modelPicker": {
-		"automaticFetch": "The extension automatically fetches the latest list of models available on <serviceLink>{{serviceName}}</serviceLink>. If you're unsure which model to choose, CoStrict works best with <defaultModelLink>{{defaultModelId}}</defaultModelLink>. You can also try searching \"free\" for no-cost options currently available.",
+		"automaticFetch": "The extension automatically fetches the latest list of models available on <serviceLink>{{serviceName}}</serviceLink>. If you're unsure which model to choose, DiCode works best with <defaultModelLink>{{defaultModelId}}</defaultModelLink>. You can also try searching \"free\" for no-cost options currently available.",
 		"label": "Model",
 		"searchPlaceholder": "Search",
 		"noMatchFound": "No match found",
@@ -996,10 +996,10 @@
 		"simplifiedExplanation": "You can adjust detailed model settings later."
 	},
 	"footer": {
-		"feedback": "If you have any questions or feedback, feel free to open an issue at <githubLink>github.com/zgsm-ai/costrict</githubLink> or join <redditLink>reddit.com/r/CoStrict</redditLink> or <discordLink>discord.gg/roocode</discordLink>",
+		"feedback": "If you have any questions or feedback, feel free to open an issue at <githubLink>github.com/atad-apts/costrict</githubLink> or join <redditLink>reddit.com/r/DiCode</redditLink> or <discordLink>discord.gg/roocode</discordLink>",
 		"telemetry": {
 			"label": "Allow anonymous error and usage reporting",
-			"description": "Help improve CoStrict by sending anonymous usage data and error reports. This telemetry does not collect code, prompts or personal information. See our <privacyLink>privacy policy</privacyLink> for more details."
+			"description": "Help improve DiCode by sending anonymous usage data and error reports. This telemetry does not collect code, prompts or personal information. See our <privacyLink>privacy policy</privacyLink> for more details."
 		},
 		"settings": {
 			"import": "Import",

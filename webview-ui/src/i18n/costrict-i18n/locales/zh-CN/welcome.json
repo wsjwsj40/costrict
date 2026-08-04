@@ -1,9 +1,9 @@
 {
-	"getCostrictApiKey": "登录 CoStrict",
-	"introduction": "<strong>CoStrict 严肃开发的AI智能伙伴</strong>，开源免费，可私有化部署，重视效果可控、质量为先，提供AI Agent、AI CodeReview、AI Completion三大核心能力，登录即可体验。",
-	"greeting": "你好，我是 CoStrict！",
+	"getDiCodeApiKey": "登录 DiCode",
+	"introduction": "<strong>DiCode 面向开发者的AI辅助编程工具</strong>，功能亮点包括：企业级业务理解、标准化的AI开发流程、模式选择/定制、图像上下文能力等，登录即可体验。",
+	"greeting": "你好，我是 DiCode！",
 	"telemetry": {
-		"title": "帮助改进 CoStrict",
+		"title": "帮助改进 DiCode",
 		"anonymousTelemetry": "发送匿名的错误和使用数据，以帮助我们修复错误并改进扩展程序。不会涉及代码、提示词或个人隐私信息。"
 	},
 	"chooseProvider": "开始使用需要 LLM 提供商：",
@@ -19,12 +19,12 @@
 	"developmentMode": "开发模式",
 	"commonFeatures": "常用功能",
 	"providerSignup": {
-		"rooCloudProvider": "CoStrict 提供商",
-		"rooCloudDescription": "使用 CoStrict 最简单的方式。低成本精选的免费和付费模型组合",
-		"learnMore": "了解更多",
+		"rooCloudProvider": "DiCode 提供商",
+		"rooCloudDescription": "使用 DiCode 最简单的方式。低成本精选的免费和付费模型组合",
+		"learnMore": "使用手册",
 		"useAnotherProvider": "使用其他提供商",
 		"useAnotherProviderDescription": "输入 API 密钥即可开始。",
-		"noApiKeys": "不想处理密钥？选择 CoStrict 提供商吧。",
+		"noApiKeys": "不想处理密钥？选择 DiCode 提供商吧。",
 		"getStarted": "开始使用"
 	}
 }

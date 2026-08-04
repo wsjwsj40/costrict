@@ -136,7 +136,7 @@ export class CostrictTelemetryClient extends BaseCostrictApiClient {
 	private cleanupLegacyTelemetryDir(): void {
 		try {
 			const homeDir = os.homedir()
-			const telemetryDir = path.join(homeDir, ".costrict", "telemetry")
+			const telemetryDir = path.join(homeDir, ".dicode", "telemetry")
 			if (fs.existsSync(telemetryDir)) {
 				fs.rmSync(telemetryDir, { recursive: true, force: true })
 			}

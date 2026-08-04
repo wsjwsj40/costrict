@@ -82,14 +82,14 @@ vi.mock("vscode", () => ({
 
 // Global roo/costrict directories - computed once
 const GLOBAL_ROO_DIR = p(HOME_DIR, ".roo")
-const GLOBAL_COSTRICT_DIR = p(HOME_DIR, ".costrict")
+const GLOBAL_COSTRICT_DIR = p(HOME_DIR, ".dicode")
 const GLOBAL_AGENTS_DIR = p(HOME_DIR, ".agents")
 
 // Mock roo-config
 vi.mock("../../roo-config", () => ({
 	getGlobalRooDirectory: () => GLOBAL_ROO_DIR,
 	getGlobalCostrictDirectory: () => GLOBAL_COSTRICT_DIR,
-	getGlobalCostrictCLIDirectory: () => p(HOME_DIR, ".config", "costrict"),
+	getGlobalCostrictCLIDirectory: () => p(HOME_DIR, ".config", "dicode"),
 	getGlobalAgentsDirectory: () => GLOBAL_AGENTS_DIR,
 	getProjectAgentsDirectoryForCwd: (cwd: string) => p(cwd, ".agents"),
 	getGlobalClaudeDirectory: () => p(HOME_DIR, ".claude"),

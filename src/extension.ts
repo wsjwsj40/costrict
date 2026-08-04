@@ -21,6 +21,12 @@ if (fs.existsSync(envPath)) {
 	}
 }
 
+// The official VSIX ships these runtime integration defaults in its .env file.
+// Keep them in code as fallbacks so repackaged/offline builds can still start
+// costrict-keeper and its completion-agent when no extension-level .env exists.
+process.env._EXTENSION_COSTRICT_PORT ||= "4096"
+process.env.COSTRICT_CALLER ||= "vscode"
+
 // import type { CloudUserInfo, AuthState } from "@roo-code/types"
 // import { CloudService, BridgeOrchestrator } from "@roo-code/cloud"
 // import type { CloudUserInfo, AuthState } from "@roo-code/types"
@@ -65,6 +71,7 @@ import { isJetbrainsPlatform } from "./utils/platform"
 import { AssistantUISidebarProvider } from "./core/cs-cloud/extension/sidebarProvider"
 import { CsCloudService } from "./core/cs-cloud/extension/csCloudService"
 import { getConfiguredUiMode } from "./shared/uiMode"
+import { ExtensionUpdater } from "./services/updater/ExtensionUpdater"
 // import { flushModels, getModels, initializeModelCacheRefresh } from "./api/providers/fetchers/modelCache"
 
 /**
@@ -84,7 +91,7 @@ let extensionContext: vscode.ExtensionContext
 // let userInfoHandler: ((data: { userInfo: CloudUserInfo }) => Promise<void>) | undefined
 
 /**
- * Check if we should auto-open the CoStrict sidebar after switching to a worktree.
+ * Check if we should auto-open the DiCode sidebar after switching to a worktree.
  * This is called during extension activation to handle the worktree auto-open flow.
  */
 async function checkWorktreeAutoOpen(
@@ -112,9 +119,9 @@ async function checkWorktreeAutoOpen(
 			// Clear the state first to prevent re-triggering
 			await context.globalState.update("worktreeAutoOpenPath", undefined)
 
-			outputChannel.appendLine(`[Worktree] Auto-opening CoStrict sidebar for worktree: ${worktreeAutoOpenPath}`)
+			outputChannel.appendLine(`[Worktree] Auto-opening DiCode sidebar for worktree: ${worktreeAutoOpenPath}`)
 
-			// Open the CoStrict sidebar with a slight delay to ensure UI is ready
+			// Open the DiCode sidebar with a slight delay to ensure UI is ready
 			setTimeout(async () => {
 				try {
 					await vscode.commands.executeCommand(getCommand("plusButtonClicked"))
@@ -148,7 +155,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	axios.defaults.httpsAgent = new https.Agent({ keepAlive: false })
 
 	// Kick off non-critical startup tasks in the background so activation can continue.
-	void initializeNetworkProxy(context, outputChannel).catch((error) => {
+	const networkProxyInitialization = initializeNetworkProxy(context, outputChannel).catch((error) => {
 		outputChannel.appendLine(
 			`[NetworkProxy] Failed to initialize network proxy: ${error instanceof Error ? error.message : String(error)}`,
 		)
@@ -305,7 +312,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			// both providers stack, so falling back is the safer default.
 			if (isJetbrainsPlatform() && !csCloudService.startupFailureIsUninstallCsc) {
 				outputChannel.appendLine(`[cs-cloud] JetBrains platform detected, auto-fallback to classic mode`)
-				void vscode.window.showWarningMessage(`CoStrict Cloud 启动失败 (${msg})，已自动回退到经典模式。`)
+				void vscode.window.showWarningMessage(`DiCode Cloud 启动失败 (${msg})，已自动回退到经典模式。`)
 				try {
 					await vscode.workspace
 						.getConfiguration(Package.commandIDPrefix)
@@ -335,6 +342,15 @@ export async function activate(context: vscode.ExtensionContext) {
 	}
 
 	registerCommands({ context, outputChannel, provider })
+
+	const extensionUpdater = new ExtensionUpdater(context, outputChannel)
+	context.subscriptions.push(
+		extensionUpdater,
+		vscode.commands.registerCommand(`${Package.commandIDPrefix}.checkForUpdates`, () =>
+			extensionUpdater.checkForUpdates(true),
+		),
+	)
+	void networkProxyInitialization.finally(() => extensionUpdater.start())
 
 	/**
 	 * We use the text document content provider API to show the left side for diff
@@ -393,7 +409,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	// Activate coworkflow integration
 	activateCoworkflowIntegration(context)
 
-	// Allows other extensions to activate once CoStrict is ready.
+	// Allows other extensions to activate once DiCode is ready.
 	vscode.commands.executeCommand(`${Package.commandIDPrefix}.activationCompleted`)
 
 	// Implements the `RooCodeAPI` interface.

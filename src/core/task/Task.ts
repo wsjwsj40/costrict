@@ -142,8 +142,10 @@ import { AutoApprovalHandler, checkAutoApproval } from "../auto-approval"
 import { MessageManager } from "../message-manager"
 import { validateAndFixToolResultIds } from "./validateToolResultIds"
 import { ModelFallbackManager } from "./ModelFallbackManager"
+import { refreshModels } from "../../api/providers/fetchers/modelCache"
 import { mergeConsecutiveApiMessages } from "./mergeConsecutiveApiMessages"
 import { resolveToolAlias } from "../prompts/tools/filter-tools-for-mode"
+import { isForbiddenModelRequest, selectPermissionReplacementModel } from "./modelPermissionRecovery"
 
 const MAX_EXPONENTIAL_BACKOFF_SECONDS = 600 // 10 minutes
 const DEFAULT_USAGE_COLLECTION_TIMEOUT_MS = 5000 // 5 seconds
@@ -1392,7 +1394,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				await this.providerRef.deref()?.updateTaskHistory(historyItem)
 				return true
 			} catch (error) {
-				console.error("Failed to save CoStrict messages:", error)
+				console.error("Failed to save DiCode messages:", error)
 				return false
 			}
 		},
@@ -1444,7 +1446,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// simply removes the reference to this instance, but the instance is
 		// still alive until this promise resolves or rejects.)
 		if (this.abort) {
-			throw new Error(`[CoStrict#ask] task ${this.taskId}.${this.instanceId} aborted`)
+			throw new Error(`[DiCode#ask] task ${this.taskId}.${this.instanceId} aborted`)
 		}
 
 		let askTs: number
@@ -2054,7 +2056,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		contextTruncation?: ContextTruncation,
 	): Promise<undefined> {
 		if (this.abort) {
-			throw new Error(`[CoStrict#say] task ${this.taskId}.${this.instanceId} aborted`)
+			throw new Error(`[DiCode#say] task ${this.taskId}.${this.instanceId} aborted`)
 		}
 		const isRateLimitRetry =
 			this.apiConfiguration.apiProvider === "costrict" &&
@@ -2166,7 +2168,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	async sayAndCreateMissingParamError(toolName: ToolName, paramName: string, relPath?: string) {
 		await this.say(
 			"error",
-			`Costrict tried to use ${toolName}${
+			`DiCode tried to use ${toolName}${
 				relPath ? ` for '${relPath.toPosix()}'` : ""
 			} without value for required parameter '${paramName}'. Retrying...`,
 		)
@@ -2831,7 +2833,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			const currentIncludeFileDetails = currentItem.includeFileDetails
 
 			if (this.abort) {
-				throw new Error(`[CoStrict#recursivelyMakeRooRequests] task ${this.taskId}.${this.instanceId} aborted`)
+				throw new Error(`[DiCode#recursivelyMakeRooRequests] task ${this.taskId}.${this.instanceId} aborted`)
 			}
 
 			// Handle mistake limit based on experiment flag
@@ -3759,7 +3761,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				// Need to call here in case the stream was aborted.
 				if (this.abort || this.abandoned) {
 					throw new Error(
-						`[CoStrict#recursivelyMakeRooRequests] task ${this.taskId}.${this.instanceId} aborted`,
+						`[DiCode#recursivelyMakeRooRequests] task ${this.taskId}.${this.instanceId} aborted`,
 					)
 				}
 
@@ -4543,7 +4545,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 	public async *attemptApiRequest(
 		retryAttempt: number = 0,
-		options: { skipProviderRateLimit?: boolean } = {},
+		options: { skipProviderRateLimit?: boolean; permissionRefreshAttempted?: boolean } = {},
 	): ApiStream {
 		const state = await this.providerRef.deref()?.getState()
 
@@ -4942,6 +4944,20 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			yield firstChunk.value
 			this.isWaitingForFirstChunk = false
 		} catch (error) {
+			if (
+				this.apiConfiguration.apiProvider === "costrict" &&
+				!options.permissionRefreshAttempted &&
+				isForbiddenModelRequest(error) &&
+				(await this.refreshForbiddenCostrictModel())
+			) {
+				this.isWaitingForFirstChunk = false
+				this.currentRequestAbortController = undefined
+				yield* this.attemptApiRequest(retryAttempt, {
+					skipProviderRateLimit: true,
+					permissionRefreshAttempted: true,
+				})
+				return
+			}
 			let forceAutoApprovaldisabled = false
 			const errorMsg = await this.convertErrorMessage(error, () => {
 				forceAutoApprovaldisabled = true
@@ -4975,7 +4991,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				)
 				await this.handleContextWindowExceededError()
 				// Retry the request after handling the context window error
-				yield* this.attemptApiRequest(retryAttempt + 1)
+				yield* this.attemptApiRequest(retryAttempt + 1, {
+					permissionRefreshAttempted: options.permissionRefreshAttempted,
+				})
 				return
 			}
 
@@ -4996,7 +5014,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				// Delegate generator output from the recursive call with
 				// incremented retry count.
 				this.api?.setChatType?.("system")
-				yield* this.attemptApiRequest(retryAttempt + 1)
+				yield* this.attemptApiRequest(retryAttempt + 1, {
+					permissionRefreshAttempted: options.permissionRefreshAttempted,
+				})
 
 				return
 			} else {
@@ -5012,7 +5032,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 				// Delegate generator output from the recursive call.
 				this.api?.setChatType?.("system")
-				yield* this.attemptApiRequest()
+				yield* this.attemptApiRequest(0, {
+					permissionRefreshAttempted: options.permissionRefreshAttempted,
+				})
 				return
 			}
 		}
@@ -5026,6 +5048,35 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// effectively passes along all subsequent chunks from the original
 		// stream.
 		yield* iterator
+	}
+
+	private async refreshForbiddenCostrictModel(): Promise<boolean> {
+		const provider = this.providerRef.deref()
+		if (!provider) return false
+
+		const state = await provider.getState()
+		const currentModel = this.apiConfiguration.costrictModelId
+		const models = await refreshModels({
+			provider: "costrict",
+			baseUrl: this.apiConfiguration.costrictBaseUrl,
+			apiKey: this.apiConfiguration.costrictAccessToken,
+			openAiHeaders: this.apiConfiguration.openAiHeaders,
+		})
+		const modelIds = Object.keys(models)
+		const nextModel = selectPermissionReplacementModel(models, currentModel)
+		if (!nextModel) return false
+		const nextConfiguration = { ...this.apiConfiguration, costrictModelId: nextModel }
+		if (state.currentApiConfigName) {
+			await provider.upsertProviderProfile(state.currentApiConfigName, nextConfiguration)
+		}
+		this.updateApiConfiguration(nextConfiguration)
+		await provider.postMessageToWebview({
+			type: "costrictModels",
+			openAiModels: modelIds,
+			fullResponseData: Object.entries(models).map(([id, info]) => ({ id, ...info })),
+		})
+		vscode.window.showInformationMessage(t("chat:modelAutoSwitched", { from: currentModel || "-", to: nextModel }))
+		return true
 	}
 
 	// Shared exponential backoff for retries (first-chunk and mid-stream)

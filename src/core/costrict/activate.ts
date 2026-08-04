@@ -149,9 +149,8 @@ export async function activate(
 			if (source === "file") {
 				provider.log("Startup reconciliation: adopted fresher tokens from auth.json")
 				await costrictAuthService.saveTokens(tokens)
-			} else {
-				prepareCompletionRuntimeAuth(tokens, provider)
 			}
+			prepareCompletionRuntimeAuth(tokens, provider)
 
 			costrictAuthService.startTokenRefresh(tokens.refresh_token, getClientId(), tokens.state)
 			costrictAuthService.updateUserInfo(tokens.access_token)

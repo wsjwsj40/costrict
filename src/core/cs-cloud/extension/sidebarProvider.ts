@@ -643,7 +643,7 @@ export class AssistantUISidebarProvider implements vscode.WebviewViewProvider {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CoStrict Cloud</title>
+  <title>DiCode Cloud</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -798,7 +798,7 @@ export class AssistantUISidebarProvider implements vscode.WebviewViewProvider {
         <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
       </svg>
     </div>
-    <div class="cs-brand">CoStrict Cloud</div>
+    <div class="cs-brand">DiCode Cloud</div>
     <div class="cs-title">${escapeHtml(i18n.title)}</div>
     <div class="cs-desc">${escapeHtml(canRetry ? i18n.descRetry : i18n.descNoCsc)}</div>
     <pre class="cs-detail">${escapeHtml(message)}</pre>

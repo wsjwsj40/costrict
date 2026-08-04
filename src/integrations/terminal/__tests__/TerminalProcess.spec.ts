@@ -73,7 +73,7 @@ describe("TerminalProcess", () => {
 			shellIntegration: {
 				executeCommand: vi.fn(),
 			},
-			name: "CoStrict",
+			name: "DiCode",
 			processId: Promise.resolve(123),
 			creationOptions: {},
 			exitStatus: undefined,

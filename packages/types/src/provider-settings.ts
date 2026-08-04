@@ -216,6 +216,7 @@ const costrictSchema = apiModelIdProviderModelSchema.extend({
 	costrictApiKeyUpdatedAt: z.string().optional(),
 	costrictApiKeyExpiredAt: z.string().optional(),
 	useCostrictCustomConfig: z.boolean().optional(),
+	costrictCustomConfigConsentVersion: z.number().int().nonnegative().optional(),
 	costrictAiCustomModelInfo: modelInfoSchema.nullish(),
 })
 
@@ -636,7 +637,7 @@ export const MODELS_BY_PROVIDER: Record<
 > = {
 	costrict: {
 		id: "costrict",
-		label: "CoStrict",
+		label: "DiCode",
 		models: [],
 	},
 	anthropic: {

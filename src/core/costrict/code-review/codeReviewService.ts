@@ -376,7 +376,10 @@ export class CodeReviewService {
 					requestOptions,
 				})
 
-				if (!resolveResult?.issues || resolveResult.issues.length === 0) {
+				// A successful review may legitimately contain no issues. The resolver
+				// returns an empty task id when reading/parsing/reporting fails, so use
+				// that (and the response shape) to distinguish failure from a clean review.
+				if (!Array.isArray(resolveResult?.issues) || !resolveResult.review_task_id) {
 					throw new Error(t("common:review.tip.get_review_result_failed"))
 				}
 
@@ -389,7 +392,7 @@ export class CodeReviewService {
 				const validIssues = issues.filter((_, index) => existsResults[index])
 
 				this.updateCachedIssues(validIssues)
-				if (validIssues.length > 0 && review_task_id) {
+				if (review_task_id) {
 					await this.historyManager.addEntry(review_task_id, title, conclusion)
 				}
 
@@ -420,7 +423,9 @@ export class CodeReviewService {
 					options?.onTaskComplete?.()
 
 					// Switch to code review page if report was generated
-					const hasValidReport = this.currentTask?.taskId && this.getAllCachedIssues().length > 0
+					const hasValidReport = Boolean(
+						this.currentTask?.isCompleted && this.currentTask.taskId && !this.currentTask.error,
+					)
 					if (hasValidReport) {
 						provider.postMessageToWebview({
 							type: "action",
@@ -987,7 +992,7 @@ export class CodeReviewService {
 				issue.id,
 				new vscode.MarkdownString(`${issue.title ? `### ${issue.title}\n\n` : ""}${issue.message}`),
 				vscode.CommentMode.Preview,
-				{ name: "CoStrict", iconPath },
+				{ name: "DiCode", iconPath },
 				undefined,
 				isJetbrainsPlatform() ? issue.id : (taskId ?? "Intial"),
 			),

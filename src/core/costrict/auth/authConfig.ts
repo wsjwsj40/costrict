@@ -26,7 +26,7 @@ export class CostrictAuthConfig {
 	 * Get default API base URL
 	 */
 	public getDefaultApiBaseUrl(): string {
-		return process.env.COSTRICT_BASE_URL || "https://zgsm.sangfor.com"
+		return process.env.COSTRICT_BASE_URL || "https://dicode.byd.com:30092"
 	}
 
 	/**
@@ -66,9 +66,9 @@ export class CostrictAuthConfig {
 	}
 
 	/**
-	 * Get CoStrict site
+	 * Get DiCode site
 	 */
 	public getDefaultSite(): string {
-		return "https://costrict.ai"
+		return "https://dicode.byd.com:30092"
 	}
 }
