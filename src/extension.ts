@@ -161,6 +161,20 @@ export async function activate(context: vscode.ExtensionContext) {
 		)
 	})
 
+	// A mandatory release gates activation. Until it is installed and the window
+	// reloads, no sidebar, chat, completion, or regular DiCode command is registered.
+	const extensionUpdater = new ExtensionUpdater(context, outputChannel)
+	context.subscriptions.push(
+		extensionUpdater,
+		vscode.commands.registerCommand(`${Package.commandIDPrefix}.checkForUpdates`, () =>
+			extensionUpdater.checkForUpdates(true),
+		),
+	)
+	await networkProxyInitialization
+	if (!(await extensionUpdater.enforceMandatoryUpdateAtStartup())) {
+		return
+	}
+
 	// Set extension path for custom tool registry to find bundled esbuild
 	customToolRegistry.setExtensionPath(context.extensionPath)
 
@@ -343,14 +357,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	registerCommands({ context, outputChannel, provider })
 
-	const extensionUpdater = new ExtensionUpdater(context, outputChannel)
-	context.subscriptions.push(
-		extensionUpdater,
-		vscode.commands.registerCommand(`${Package.commandIDPrefix}.checkForUpdates`, () =>
-			extensionUpdater.checkForUpdates(true),
-		),
-	)
-	void networkProxyInitialization.finally(() => extensionUpdater.start())
+	extensionUpdater.start()
 
 	/**
 	 * We use the text document content provider API to show the left side for diff

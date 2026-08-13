@@ -8,9 +8,10 @@ import * as vscode from "vscode"
 
 import { parseUpdateManifest, validateUpdateUrls } from "./manifest"
 import type { UpdateCheckResult, UpdateManifest } from "./types"
-import { isBelowMinimum, isNewerVersion } from "./version"
+import { isBelowMinimum, isDifferentVersion, isNewerVersion } from "./version"
 
 const LAST_CHECK_KEY = "dicodeUpdater.lastSuccessfulCheck"
+const MANDATORY_UPDATE_KEY = "dicodeUpdater.mandatoryUpdate"
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
 const MAX_PACKAGE_BYTES = 500 * 1024 * 1024
 const REQUEST_TIMEOUT_MS = 10_000
@@ -24,19 +25,48 @@ const ALLOW_INSECURE_HTTP = process.env.DICODE_UPDATE_ALLOW_INSECURE_HTTP === "t
 export class ExtensionUpdater implements vscode.Disposable {
 	private timer: NodeJS.Timeout | undefined
 	private checkInProgress: Promise<void> | undefined
+	private startupResult: UpdateCheckResult | undefined
 
 	constructor(
 		private readonly context: vscode.ExtensionContext,
 		private readonly outputChannel: vscode.OutputChannel,
 	) {}
 
-	start(): void {
+	async enforceMandatoryUpdateAtStartup(): Promise<boolean> {
 		if (!MANIFEST_URL) {
 			this.log("This build does not include an update manifest URL.")
-			return
+			return true
 		}
 
-		void this.checkForUpdates(false)
+		try {
+			const result = await this.fetchUpdate()
+			await this.context.globalState.update(LAST_CHECK_KEY, Date.now())
+			await this.cacheMandatoryUpdate(result)
+			if (!result) return true
+			if (!result.mandatory) {
+				this.startupResult = result
+				return true
+			}
+			return this.enforceMandatoryUpdate(result)
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error)
+			this.log(`Startup update check failed: ${message}`)
+			const cached = this.readCachedMandatoryUpdate()
+			if (cached) {
+				this.log(`Enforcing cached mandatory update to ${cached.manifest.version}`)
+				return this.enforceMandatoryUpdate(cached)
+			}
+			return true
+		}
+	}
+
+	start(): void {
+		if (!MANIFEST_URL) return
+		if (this.startupResult) {
+			const result = this.startupResult
+			this.startupResult = undefined
+			void this.promptForUpdate(result)
+		}
 		this.timer = setInterval(() => void this.checkForUpdates(false), CHECK_INTERVAL_MS)
 		this.timer.unref?.()
 	}
@@ -78,13 +108,18 @@ export class ExtensionUpdater implements vscode.Disposable {
 		try {
 			const result = await this.fetchUpdate()
 			await this.context.globalState.update(LAST_CHECK_KEY, Date.now())
+			await this.cacheMandatoryUpdate(result)
 			if (!result) {
 				if (manual) {
 					void vscode.window.showInformationMessage("DiCode 已是最新版本。")
 				}
 				return
 			}
-			await this.promptForUpdate(result)
+			if (result.mandatory) {
+				await this.enforceMandatoryUpdate(result)
+			} else {
+				await this.promptForUpdate(result)
+			}
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error)
 			this.log(`Update check failed: ${message}`)
@@ -109,7 +144,7 @@ export class ExtensionUpdater implements vscode.Disposable {
 		const manifest = parseUpdateManifest(response.data)
 
 		const currentVersion = String(this.context.extension.packageJSON.version)
-		if (!isNewerVersion(manifest.version, currentVersion)) {
+		if (!isDifferentVersion(manifest.version, currentVersion)) {
 			return undefined
 		}
 
@@ -121,9 +156,10 @@ export class ExtensionUpdater implements vscode.Disposable {
 
 	private async promptForUpdate(result: UpdateCheckResult): Promise<void> {
 		const currentVersion = String(this.context.extension.packageJSON.version)
+		const rollback = !isNewerVersion(result.manifest.version, currentVersion)
 		const detail = [
 			`当前版本：${currentVersion}`,
-			`最新版本：${result.manifest.version}`,
+			`目标版本：${result.manifest.version}`,
 			result.manifest.releaseNotes ? `\n${result.manifest.releaseNotes}` : "",
 		]
 			.filter(Boolean)
@@ -131,19 +167,71 @@ export class ExtensionUpdater implements vscode.Disposable {
 
 		const actions = result.mandatory ? [INSTALL_NOW, MANUAL_DOWNLOAD] : [INSTALL_NOW, REMIND_LATER, MANUAL_DOWNLOAD]
 		const selection = await vscode.window.showInformationMessage(
-			result.mandatory ? "DiCode 管理员已将此版本标记为必须更新。" : "发现 DiCode 新版本。",
+			result.mandatory
+				? "DiCode 管理员已将此目标版本标记为必须安装。"
+				: rollback
+					? "管理员发布了 DiCode 回退版本。"
+					: "发现 DiCode 新版本。",
 			{ modal: result.mandatory, detail },
 			...actions,
 		)
 
 		if (selection === INSTALL_NOW) {
-			await this.downloadAndInstall(result.manifest)
+			if (await this.downloadAndInstall(result.manifest)) {
+				await this.promptForReload(result.manifest.version, false)
+			}
 		} else if (selection === MANUAL_DOWNLOAD) {
 			await this.openDownload()
 		}
 	}
 
-	private async downloadAndInstall(manifest: UpdateManifest): Promise<void> {
+	private async enforceMandatoryUpdate(result: UpdateCheckResult): Promise<boolean> {
+		const currentVersion = String(this.context.extension.packageJSON.version)
+		const detail = [
+			`当前版本：${currentVersion}`,
+			`目标版本：${result.manifest.version}`,
+			result.manifest.releaseNotes ? `\n${result.manifest.releaseNotes}` : "",
+		]
+			.filter(Boolean)
+			.join("\n")
+
+		while (true) {
+			const selection = await vscode.window.showWarningMessage(
+				"此版本必须更新后才能继续使用 DiCode。",
+				{ modal: true, detail },
+				INSTALL_NOW,
+				MANUAL_DOWNLOAD,
+			)
+			if (selection === INSTALL_NOW) {
+				if (await this.downloadAndInstall(result.manifest)) {
+					return this.promptForReload(result.manifest.version, true)
+				}
+			} else if (selection === MANUAL_DOWNLOAD) {
+				await this.openDownload()
+				await vscode.window.showWarningMessage(
+					"请安装下载的目标版本并重新加载窗口。完成更新前，DiCode 功能保持停用。",
+					{ modal: true },
+				)
+			}
+		}
+	}
+
+	private async promptForReload(version: string, mandatory: boolean): Promise<boolean> {
+		do {
+			const action = await vscode.window.showInformationMessage(
+				`DiCode ${version} 已安装，重新加载窗口后生效。`,
+				{ modal: mandatory },
+				RELOAD,
+			)
+			if (action === RELOAD) {
+				await vscode.commands.executeCommand("workbench.action.reloadWindow")
+				return false
+			}
+		} while (mandatory)
+		return true
+	}
+
+	private async downloadAndInstall(manifest: UpdateManifest): Promise<boolean> {
 		const downloadUrl = this.getDownloadUrl()
 		const targetPath = path.join(this.context.globalStorageUri.fsPath, `dicode-${manifest.version}.vsix`)
 		try {
@@ -165,13 +253,7 @@ export class ExtensionUpdater implements vscode.Disposable {
 			this.log(`Installing update from ${targetPath}`)
 			await vscode.commands.executeCommand("workbench.extensions.installExtension", vscode.Uri.file(targetPath))
 
-			const action = await vscode.window.showInformationMessage(
-				`DiCode ${manifest.version} 已安装，重新加载窗口后生效。`,
-				RELOAD,
-			)
-			if (action === RELOAD) {
-				await vscode.commands.executeCommand("workbench.action.reloadWindow")
-			}
+			return true
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error)
 			this.log(`Automatic update failed: ${message}`)
@@ -179,10 +261,29 @@ export class ExtensionUpdater implements vscode.Disposable {
 			if (action === MANUAL_DOWNLOAD) {
 				await this.openDownload()
 			}
+			return false
 		} finally {
 			await fs.promises.rm(targetPath, { force: true }).catch((error) => {
 				this.log(`Failed to remove temporary update package: ${String(error)}`)
 			})
+		}
+	}
+
+	private async cacheMandatoryUpdate(result: UpdateCheckResult | undefined): Promise<void> {
+		await this.context.globalState.update(MANDATORY_UPDATE_KEY, result?.mandatory ? result : undefined)
+	}
+
+	private readCachedMandatoryUpdate(): UpdateCheckResult | undefined {
+		const cached = this.context.globalState.get<unknown>(MANDATORY_UPDATE_KEY)
+		if (!cached || typeof cached !== "object") return undefined
+		try {
+			const value = cached as Partial<UpdateCheckResult>
+			const manifest = parseUpdateManifest(value.manifest)
+			const currentVersion = String(this.context.extension.packageJSON.version)
+			if (!value.mandatory || !isDifferentVersion(manifest.version, currentVersion)) return undefined
+			return { manifest, mandatory: true }
+		} catch {
+			return undefined
 		}
 	}
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { isBelowMinimum, isNewerVersion, normalizeVersion } from "../version"
+import { isBelowMinimum, isDifferentVersion, isNewerVersion, normalizeVersion } from "../version"
 
 describe("updater version helpers", () => {
 	it("normalizes a leading v", () => {
@@ -19,6 +19,12 @@ describe("updater version helpers", () => {
 		expect(isBelowMinimum("3.0.16", "3.1.0")).toBe(true)
 		expect(isBelowMinimum("3.1.0", "3.1.0")).toBe(false)
 		expect(isBelowMinimum("3.1.0")).toBe(false)
+	})
+
+	it("detects both upgrade and rollback targets", () => {
+		expect(isDifferentVersion("3.0.17", "3.0.16")).toBe(true)
+		expect(isDifferentVersion("3.0.15", "3.0.16")).toBe(true)
+		expect(isDifferentVersion("3.0.16", "3.0.16")).toBe(false)
 	})
 
 	it("rejects malformed versions", () => {

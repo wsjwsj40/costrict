@@ -25,7 +25,7 @@ export default function LoadingView({ loadingText }: { loadingText?: string }) {
 
 					<div className="flex flex-col items-center gap-2">
 						<div className="text-base font-medium tracking-[0.18em] text-vscode-foreground/90">
-							{t("common:costrictCli.brand")}
+							{Package.outputChannel}
 						</div>
 						<div className="flex items-center gap-2 text-sm text-vscode-descriptionForeground">
 							<span>{`Version: ${Package.version}`}</span>

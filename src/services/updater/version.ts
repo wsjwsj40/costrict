@@ -12,6 +12,10 @@ export function isNewerVersion(candidate: string, current: string): boolean {
 	return compareVersions(candidate, current) > 0
 }
 
+export function isDifferentVersion(candidate: string, current: string): boolean {
+	return compareVersions(candidate, current) !== 0
+}
+
 export function isBelowMinimum(current: string, minimum?: string): boolean {
 	return minimum ? compareVersions(current, minimum) < 0 : false
 }

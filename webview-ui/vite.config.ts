@@ -63,9 +63,9 @@ export default defineConfig(({ mode }) => {
 	const define: Record<string, any> = {
 		"process.platform": JSON.stringify(process.platform),
 		"process.env.VSCODE_TEXTMATE_DEBUG": JSON.stringify(process.env.VSCODE_TEXTMATE_DEBUG),
-		"process.env.COSTRICT_PKG_NAME": JSON.stringify(pkg.name),
-		"process.env.COSTRICT_PKG_VERSION": JSON.stringify(pkg.version),
-		"process.env.COSTRICT_PKG_OUTPUT_CHANNEL": JSON.stringify("CoStrict"),
+		"process.env.COSTRICT_PKG_NAME": JSON.stringify(process.env.COSTRICT_PKG_NAME || pkg.name),
+		"process.env.COSTRICT_PKG_VERSION": JSON.stringify(process.env.COSTRICT_PKG_VERSION || pkg.version),
+		"process.env.COSTRICT_PKG_OUTPUT_CHANNEL": JSON.stringify(process.env.COSTRICT_PKG_OUTPUT_CHANNEL || "DiCode"),
 		"process.env.COSTRICT_PUBLIC_KEY": JSON.stringify(
 			process.env.COSTRICT_PUBLIC_KEY || process.env.ZGSM_PUBLIC_KEY || "",
 		),
