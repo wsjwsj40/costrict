@@ -75,3 +75,7 @@ export const PROVIDERS = [
 	{ value: "unbound", label: "Unbound", proxy: false },
 	{ value: "poe", label: "Poe", proxy: false },
 ].sort((a, b) => a.label.localeCompare(b.label))
+
+// Keep the full provider metadata above for existing saved profiles and
+// proxy-aware error handling, while limiting what users can select in DiCode.
+export const SELECTABLE_PROVIDER_IDS: ReadonlySet<ProviderName> = new Set(["costrict", "openai"])

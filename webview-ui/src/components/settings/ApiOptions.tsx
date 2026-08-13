@@ -108,7 +108,7 @@ import {
 	Mimo,
 } from "./providers"
 
-import { MODELS_BY_PROVIDER, PROVIDERS } from "./constants"
+import { MODELS_BY_PROVIDER, PROVIDERS, SELECTABLE_PROVIDER_IDS } from "./constants"
 import { inputEventTransform, noTransform } from "./transforms"
 import { ModelPicker } from "./ModelPicker"
 import { ApiErrorMessage } from "./ApiErrorMessage"
@@ -500,7 +500,10 @@ const ApiOptions = ({
 	// Convert providers to SearchableSelect options
 	const providerOptions = useMemo(() => {
 		// First filter by organization allow list
-		const allowedProviders = filterProviders(PROVIDERS, organizationAllowList)
+		const allowedProviders = filterProviders(
+			PROVIDERS.filter(({ value }) => SELECTABLE_PROVIDER_IDS.has(value as ProviderName)),
+			organizationAllowList,
+		)
 
 		// Then filter out static providers that have no models (unless currently selected)
 		const providersWithModels = allowedProviders.filter(({ value }) => {

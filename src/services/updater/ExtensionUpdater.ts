@@ -195,40 +195,37 @@ export class ExtensionUpdater implements vscode.Disposable {
 			.filter(Boolean)
 			.join("\n")
 
-		while (true) {
-			const selection = await vscode.window.showWarningMessage(
-				"此版本必须更新后才能继续使用 DiCode。",
-				{ modal: true, detail },
-				INSTALL_NOW,
-				MANUAL_DOWNLOAD,
-			)
-			if (selection === INSTALL_NOW) {
-				if (await this.downloadAndInstall(result.manifest)) {
-					return this.promptForReload(result.manifest.version, true)
-				}
-			} else if (selection === MANUAL_DOWNLOAD) {
-				await this.openDownload()
-				await vscode.window.showWarningMessage(
-					"请安装下载的目标版本并重新加载窗口。完成更新前，DiCode 功能保持停用。",
-					{ modal: true },
-				)
+		const selection = await vscode.window.showWarningMessage(
+			"此版本必须更新后才能继续使用 DiCode。关闭此提示只会停用插件，不会跳过更新。",
+			{ modal: true, detail },
+			INSTALL_NOW,
+			MANUAL_DOWNLOAD,
+		)
+		if (selection === INSTALL_NOW) {
+			if (await this.downloadAndInstall(result.manifest)) {
+				return this.promptForReload(result.manifest.version, true)
 			}
+		} else if (selection === MANUAL_DOWNLOAD) {
+			await this.openDownload()
+			void vscode.window.showWarningMessage(
+				"请安装下载的目标版本并重新加载窗口。完成更新前，DiCode 功能保持停用。",
+			)
 		}
+
+		this.log(`Mandatory update to ${result.manifest.version} was not completed; extension activation is blocked.`)
+		return false
 	}
 
 	private async promptForReload(version: string, mandatory: boolean): Promise<boolean> {
-		do {
-			const action = await vscode.window.showInformationMessage(
-				`DiCode ${version} 已安装，重新加载窗口后生效。`,
-				{ modal: mandatory },
-				RELOAD,
-			)
-			if (action === RELOAD) {
-				await vscode.commands.executeCommand("workbench.action.reloadWindow")
-				return false
-			}
-		} while (mandatory)
-		return true
+		const action = await vscode.window.showInformationMessage(
+			`DiCode ${version} 已安装，重新加载窗口后生效。${mandatory ? "重新加载前插件功能保持停用。" : ""}`,
+			{ modal: mandatory },
+			RELOAD,
+		)
+		if (action === RELOAD) {
+			await vscode.commands.executeCommand("workbench.action.reloadWindow")
+		}
+		return !mandatory
 	}
 
 	private async downloadAndInstall(manifest: UpdateManifest): Promise<boolean> {
