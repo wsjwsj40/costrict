@@ -482,7 +482,7 @@ export class CostrictAuthService {
 			id: jwt.universal_id,
 			name: jwt?.properties?.oauth_GitHub_username || jwt.id,
 			picture: jwt.avatar,
-			email: jwt.email,
+			email: jwt.email || jwt?.properties?.oauth_GitHub_email,
 			phone: jwt.phone,
 		}
 	}

@@ -117,6 +117,7 @@ import { isJetbrainsPlatform } from "../../utils/platform"
 import { showFileDiffFromGitStatus } from "../../utils/costrictUtils"
 import { ReviewTargetType } from "../../shared/codeReview"
 import { getRawTaskReporter } from "../costrict/telemetry"
+import { refreshModelQuota } from "../costrict/quota/modelQuotaService"
 import { handleQueryMcpAsyncTask } from "../../services/mcp/asyncPolling/handleQueryMessage"
 
 let webviewDidLaunchTimer: NodeJS.Timeout | undefined
@@ -3864,6 +3865,11 @@ export const webviewMessageHandler = async (
 					values: data,
 				})
 			}
+			break
+		}
+		case "fetchModelQuota": {
+			const { apiConfiguration } = await provider.getState()
+			void refreshModelQuota(provider, apiConfiguration)
 			break
 		}
 

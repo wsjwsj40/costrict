@@ -172,5 +172,12 @@
 		"expandPrompt": "點擊展開",
 		"collapsePrompt": "點擊收起"
 	},
+	"modelQuota": {
+		"title": "帳戶配額",
+		"remaining": "剩餘 ¥{{amount}}",
+		"unlimited": "無限額度",
+		"used": "已用 ¥{{amount}}",
+		"tooltip": "帳戶模型服務金額配額"
+	},
 	"aiContentWarning": "內容由AI生成，請仔細甄別！"
 }

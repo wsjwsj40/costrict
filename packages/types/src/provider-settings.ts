@@ -508,6 +508,12 @@ export interface QuotaInfo {
 	is_star?: string
 }
 
+export interface ModelQuotaInfo {
+	remainQuotaMoney: number
+	usedQuotaMoney: number
+	unlimitedQuota: boolean
+}
+
 export interface InviteCodeInfo {
 	invite_code?: string
 }

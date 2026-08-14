@@ -138,6 +138,7 @@ import { MessageQueueService } from "../message-queue/MessageQueueService"
 
 import { ErrorCodeManager } from "../costrict/error-code"
 import { CostrictAuthService } from "../costrict/auth"
+import { refreshModelQuota } from "../costrict/quota/modelQuotaService"
 import { AutoApprovalHandler, checkAutoApproval } from "../auto-approval"
 import { MessageManager } from "../message-manager"
 import { validateAndFixToolResultIds } from "./validateToolResultIds"
@@ -3757,6 +3758,10 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					}
 				} finally {
 					void (await this.updateStreamingStatus(false, this.abortReason))
+					const quotaTarget = this.providerRef.deref()
+					if (quotaTarget) {
+						void refreshModelQuota(quotaTarget, this.apiConfiguration)
+					}
 
 					// Clean up the abort controller when streaming completes
 					this.currentRequestAbortController = undefined
