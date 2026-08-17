@@ -5,7 +5,7 @@ import type { ExtensionMessage, ModelQuotaInfo, ProviderSettings } from "@roo-co
 
 import { CostrictAuthService } from "../auth"
 
-const MODEL_QUOTA_ENDPOINT = "http://10.111.175.240:3002/api/opentoken/key/quota"
+const MODEL_QUOTA_ENDPOINT = process.env.DICODE_MODEL_QUOTA_URL || "http://10.111.175.240:3002/api/opentoken/key/quota"
 const MODEL_QUOTA_TOKEN = "RBgAtwG5qJsnAmWg/IFA/vkSu8x+"
 const MODEL_QUOTA_TIMEOUT_MS = 5_000
 
@@ -16,11 +16,40 @@ interface QuotaMessageTarget {
 
 interface QuotaQueryResponse {
 	success?: boolean
+	message?: unknown
 	data?: {
-		remain_quota_money?: number
-		used_quota_money?: number
+		remain_quota_money?: number | string
+		used_quota_money?: number | string
 		unlimited_quota?: boolean
 	}
+}
+
+const safeResponseMessage = (message: unknown, lookupKey: string): string => {
+	if (typeof message !== "string" || message.trim() === "") return "none"
+	return message
+		.replaceAll(lookupKey, "[redacted]")
+		.replace(/[\r\n]+/g, " ")
+		.slice(0, 200)
+}
+
+const parseMoney = (value: number | string | undefined): number | undefined => {
+	if (typeof value === "number") return Number.isFinite(value) ? value : undefined
+	if (typeof value !== "string" || value.trim() === "") return undefined
+	const parsed = Number(value)
+	return Number.isFinite(parsed) ? parsed : undefined
+}
+
+const describeRequestFailure = (error: unknown): string => {
+	if (!error || typeof error !== "object") return "unknown"
+	const candidate = error as { code?: unknown; status?: unknown; response?: { status?: unknown } }
+	const code = typeof candidate.code === "string" ? candidate.code : undefined
+	const status =
+		typeof candidate.response?.status === "number"
+			? candidate.response.status
+			: typeof candidate.status === "number"
+				? candidate.status
+				: undefined
+	return [code, status ? `HTTP ${status}` : undefined].filter(Boolean).join(", ") || "unknown"
 }
 
 let activeRefresh: Promise<void> | undefined
@@ -29,18 +58,19 @@ let pendingRefresh: { target: QuotaMessageTarget; configuration: ProviderSetting
 const getQuotaLookupKey = (configuration: ProviderSettings): string | undefined => {
 	if (configuration.apiProvider === "costrict") {
 		const currentEmail = CostrictAuthService.getInstance()?.getUserInfo()?.email
-		if (currentEmail) return currentEmail
+		if (currentEmail?.trim()) return currentEmail.trim()
 
 		try {
 			const jwt = jwtDecode<any>(configuration.costrictAccessToken || "")
-			return jwt.email || jwt?.properties?.oauth_GitHub_email
+			const tokenEmail = jwt.email || jwt?.properties?.oauth_GitHub_email
+			return typeof tokenEmail === "string" && tokenEmail.trim() ? tokenEmail.trim() : undefined
 		} catch {
 			return undefined
 		}
 	}
 
 	if (configuration.apiProvider === "openai") {
-		return configuration.openAiApiKey
+		return configuration.openAiApiKey?.trim() || undefined
 	}
 
 	return undefined
@@ -54,7 +84,7 @@ const fetchAndPublishModelQuota = async (
 		return
 	}
 
-	const key = getQuotaLookupKey(configuration)?.trim()
+	const key = getQuotaLookupKey(configuration)
 	if (!key) {
 		target.log(
 			configuration.apiProvider === "costrict"
@@ -65,33 +95,44 @@ const fetchAndPublishModelQuota = async (
 		return
 	}
 
-	try {
-		const response = await axios.get<QuotaQueryResponse>(MODEL_QUOTA_ENDPOINT, {
-			params: { key },
-			headers: { "NEW-OPEN-TOKEN": MODEL_QUOTA_TOKEN },
-			timeout: MODEL_QUOTA_TIMEOUT_MS,
-		})
-		const remainQuotaMoney = response.data?.data?.remain_quota_money
-		const usedQuotaMoney = response.data?.data?.used_quota_money
-		if (
-			response.data?.success !== true ||
-			typeof remainQuotaMoney !== "number" ||
-			typeof usedQuotaMoney !== "number"
-		) {
-			throw new Error("invalid quota response")
+	{
+		let response
+		try {
+			response = await axios.get<QuotaQueryResponse>(MODEL_QUOTA_ENDPOINT, {
+				params: { key },
+				headers: { "NEW-OPEN-TOKEN": MODEL_QUOTA_TOKEN },
+				timeout: MODEL_QUOTA_TIMEOUT_MS,
+			})
+		} catch (error) {
+			// Do not log the lookup key, request URL, headers, or API response because
+			// the key may itself be an OpenAI-compatible credential.
+			target.log(`[ModelQuota] request failed (${describeRequestFailure(error)})`)
+			return
 		}
 
-		const quota: ModelQuotaInfo = {
-			remainQuotaMoney,
-			usedQuotaMoney,
-			unlimitedQuota: response.data.data?.unlimited_quota === true,
+		const remainQuotaMoney = parseMoney(response.data?.data?.remain_quota_money)
+		const usedQuotaMoney = parseMoney(response.data?.data?.used_quota_money)
+		if (response.data?.success === true && remainQuotaMoney !== undefined && usedQuotaMoney !== undefined) {
+			const quota: ModelQuotaInfo = {
+				remainQuotaMoney,
+				usedQuotaMoney,
+				unlimitedQuota: response.data.data?.unlimited_quota === true,
+			}
+			try {
+				await target.postMessageToWebview({ type: "modelQuotaInfo", values: quota })
+			} catch {
+				target.log("[ModelQuota] failed to update the quota display")
+			}
+			return
 		}
-		await target.postMessageToWebview({ type: "modelQuotaInfo", values: quota })
-	} catch (error) {
-		// Do not log the lookup key, request URL, headers, or API response because
-		// the key may itself be an OpenAI-compatible credential.
-		const reason = axios.isAxiosError(error) ? (error.code ?? error.response?.status ?? "request error") : "error"
-		target.log(`[ModelQuota] refresh failed (${reason})`)
+
+		const message = safeResponseMessage(response.data?.message, key)
+		const topLevelKeys =
+			response.data && typeof response.data === "object" ? Object.keys(response.data).sort().join(",") : "none"
+		target.log(
+			`[ModelQuota] invalid response (http=${response.status}, contentType=${response.headers?.["content-type"] || "unknown"}, keys=${topLevelKeys}, success=${String(response.data?.success)}, data=${Boolean(response.data?.data)}, remainType=${typeof response.data?.data?.remain_quota_money}, usedType=${typeof response.data?.data?.used_quota_money}, message=${message})`,
+		)
+		return
 	}
 }
 

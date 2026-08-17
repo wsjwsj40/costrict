@@ -81,6 +81,38 @@ describe("refreshModelQuota", () => {
 		})
 	})
 
+	it("accepts money amounts returned as numeric strings", async () => {
+		mocks.getUserInfo.mockReturnValue({ email: "user@byd.com" })
+		mocks.get.mockResolvedValue({
+			data: {
+				success: true,
+				data: { remain_quota_money: "20", used_quota_money: "0.5", unlimited_quota: false },
+			},
+		})
+
+		await refreshModelQuota(target, { apiProvider: "costrict" } as ProviderSettings)
+
+		expect(target.postMessageToWebview).toHaveBeenCalledWith({
+			type: "modelQuotaInfo",
+			values: { remainQuotaMoney: 20, usedQuotaMoney: 0.5, unlimitedQuota: false },
+		})
+	})
+
+	it("logs safe response metadata for business errors", async () => {
+		mocks.getUserInfo.mockReturnValue({ email: "user@byd.com" })
+		mocks.get.mockResolvedValue({
+			status: 200,
+			headers: { "content-type": "application/json" },
+			data: { success: false, message: "key user@byd.com does not exist" },
+		})
+
+		await refreshModelQuota(target, { apiProvider: "costrict" } as ProviderSettings)
+
+		expect(target.log).toHaveBeenCalledWith(expect.stringContaining("http=200"))
+		expect(target.log).toHaveBeenCalledWith(expect.stringContaining("key [redacted] does not exist"))
+		expect(target.log).not.toHaveBeenCalledWith(expect.stringContaining("user@byd.com"))
+	})
+
 	it("queries OpenAI Compatible quota by API key", async () => {
 		await refreshModelQuota(target, {
 			apiProvider: "openai",
@@ -107,6 +139,6 @@ describe("refreshModelQuota", () => {
 		await refreshModelQuota(target, { apiProvider: "costrict" } as ProviderSettings)
 
 		expect(target.postMessageToWebview).not.toHaveBeenCalled()
-		expect(target.log).toHaveBeenCalledWith("[ModelQuota] refresh failed (error)")
+		expect(target.log).toHaveBeenCalledWith("[ModelQuota] request failed (unknown)")
 	})
 })

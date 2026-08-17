@@ -93,6 +93,7 @@ async function main() {
 			"process.env.DICODE_UPDATE_ALLOW_INSECURE_HTTP": JSON.stringify(
 				process.env.DICODE_UPDATE_ALLOW_INSECURE_HTTP || "false",
 			),
+			"process.env.DICODE_MODEL_QUOTA_URL": JSON.stringify(process.env.DICODE_MODEL_QUOTA_URL || ""),
 			"process.env.COSTRICT_PKG_BUILD_TIME": JSON.stringify(buildTime),
 			...(gitSha ? { "process.env.COSTRICT_PKG_SHA": JSON.stringify(gitSha) } : {}),
 		},
