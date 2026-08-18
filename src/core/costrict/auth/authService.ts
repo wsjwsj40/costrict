@@ -14,6 +14,7 @@ import { readCostrictAccessToken } from "../runtime-config"
 import { pickFresher, type CostrictTokenPair } from "../runtime-config/pickFresher"
 import { CompletionStatusBar } from "../auto-complete"
 import { t } from "../../../i18n"
+import { COSTRICT_AUTH_POLICY_VERSION, hasAcceptedCurrentAuthPolicy, markCurrentAuthPolicyAccepted } from "./authPolicy"
 
 let _loginState = ""
 
@@ -102,6 +103,10 @@ export class CostrictAuthService {
 
 		// Show notification
 		const result = await this.getStartLoginTokenPoll(this.loginStateTmp!.state)
+		await markCurrentAuthPolicyAccepted()
+		CostrictAuthService.clineProvider?.log(
+			`Authentication policy v${COSTRICT_AUTH_POLICY_VERSION} accepted by completed login`,
+		)
 		this.startWaitLoginPolling(Object.assign(this.loginStateTmp, result.data))
 
 		return this.loginStateTmp
@@ -190,7 +195,7 @@ export class CostrictAuthService {
 					)
 
 					// Trigger login success event
-					this.onLoginSuccess(loginState)
+					await this.onLoginSuccess(loginState)
 					return
 				}
 			} catch (error) {
@@ -307,6 +312,22 @@ export class CostrictAuthService {
 	}
 
 	/**
+	 * Accept tokens delivered through the shared IPC channel. Only the window
+	 * that initiated this exact OAuth state may use them to satisfy a new auth
+	 * policy; unrelated or legacy token broadcasts cannot unlock the policy.
+	 */
+	async acceptSynchronizedTokens(tokens: CostrictAuthTokens): Promise<boolean> {
+		await this.saveTokens(tokens)
+		if (!_loginState || tokens.state !== _loginState) {
+			return false
+		}
+
+		await markCurrentAuthPolicyAccepted()
+		CostrictAuthService.clineProvider?.log("Authentication policy accepted from matching login session")
+		return true
+	}
+
+	/**
 	 * Resolve the token pair that should be used during plugin startup.
 	 *
 	 * SecretStorage owns the local `state`; auth.json may own fresher tokens after
@@ -346,6 +367,16 @@ export class CostrictAuthService {
 	 */
 	async checkLoginStatusOnStartup(): Promise<boolean> {
 		return (await this.getStartupAuthTokens()) !== null
+	}
+
+	async hasCurrentAuthentication(): Promise<boolean> {
+		if (!hasAcceptedCurrentAuthPolicy()) {
+			return false
+		}
+
+		const secretPair = this.toValidTokenPair(await this.getStoredTokensForStartup())
+		const filePair = this.readValidFileTokenPair()
+		return pickFresher(secretPair, filePair) !== null
 	}
 
 	private async getStoredTokensForStartup(): Promise<CostrictAuthTokens | null> {
@@ -468,10 +499,11 @@ export class CostrictAuthService {
 	/**
 	 * Login success callback
 	 */
-	protected onLoginSuccess(tokens: CostrictAuthTokens): void {
+	protected async onLoginSuccess(tokens: CostrictAuthTokens): Promise<void> {
 		this.updateUserInfo(tokens.refresh_token)
+		await CostrictAuthService.clineProvider?.postStateToWebview?.()
 		vscode.window.showInformationMessage(`${this.userInfo.name} user logged in successfully`)
-		CostrictAuthService.clineProvider?.postMessageToWebview?.({ type: "costrictLogined" })
+		await CostrictAuthService.clineProvider?.postMessageToWebview?.({ type: "costrictLogined" })
 		this.statusBar.complete()
 	}
 

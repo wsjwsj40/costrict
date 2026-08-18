@@ -49,6 +49,19 @@ import { Package } from "../../shared/package"
 import { type RouterName, toRouterName } from "../../shared/api"
 import { MessageEnhancer } from "./messageEnhancer"
 
+const requireCurrentAuthentication = async (provider: ClineProvider): Promise<boolean> => {
+	const authenticated = await CostrictAuthService.getInstance().hasCurrentAuthentication()
+	if (authenticated) {
+		return true
+	}
+
+	await provider.postMessageToWebview({
+		type: "action",
+		action: "costrictAccountButtonClicked",
+	})
+	return false
+}
+
 // import { CodeIndexManager } from "../../services/code-index/manager"
 import { checkExistKey } from "../../shared/checkExistApiConfig"
 import { experimentDefault } from "../../shared/experiments"
@@ -774,6 +787,7 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "newTask":
+			if (!(await requireCurrentAuthentication(provider))) break
 			// Initializing new instance of Cline will make sure that any
 			// agentically running promises in old instance don't affect our new
 			// task. This essentially creates a fresh slate for the new task.
@@ -803,6 +817,7 @@ export const webviewMessageHandler = async (
 
 		case "askResponse":
 			{
+				if (!(await requireCurrentAuthentication(provider))) break
 				const resolved = await resolveIncomingImages({ text: message.text, images: message.images })
 				//costrict: transparently forward the dedicated multiple choice response channel to Task
 				provider
@@ -1437,6 +1452,7 @@ export const webviewMessageHandler = async (
 		// 	break
 		// }
 		case "requestOpenAiModels":
+			if (!(await requireCurrentAuthentication(provider))) break
 			if (message?.values?.baseUrl && message?.values?.apiKey) {
 				const openAiModels = await getOpenAiModels(
 					message?.values?.baseUrl,
@@ -2147,6 +2163,7 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "saveApiConfiguration":
+			if (!(await requireCurrentAuthentication(provider))) break
 			if (message.text && message.apiConfiguration) {
 				try {
 					await provider.providerSettingsManager.saveConfig(message.text, message.apiConfiguration)
@@ -2161,6 +2178,7 @@ export const webviewMessageHandler = async (
 			}
 			break
 		case "upsertApiConfiguration":
+			if (!(await requireCurrentAuthentication(provider))) break
 			if (message.text && message.apiConfiguration) {
 				if (message.apiConfiguration.apiProvider === "costrict") {
 					await provider.providerSettingsManager.saveMergeConfig(
@@ -2184,6 +2202,7 @@ export const webviewMessageHandler = async (
 			}
 			break
 		case "renameApiConfiguration":
+			if (!(await requireCurrentAuthentication(provider))) break
 			if (message.values && message.apiConfiguration) {
 				try {
 					const { oldName, newName } = message.values
@@ -2225,6 +2244,7 @@ export const webviewMessageHandler = async (
 			}
 			break
 		case "loadApiConfiguration":
+			if (!(await requireCurrentAuthentication(provider))) break
 			if (message.text) {
 				try {
 					const state = await provider.getState()
@@ -2279,6 +2299,7 @@ export const webviewMessageHandler = async (
 			}
 			break
 		case "deleteApiConfiguration":
+			if (!(await requireCurrentAuthentication(provider))) break
 			if (message.text) {
 				const answer = await vscode.window.showInformationMessage(
 					t("common:confirmation.delete_config_profile"),

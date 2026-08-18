@@ -107,6 +107,7 @@ const App = () => {
 		renderContext,
 		mdmCompliant,
 		apiConfiguration,
+		costrictIsAuthenticated,
 		hasClosedCodeReviewWelcomeTips,
 		reviewTask,
 		setReviewTask,
@@ -153,6 +154,11 @@ const App = () => {
 
 	const switchTab = useCallback(
 		(newTab: Tab) => {
+			if (newTab === "settings" && !costrictIsAuthenticated) {
+				setCurrentSection(undefined)
+				setTab("costrict-account")
+				return
+			}
 			// Only check MDM compliance if mdmCompliant is explicitly false (meaning there's an MDM policy and user is non-compliant)
 			// If mdmCompliant is undefined or true, allow tab switching
 			if (mdmCompliant === false && newTab !== "cloud" && newTab !== "costrict-account") {
@@ -174,7 +180,7 @@ const App = () => {
 				vscode.postMessage({ type: "switchTab", tab: newTab })
 			}
 		},
-		[mdmCompliant],
+		[costrictIsAuthenticated, mdmCompliant],
 	)
 
 	const toggleCodeReviewTips = useCallback(() => {

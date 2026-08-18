@@ -99,6 +99,36 @@ export const readCostrictAccessToken = () => {
 	return JSON.parse(fs.readFileSync(tokenFilePath, "utf8"))
 }
 
+export const clearCostrictRuntimeAuth = async (): Promise<void> => {
+	const tokenFilePath = path.join(os.homedir(), ".costrict", "share", "auth.json")
+	try {
+		await fs.promises.unlink(tokenFilePath)
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+			throw error
+		}
+	}
+}
+
+const getCostrictAuthPolicyPath = (): string => path.join(os.homedir(), ".costrict", "share", "auth-policy.json")
+
+export const readCostrictAuthPolicyVersion = (): number => {
+	try {
+		const policyPath = getCostrictAuthPolicyPath()
+		if (!fs.existsSync(policyPath)) return 0
+		const data = JSON.parse(fs.readFileSync(policyPath, "utf8"))
+		return typeof data?.version === "number" ? data.version : 0
+	} catch {
+		return 0
+	}
+}
+
+export const writeCostrictAuthPolicyVersion = async (version: number): Promise<void> => {
+	const policyPath = getCostrictAuthPolicyPath()
+	await fs.promises.mkdir(path.dirname(policyPath), { recursive: true })
+	await fs.promises.writeFile(policyPath, JSON.stringify({ version }), { mode: 0o600 })
+}
+
 const execPromise = (command: string, opt: any = {}): Promise<string> => {
 	return new Promise((resolve, reject) => {
 		exec(command, opt, (error, stdout) => {

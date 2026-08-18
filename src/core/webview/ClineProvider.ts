@@ -127,7 +127,8 @@ import {
 import { readTaskMessages } from "../task-persistence/taskMessages"
 import { getNonce } from "./getNonce"
 import { getUri } from "./getUri"
-import { CostrictAuthCommands, CostrictAuthConfig } from "../costrict/auth"
+import { CostrictAuthCommands, CostrictAuthConfig, hasAcceptedCurrentAuthPolicy } from "../costrict/auth"
+import { readCostrictAccessToken } from "../costrict/runtime-config"
 import { generateNewSessionClientId, getClientId } from "../../utils/getClientId"
 import { defaultCodebaseIndexEnabled } from "../../services/code-index/constants"
 import { CodeReviewService, ReviewTargetType } from "../costrict/code-review"
@@ -2872,6 +2873,7 @@ export class ClineProvider
 		return {
 			version: this.context.extension?.packageJSON?.version ?? "",
 			apiConfiguration,
+			costrictIsAuthenticated: this.hasCurrentCostrictAuthentication(apiConfiguration),
 			autoCleanup,
 			debug: costrictModelDebugEnabled,
 			customInstructions,
@@ -3038,6 +3040,19 @@ export class ClineProvider
 		return this.buildBaseState()
 	}
 
+	private hasCurrentCostrictAuthentication(apiConfiguration: ProviderSettings): boolean {
+		const policyAccepted = hasAcceptedCurrentAuthPolicy()
+		const localPair = Boolean(apiConfiguration.costrictAccessToken && apiConfiguration.costrictRefreshToken)
+		let runtimePair = false
+		try {
+			const runtimeTokens = readCostrictAccessToken()
+			runtimePair = Boolean(runtimeTokens?.access_token && runtimeTokens?.refresh_token)
+		} catch {
+			runtimePair = false
+		}
+		return policyAccepted && (localPair || runtimePair)
+	}
+
 	private async buildBaseState(options?: {
 		includeTaskHistory?: boolean
 	}): Promise<
@@ -3150,6 +3165,7 @@ export class ClineProvider
 			debug: costrictDebugModeBuildEnabled && (stateValues.debug ?? false),
 			autoCleanup: stateValues.autoCleanup ?? DEFAULT_AUTO_CLEANUP_SETTINGS,
 			apiConfiguration,
+			costrictIsAuthenticated: this.hasCurrentCostrictAuthentication(apiConfiguration),
 			lastShownAnnouncementId: stateValues.lastShownAnnouncementId,
 			customInstructions: stateValues.customInstructions,
 			apiModelId: stateValues.apiModelId,

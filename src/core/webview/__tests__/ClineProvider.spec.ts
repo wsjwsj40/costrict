@@ -602,6 +602,7 @@ describe("ClineProvider", () => {
 			apiConfiguration: {
 				apiProvider: "openrouter",
 			},
+			costrictIsAuthenticated: false,
 			customInstructions: undefined,
 			alwaysAllowReadOnly: false,
 			alwaysAllowReadOnlyOutsideWorkspace: false,

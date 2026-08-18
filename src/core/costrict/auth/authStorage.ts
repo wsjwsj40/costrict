@@ -3,7 +3,7 @@ import type { CostrictAuthTokens, CostrictLoginState } from "./types"
 import type { ClineProvider } from "../../webview/ClineProvider"
 import { sendCostrictTokens } from "./ipc/client"
 import { getClientId } from "../../../utils/getClientId"
-import { ensureCompletionRuntimeReady, writeCostrictRuntimeAuth } from "../runtime-config"
+import { clearCostrictRuntimeAuth, ensureCompletionRuntimeReady, writeCostrictRuntimeAuth } from "../runtime-config"
 
 export class CostrictAuthStorage {
 	private static clineProvider?: ClineProvider
@@ -30,18 +30,19 @@ export class CostrictAuthStorage {
 		}
 		if (
 			tokens.access_token === state.apiConfiguration.costrictAccessToken &&
-			tokens.refresh_token === state.apiConfiguration.costrictRefreshToken
+			tokens.refresh_token === state.apiConfiguration.costrictRefreshToken &&
+			tokens.state === state.apiConfiguration.costrictState
 		) {
 			CostrictAuthStorage.clineProvider?.log(
-				`[CostrictLoginManager:${state}] saveTokens: tokens are already saved`,
+				`[CostrictLoginManager:${state}] saveTokens: tokens are already saved; reconciling shared runtime auth`,
 			)
+			await writeCostrictRuntimeAuth(tokens.access_token, tokens.refresh_token)
 			return
 		}
 		const { exp, iat } = jwtDecode(tokens.access_token) as any
 		const costrictApiKeyUpdatedAt = new Date(iat * 1000).toLocaleString()
 		const costrictApiKeyExpiredAt = new Date(exp * 1000).toLocaleString()
-		const config = {
-			...state.apiConfiguration,
+		const authPatch = {
 			costrictRefreshToken: tokens.refresh_token,
 			costrictAccessToken: tokens.access_token,
 			costrictState: tokens.state,
@@ -49,17 +50,21 @@ export class CostrictAuthStorage {
 			costrictApiKeyExpiredAt,
 		}
 		await CostrictAuthStorage.clineProvider?.providerSettingsManager.saveMergeConfig(
-			config,
-			(name, { apiProvider }) => {
-				return apiProvider === "costrict" && name !== state.currentApiConfigName
-			},
+			authPatch,
+			(_name, { apiProvider }) => apiProvider === "costrict",
 		)
-		CostrictAuthStorage.clineProvider.setValue("costrictRefreshToken", tokens.refresh_token)
-		CostrictAuthStorage.clineProvider.setValue("costrictAccessToken", tokens.access_token)
-		CostrictAuthStorage.clineProvider.setValue("costrictState", tokens.state)
-		CostrictAuthStorage.clineProvider.setValue("costrictApiKeyUpdatedAt", costrictApiKeyUpdatedAt)
-		CostrictAuthStorage.clineProvider.setValue("costrictApiKeyExpiredAt", costrictApiKeyExpiredAt)
-		await CostrictAuthStorage.clineProvider.upsertProviderProfile(state.currentApiConfigName, config, false)
+		await CostrictAuthStorage.clineProvider.setValue("costrictRefreshToken", tokens.refresh_token)
+		await CostrictAuthStorage.clineProvider.setValue("costrictAccessToken", tokens.access_token)
+		await CostrictAuthStorage.clineProvider.setValue("costrictState", tokens.state)
+		await CostrictAuthStorage.clineProvider.setValue("costrictApiKeyUpdatedAt", costrictApiKeyUpdatedAt)
+		await CostrictAuthStorage.clineProvider.setValue("costrictApiKeyExpiredAt", costrictApiKeyExpiredAt)
+		if (state.apiConfiguration.apiProvider === "costrict") {
+			await CostrictAuthStorage.clineProvider.upsertProviderProfile(
+				state.currentApiConfigName,
+				{ ...state.apiConfiguration, ...authPatch },
+				false,
+			)
+		}
 
 		sendCostrictTokens(tokens)
 
@@ -96,7 +101,7 @@ export class CostrictAuthStorage {
 		}
 		const config = { ...state.apiConfiguration, costrictState: loginState.state }
 		// Save state value
-		CostrictAuthStorage.clineProvider.setValue("costrictState", loginState.state)
+		await CostrictAuthStorage.clineProvider.setValue("costrictState", loginState.state)
 
 		await CostrictAuthStorage.clineProvider.upsertProviderProfile(state.currentApiConfigName, config, false)
 	}
@@ -117,11 +122,12 @@ export class CostrictAuthStorage {
 	 */
 	async clearAllLoginState(): Promise<void> {
 		if (!CostrictAuthStorage.clineProvider) return
+		await clearCostrictRuntimeAuth()
 		const state = await CostrictAuthStorage.clineProvider.getState()
 		if (!state.currentApiConfigName) {
 			return
 		}
-		const config = {
+		const authPatch = {
 			costrictBaseUrl: "",
 			costrictRefreshToken: "",
 			costrictAccessToken: "",
@@ -130,8 +136,8 @@ export class CostrictAuthStorage {
 			costrictApiKeyExpiredAt: "",
 		}
 		await CostrictAuthStorage.clineProvider?.providerSettingsManager.saveMergeConfig(
-			config,
-			(name) => name !== state.currentApiConfigName,
+			authPatch,
+			(_name, { apiProvider }) => apiProvider === "costrict",
 		)
 
 		await CostrictAuthStorage.clineProvider.setValue("costrictBaseUrl", undefined)
@@ -140,7 +146,13 @@ export class CostrictAuthStorage {
 		await CostrictAuthStorage.clineProvider.setValue("costrictState", undefined)
 		await CostrictAuthStorage.clineProvider.setValue("costrictApiKeyUpdatedAt", undefined)
 		await CostrictAuthStorage.clineProvider.setValue("costrictApiKeyExpiredAt", undefined)
-		await CostrictAuthStorage.clineProvider.upsertProviderProfile(state.currentApiConfigName, config, false)
+		if (state.apiConfiguration.apiProvider === "costrict") {
+			await CostrictAuthStorage.clineProvider.upsertProviderProfile(
+				state.currentApiConfigName,
+				{ ...state.apiConfiguration, ...authPatch },
+				false,
+			)
+		}
 	}
 
 	/**

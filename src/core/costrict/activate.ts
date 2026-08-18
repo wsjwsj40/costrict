@@ -21,7 +21,13 @@ import {
 	printLogo,
 	loadLocalLanguageExtensions,
 } from "./base/common"
-import { CostrictAuthApi, CostrictAuthCommands, CostrictAuthService, CostrictAuthStorage } from "./auth"
+import {
+	CostrictAuthApi,
+	CostrictAuthCommands,
+	CostrictAuthService,
+	CostrictAuthStorage,
+	enforceCurrentAuthPolicy,
+} from "./auth"
 import { initCodeReview, disposeGitCommitListener } from "./code-review"
 import { initTelemetry } from "./telemetry"
 import { initErrorCodeManager } from "./error-code"
@@ -119,8 +125,17 @@ export async function activate(
 	context.subscriptions.push(costrictAuthService)
 	context.subscriptions.push(
 		onCostrictTokensUpdate((tokens: { state: string; access_token: string; refresh_token: string }) => {
-			costrictAuthService.saveTokens(tokens)
-			provider.log("Auth tokens refreshed from another window")
+			void costrictAuthService
+				.acceptSynchronizedTokens(tokens)
+				.then(async (acceptedCurrentLogin) => {
+					provider.log(
+						acceptedCurrentLogin
+							? "Auth tokens synchronized and current login policy accepted"
+							: "Auth tokens refreshed from another window",
+					)
+					await provider.postStateToWebview({ force: true })
+				})
+				.catch((error) => provider.log(`Failed to synchronize auth tokens: ${error}`))
 		}),
 		onCostrictLogout((sessionId: string) => {
 			if (generateNewSessionClientId() === sessionId) return
@@ -140,6 +155,7 @@ export async function activate(
 
 	let loginTip = () => {}
 	try {
+		await enforceCurrentAuthPolicy(provider)
 		const startupAuth = await costrictAuthService.getStartupAuthTokens()
 
 		if (startupAuth) {
@@ -159,8 +175,8 @@ export async function activate(
 				costrictAuthService.getTokens().then(async (tokens) => {
 					if (!tokens) {
 						getPanel()?.webview.postMessage({
-							type: "showReauthConfirmationDialog",
-							messageTs: new Date().getTime(),
+							type: "action",
+							action: "costrictAccountButtonClicked",
 						})
 					}
 				})
