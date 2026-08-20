@@ -13,6 +13,7 @@ import { EXPERIMENT_IDS, experiments } from "../../shared/experiments"
 import { sanitizeUnifiedDiff, computeDiffStats } from "../diff/stats"
 import { getRawTaskReporter } from "../costrict/telemetry"
 import { BaseTool, ToolCallbacks } from "./BaseTool"
+import { formatPathRecoveryError, resolveWorkspacePath } from "./path/WorkspacePathResolver"
 import type { ToolUse } from "../../shared/tools"
 import { parsePatch, ParseError, processAllHunks } from "./apply-patch"
 import type { ApplyPatchFileChange } from "./apply-patch"
@@ -251,7 +252,12 @@ export class ApplyPatchTool extends BaseTool<"apply_patch"> {
 		if (!fileExists) {
 			task.consecutiveMistakeCount++
 			task.recordToolError("apply_patch")
-			const errorMessage = `File not found: ${relPath}. Cannot delete a non-existent file.`
+			const resolution = await resolveWorkspacePath(
+				task.cwd,
+				relPath,
+				(candidate) => task.rooIgnoreController?.validateAccess(candidate) !== false,
+			)
+			const errorMessage = formatPathRecoveryError("apply_patch", "patch", resolution)
 			await task.say("error", errorMessage)
 			pushToolResult(formatResponse.toolError(errorMessage))
 			return
@@ -320,7 +326,12 @@ export class ApplyPatchTool extends BaseTool<"apply_patch"> {
 		if (!fileExists) {
 			task.consecutiveMistakeCount++
 			task.recordToolError("apply_patch")
-			const errorMessage = `File not found: ${relPath}. Cannot update a non-existent file.`
+			const resolution = await resolveWorkspacePath(
+				task.cwd,
+				relPath,
+				(candidate) => task.rooIgnoreController?.validateAccess(candidate) !== false,
+			)
+			const errorMessage = formatPathRecoveryError("apply_patch", "patch", resolution)
 			await task.say("error", errorMessage)
 			pushToolResult(formatResponse.toolError(errorMessage))
 			return

@@ -587,43 +587,22 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 		// For MiniMax models, allow matching <think> tags anywhere in the stream
 		// because MiniMax may include newlines before the <think> tag
 		const isMiniMax = modelInfo?.id?.toLowerCase().includes("minimax")
-		const isNotSupportTools = modelInfo?.id?.toLowerCase().includes("qwen-2.5-vl") // Qwen model understands <tool_call> tags
 		let matcher: TagMatcher<{
-			readonly type: "reasoning" | "text" | "fake_tool_call"
+			readonly type: "reasoning" | "text"
 			readonly text: string
 		}>
 
-		if (isNotSupportTools) {
-			matcher = new TagMatcher(
-				"tool_call",
-				(chunk) => {
-					// eslint-disable-next-line @typescript-eslint/no-unused-expressions
-					isDev &&
-						this.logger.info(
-							`[ResponseID ${this.options.costrictModelId} fake tool call]:`,
-							requestId,
-							chunk,
-						)
-					return {
-						type: chunk.matched ? "fake_tool_call" : "text",
-						text: chunk.data,
-					}
-				},
-				Infinity,
-			)
-		} else {
-			matcher = new TagMatcher(
-				"think",
-				(chunk) => {
-					if (chunk.matched) hasReasoning = true
-					return {
-						type: chunk.matched ? "reasoning" : "text",
-						text: chunk.data,
-					} as const
-				},
-				isMiniMax ? Infinity : 0, // Only use Infinity for MiniMax models
-			)
-		}
+		matcher = new TagMatcher(
+			"think",
+			(chunk) => {
+				if (chunk.matched) hasReasoning = true
+				return {
+					type: chunk.matched ? "reasoning" : "text",
+					text: chunk.data,
+				} as const
+			},
+			isMiniMax ? Infinity : 0, // Only use Infinity for MiniMax models
+		)
 
 		let lastUsage
 		const activeToolCallIds = new Set<string>()

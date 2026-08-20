@@ -17,8 +17,7 @@ import type {
 	ApiStreamToolCallDeltaChunk,
 	ApiStreamToolCallEndChunk,
 } from "../../api/transform/stream"
-import { fixAskMultipleChoiceFinalToolUseResult, fixNativeToolname } from "../../utils/fixNativeToolname"
-import { MCP_TOOL_PREFIX, MCP_TOOL_SEPARATOR, parseMcpToolName, normalizeMcpToolName } from "../../utils/mcp-name"
+import { MCP_TOOL_PREFIX, MCP_TOOL_SEPARATOR, parseMcpToolName } from "../../utils/mcp-name"
 import { defaultModeSlug } from "../../shared/modes"
 
 /**
@@ -330,7 +329,7 @@ export class NativeToolCallParser {
 	public static startStreamingToolCall(id: string, name: string): void {
 		this.streamingToolCalls.set(id, {
 			id,
-			name: fixNativeToolname(name),
+			name,
 			argumentsAccumulator: "",
 		})
 	}
@@ -401,7 +400,7 @@ export class NativeToolCallParser {
 	 * Finalize a streaming tool call.
 	 * Parses the complete JSON and returns the final ToolUse or McpToolUse.
 	 */
-	public static finalizeStreamingToolCall(id: string, isCostrict?: boolean): ToolUse | McpToolUse | null {
+	public static finalizeStreamingToolCall(id: string, _isCostrict?: boolean): ToolUse | McpToolUse | null {
 		const toolCall = this.streamingToolCalls.get(id)
 		if (!toolCall) {
 			return null
@@ -413,12 +412,9 @@ export class NativeToolCallParser {
 			{
 				id: toolCall.id,
 				name: toolCall.name as ToolName,
-				arguments:
-					(toolCall.name as ToolName) === "ask_multiple_choice" && isCostrict
-						? fixAskMultipleChoiceFinalToolUseResult(toolCall.argumentsAccumulator)
-						: toolCall.argumentsAccumulator,
+				arguments: toolCall.argumentsAccumulator,
 			},
-			isCostrict,
+			_isCostrict,
 		)
 		// Clean up streaming state
 		this.streamingToolCalls.delete(id)
@@ -510,12 +506,6 @@ export class NativeToolCallParser {
 		let usedLegacyFormat = false
 
 		switch (name) {
-			case "fake_tool_call": {
-				// fake_tool_call is a virtual tool for compatibility with models that don't support native function calls
-				// It doesn't need actual nativeArgs because it's just a placeholder
-				// Actual tool calls are handled in Task.ts by parsing <tool_call> tags
-				break
-			}
 			case "read_file":
 				// Check for legacy format first: { files: [...] }
 				// Handle both array and stringified array (some models double-stringify)
@@ -816,6 +806,7 @@ export class NativeToolCallParser {
 			params,
 			partial,
 			nativeArgs,
+			rawArgs: partialArgs,
 		}
 
 		// Preserve original name for API history when an alias was used
@@ -843,31 +834,21 @@ export class NativeToolCallParser {
 			name: TName
 			arguments: string
 		},
-		isCostrict?: boolean,
+		_isCostrict?: boolean,
 	): ToolUse<TName> | McpToolUse | null {
 		// Check if this is a dynamic MCP tool (mcp--serverName--toolName)
-		// Also handle models that output underscores instead of hyphens (mcp__serverName__toolName)
 		const mcpPrefix = MCP_TOOL_PREFIX + MCP_TOOL_SEPARATOR
 
-		if (typeof toolCall.name === "string") {
-			// Normalize the tool name to handle models that output underscores instead of hyphens
-			const normalizedName = normalizeMcpToolName(toolCall.name)
-			if (normalizedName.startsWith(mcpPrefix)) {
-				// Pass the original tool call but with normalized name for parsing
-				return this.parseDynamicMcpTool({ ...toolCall, name: normalizedName })
-			}
+		if (typeof toolCall.name === "string" && toolCall.name.startsWith(mcpPrefix)) {
+			return this.parseDynamicMcpTool(toolCall)
 		}
 
 		// Resolve tool alias to canonical name
 		let resolvedName = resolveToolAlias(toolCall.name as string) as TName
 
 		// Validate tool name (after alias resolution).
-		const matchBuiltinToolName = (toolNames.find(
-			(name) => name === resolvedName || resolvedName.indexOf(name) > -1,
-		) ?? "") as TName
-		const matchCustomToolName = (customToolRegistry
-			.list()
-			.find((name) => name === resolvedName || resolvedName.indexOf(name) > -1) ?? "") as TName
+		const matchBuiltinToolName = (toolNames.find((name) => name === resolvedName) ?? "") as TName
+		const matchCustomToolName = (customToolRegistry.list().find((name) => name === resolvedName) ?? "") as TName
 
 		const _resolvedName = matchBuiltinToolName || matchCustomToolName
 
@@ -876,7 +857,22 @@ export class NativeToolCallParser {
 				`Invalid tool name: ${toolCall.name} (resolved: ${resolvedName}) | toolCall arguments: ${toolCall.arguments}`,
 			)
 			console.error(`Valid tool names:`, toolNames)
-			return null
+			try {
+				const rawArgs = toolCall.arguments === "" ? {} : JSON.parse(toolCall.arguments)
+				// Preserve the invalid call so presentAssistantMessage can return a matching,
+				// structured tool_result. Silently dropping it leaves the model with no
+				// observation and commonly causes unchanged retries.
+				return {
+					type: "tool_use",
+					id: toolCall.id,
+					name: resolvedName,
+					params: {},
+					partial: false,
+					rawArgs,
+				} as ToolUse<TName>
+			} catch {
+				return null
+			}
 		} else {
 			if (toolCall.name !== _resolvedName) {
 				console.warn(`Resolved tool alias '${toolCall.name}' to '${_resolvedName}'`)
@@ -886,18 +882,15 @@ export class NativeToolCallParser {
 
 		try {
 			// Parse the arguments JSON string
-			const args = toolCall.arguments === "" ? {} : parseJSON(toolCall.arguments)
+			// Complete native tool calls must contain complete JSON. Partial JSON is only
+			// accepted by processStreamingChunk while rendering an in-flight call.
+			const args = toolCall.arguments === "" ? {} : JSON.parse(toolCall.arguments)
 
 			// Normalize values to handle type mismatches from LLM
 			// (e.g. stringified objects/arrays: '"[1,2,3]"' -> [1,2,3])
 			const normalizedArgs: Record<string, any> = {}
 			for (const [key, value] of Object.entries(args)) {
-				let _key = key
-				if (isCostrict && _key.includes("<arg_key>")) {
-					_key = (key.split("<arg_key>").pop() as string) ?? _key
-					console.log(`${toolCall.name}|${toolCall.id}: ${key} -> ${_key}`)
-				}
-				normalizedArgs[_key] = this.normalizeTypeValue(value)
+				normalizedArgs[key] = this.normalizeTypeValue(value)
 			}
 
 			// Build stringified params for display/logging.
@@ -1218,16 +1211,6 @@ export class NativeToolCallParser {
 					break
 			}
 
-			// Native-only: core tools must always have typed nativeArgs.
-			// If we couldn't construct it, the model produced an invalid tool call payload.
-			if (!nativeArgs && !customToolRegistry.has(resolvedName)) {
-				throw new Error(
-					`[NativeToolCallParser] Invalid arguments for tool '${resolvedName}'. ` +
-						`Native tool calls require a valid JSON payload matching the tool schema. ` +
-						`Received: ${JSON.stringify(args)}`,
-				)
-			}
-
 			const result: ToolUse<TName> = {
 				type: "tool_use" as const,
 				id: toolCall.id, // Set the tool call ID required by the validation in presentAssistantMessage.ts
@@ -1235,6 +1218,7 @@ export class NativeToolCallParser {
 				params,
 				partial: false, // Native tool calls are always complete when yielded
 				nativeArgs,
+				rawArgs: normalizedArgs,
 			}
 
 			// Preserve original name for API history when an alias was used
@@ -1265,18 +1249,15 @@ export class NativeToolCallParser {
 	 */
 	public static parseDynamicMcpTool(toolCall: { id: string; name: string; arguments: string }): McpToolUse | null {
 		try {
+			if (!toolCall.name.startsWith(`${MCP_TOOL_PREFIX}${MCP_TOOL_SEPARATOR}`)) return null
 			// Parse the arguments - these are the actual tool arguments passed directly
 			const args = JSON.parse(toolCall.arguments || "{}")
 
-			// Normalize the tool name to handle models that output underscores instead of hyphens
-			// e.g., mcp__serverName__toolName -> mcp--serverName--toolName
-			const normalizedName = normalizeMcpToolName(toolCall.name)
-
 			// Extract server_name and tool_name from the tool name itself
 			// Format: mcp--serverName--toolName (using -- separator)
-			const parsed = parseMcpToolName(normalizedName)
+			const parsed = parseMcpToolName(toolCall.name)
 			if (!parsed) {
-				console.error(`Invalid dynamic MCP tool name format: ${toolCall.name} (normalized: ${normalizedName})`)
+				console.error(`Invalid dynamic MCP tool name format: ${toolCall.name}`)
 				return null
 			}
 

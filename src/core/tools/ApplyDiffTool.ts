@@ -24,6 +24,7 @@ import { getAppName } from "../../utils/getAppName"
 import { getRawTaskReporter } from "../costrict/telemetry"
 
 import { BaseTool, ToolCallbacks } from "./BaseTool"
+import { formatPathRecoveryError, resolveWorkspacePath } from "./path/WorkspacePathResolver"
 
 interface ApplyDiffParams {
 	path: string
@@ -70,7 +71,12 @@ export class ApplyDiffTool extends BaseTool<"apply_diff"> {
 			if (!fileExists) {
 				task.consecutiveMistakeCount++
 				task.recordToolError("apply_diff")
-				const formattedError = `File does not exist at path: ${absolutePath}\n\n<error_details>\nThe specified file could not be found. Please verify the file path and try again.\n</error_details>`
+				const resolution = await resolveWorkspacePath(
+					task.cwd,
+					relPath,
+					(candidate) => task.rooIgnoreController?.validateAccess(candidate) !== false,
+				)
+				const formattedError = formatPathRecoveryError("apply_diff", "path", resolution)
 				await task.say("error", formattedError)
 				task.didToolFailInCurrentTurn = true
 				pushToolResult(formattedError)

@@ -779,7 +779,7 @@ describe("NativeToolCallParser", () => {
 		})
 
 		describe("invalid tool name", () => {
-			it("should return null for unknown tool names", () => {
+			it("should preserve unknown tool calls for structured error feedback", () => {
 				const toolCall = {
 					id: "toolu_invalid",
 					name: "nonexistent_tool" as any,
@@ -788,7 +788,11 @@ describe("NativeToolCallParser", () => {
 
 				const result = NativeToolCallParser.parseToolCall(toolCall)
 
-				expect(result).toBeNull()
+				expect(result).toMatchObject({
+					type: "tool_use",
+					name: "nonexistent_tool",
+					rawArgs: {},
+				})
 			})
 		})
 
@@ -867,8 +871,7 @@ describe("NativeToolCallParser", () => {
 			expect(result?.partial).toBe(false)
 		})
 
-		it("should parse MCP tool with underscore separators (mcp__server__tool)", () => {
-			// Models often convert hyphens to underscores
+		it("should reject non-canonical MCP underscore separators", () => {
 			const toolCall = {
 				id: "mcp_toolu_2",
 				name: "mcp__filesystem__read_file",
@@ -877,10 +880,7 @@ describe("NativeToolCallParser", () => {
 
 			const result = NativeToolCallParser.parseDynamicMcpTool(toolCall)
 
-			expect(result).not.toBeNull()
-			expect(result?.type).toBe("mcp_tool_use")
-			expect(result?.serverName).toBe("filesystem")
-			expect(result?.toolName).toBe("read_file")
+			expect(result).toBeNull()
 		})
 
 		it("should return null for invalid MCP tool name format", () => {
@@ -1230,7 +1230,7 @@ describe("NativeToolCallParser", () => {
 	})
 
 	describe("convertFileEntries", () => {
-		it("should return null for empty files array with no path", () => {
+		it("should retain raw arguments for registry validation when legacy files are empty", () => {
 			// Empty files array does not match legacy format (no files to process)
 			// and there's no path either, so nativeArgs is undefined -> invalid
 			const toolCall = {
@@ -1243,7 +1243,12 @@ describe("NativeToolCallParser", () => {
 
 			const result = NativeToolCallParser.parseToolCall(toolCall)
 
-			expect(result).toBeNull()
+			expect(result).toMatchObject({
+				type: "tool_use",
+				name: "read_file",
+				nativeArgs: undefined,
+				rawArgs: { files: [] },
+			})
 		})
 
 		it("should filter out invalid line_ranges entries", () => {

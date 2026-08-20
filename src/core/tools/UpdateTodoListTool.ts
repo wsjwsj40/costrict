@@ -177,7 +177,13 @@ function normalizeStatus(status: string | undefined): TodoStatus {
 
 export function parseMarkdownChecklist(md: string): TodoItem[] {
 	if (typeof md !== "string") return []
-	const lines = md
+	// Some OpenAI-compatible providers double-escape JSON newlines and return the
+	// literal characters "\\n"/"\\r\\n". Only recover those sequences when they
+	// introduce another checklist item, so ordinary text containing "\\n" is kept.
+	const normalizedMarkdown = md
+		.replace(/\\r\\n(?=\s*(?:-\s*)?\[\s*[ xX\-~]\s*\]\s+)/g, "\n")
+		.replace(/\\n(?=\s*(?:-\s*)?\[\s*[ xX\-~]\s*\]\s+)/g, "\n")
+	const lines = normalizedMarkdown
 		.split(/\r?\n/)
 		.map((l) => l.trim())
 		.filter(Boolean)

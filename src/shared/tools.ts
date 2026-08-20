@@ -180,6 +180,8 @@ export interface ToolUse<TName extends ToolName = ToolName> {
 	// params is a partial record, allowing only some or none of the possible parameters to be used
 	params: Partial<Record<ToolParamName, string>>
 	partial: boolean
+	/** Original decoded function arguments, retained for schema validation and recovery diagnostics. */
+	rawArgs?: Record<string, unknown>
 	// nativeArgs is properly typed based on TName if it's in NativeToolArgs, otherwise never
 	nativeArgs?: TName extends keyof NativeToolArgs ? NativeToolArgs[TName] : never
 	/**
@@ -345,7 +347,6 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
 	skill: "load skill",
 	generate_image: "generate images",
 	custom_tool: "use custom tools",
-	fake_tool_call: "use tool calls",
 	file_outline: "file outline",
 	costrict_checkpoint: "manage costrict checkpoints",
 } as const

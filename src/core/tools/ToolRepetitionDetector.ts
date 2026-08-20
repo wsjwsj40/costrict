@@ -58,7 +58,20 @@ export class ToolRepetitionDetector {
 				allowExecution: false,
 				askUser: {
 					messageKey: "mistake_limit_reached",
-					messageDetail: t("tools:toolRepetitionLimitReached", { toolName: currentToolCallBlock.name }),
+					messageDetail: `${t("tools:toolRepetitionLimitReached", { toolName: currentToolCallBlock.name })}\n\n${JSON.stringify(
+						{
+							error: "REPEATED_UNCHANGED_TOOL_CALL",
+							tool: currentToolCallBlock.name,
+							arguments:
+								currentToolCallBlock.rawArgs ??
+								currentToolCallBlock.nativeArgs ??
+								currentToolCallBlock.params,
+							instruction:
+								"The same call did not make progress. Provide corrected arguments or choose a verified target; the unchanged call will not be executed again.",
+						},
+						null,
+						2,
+					)}`,
 				},
 			}
 		}

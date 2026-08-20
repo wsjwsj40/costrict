@@ -14,7 +14,6 @@ import debounce from "lodash.debounce"
 import delay from "delay"
 import pWaitFor from "p-wait-for"
 import { serializeError } from "serialize-error"
-import { parseJSON } from "partial-json"
 import { Package } from "../../shared/package"
 import { getRawTaskReporter } from "../costrict/telemetry"
 // import { formatToolInvocation } from "../tools/helpers/toolResultFormatting"
@@ -3145,8 +3144,6 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				const stream = this.attemptApiRequest(currentItem.retryAttempt ?? 0, { skipProviderRateLimit: true })
 				let assistantMessage = ""
 				let reasoningMessage = ""
-				let assistantXmlToolMessage = ""
-				let assistantXmlToolCallId = ""
 				let streamingFailedMessage: string | undefined = ""
 				let pendingGroundingSources: GroundingSource[] = []
 				void (await this.updateStreamingStatus(true))
@@ -3221,19 +3218,6 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 								}
 								break
 
-							case "fake_tool_call": {
-								// During streaming, only accumulate fake_tool_call content without executing tools
-								// This maintains streaming output continuity
-								assistantXmlToolMessage += chunk.text
-
-								// Generate unique tool call ID if not already set
-								if (!assistantXmlToolCallId) {
-									assistantXmlToolCallId = uuidv7()
-								}
-
-								// Don't call presentAssistantMessage() here, wait until stream ends
-								break
-							}
 							case "tool_call_partial": {
 								// Process raw tool call chunk through NativeToolCallParser
 								// which handles tracking, buffering, and emits events
@@ -3781,57 +3765,6 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					this.modelFallbackManager?.recordSuccess()
 				}
 
-				// Process accumulated fake_tool_call after stream ends
-				// Content was only accumulated during streaming, now parse and execute tool calls
-				if (assistantXmlToolCallId && assistantXmlToolMessage) {
-					try {
-						const toolCallData = parseJSON(assistantXmlToolMessage)
-						if (toolCallData && toolCallData.name && toolCallData.arguments) {
-							// Convert arguments to JSON string if not already
-							const argumentsStr =
-								typeof toolCallData.arguments === "string"
-									? toolCallData.arguments
-									: JSON.stringify(toolCallData.arguments)
-
-							// Use NativeToolCallParser to process tool call
-							NativeToolCallParser.startStreamingToolCall(assistantXmlToolCallId, toolCallData.name)
-							NativeToolCallParser.processStreamingChunk(assistantXmlToolCallId, argumentsStr)
-
-							// Finalize tool call and get ToolUse object
-							const toolUse = NativeToolCallParser.finalizeStreamingToolCall(
-								assistantXmlToolCallId,
-								this?.apiConfiguration?.apiProvider === "costrict",
-							)
-
-							if (toolUse) {
-								// Add ToolUse to assistantMessageContent
-								this.assistantMessageContent.push(toolUse)
-
-								// Update streaming tool call index
-								const toolUseIndex = this.assistantMessageContent.length - 1
-								this.streamingToolCallIndices.set(assistantXmlToolCallId, toolUseIndex)
-
-								// Mark that we have new content to process
-								this.userMessageContentReady = false
-
-								// Present the tool call to user - presentAssistantMessage will execute
-								// tools sequentially and accumulate all results in userMessageContent
-								presentAssistantMessage(this)
-							}
-						}
-					} catch (error) {
-						// JSON parsing failed, log warning
-						console.warn(
-							"[Task] Failed to parse fake_tool_call JSON after stream ended:",
-							assistantXmlToolMessage,
-							error,
-						)
-					}
-
-					// Clean up fake_tool_call state
-					assistantXmlToolMessage = ""
-					assistantXmlToolCallId = ""
-				}
 				// Set any blocks to be complete to allow `presentAssistantMessage`
 				// to finish and set `userMessageContentReady` to true.
 				// (Could be a text block that had no subsequent tool uses, or a
