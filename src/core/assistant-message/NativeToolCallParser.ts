@@ -61,6 +61,7 @@ export class NativeToolCallParser {
 			id: string
 			name: string
 			argumentsAccumulator: string
+			argumentDeltaCount: number
 		}
 	>()
 
@@ -72,6 +73,8 @@ export class NativeToolCallParser {
 			name: string
 			hasStarted: boolean
 			deltaBuffer: string[]
+			argumentBytes: number
+			argumentDeltaCount: number
 		}
 	>()
 
@@ -223,12 +226,19 @@ export class NativeToolCallParser {
 				name: name || "",
 				hasStarted: false,
 				deltaBuffer: [],
+				argumentBytes: 0,
+				argumentDeltaCount: 0,
 			}
 			this.rawChunkTracker.set(index, tracked)
 		}
 
 		if (!tracked) {
 			return events
+		}
+
+		if (args !== undefined) {
+			tracked.argumentBytes += Buffer.byteLength(args, "utf8")
+			tracked.argumentDeltaCount++
 		}
 
 		// Update name if present in chunk and not yet set
@@ -301,6 +311,17 @@ export class NativeToolCallParser {
 		if (this.rawChunkTracker.size > 0) {
 			for (const [, tracked] of this.rawChunkTracker.entries()) {
 				if (tracked.hasStarted) {
+					const forcedFinalize = this.streamingToolCalls.has(tracked.id)
+					console.warn(
+						"[ToolCallTrace] raw-tracker-cleanup",
+						JSON.stringify({
+							toolCallId: tracked.id,
+							tool: tracked.name,
+							argumentBytes: tracked.argumentBytes,
+							argumentDeltaCount: tracked.argumentDeltaCount,
+							forcedFinalize,
+						}),
+					)
 					events.push({
 						type: "tool_call_end",
 						id: tracked.id,
@@ -331,7 +352,9 @@ export class NativeToolCallParser {
 			id,
 			name,
 			argumentsAccumulator: "",
+			argumentDeltaCount: 0,
 		})
+		console.info("[ToolCallTrace] parser-start", JSON.stringify({ toolCallId: id, tool: name }))
 	}
 
 	/**
@@ -364,6 +387,7 @@ export class NativeToolCallParser {
 
 		// Accumulate the JSON string
 		toolCall.argumentsAccumulator += chunk
+		toolCall.argumentDeltaCount++
 
 		// For dynamic MCP tools, we don't return partial updates - wait for final
 		const mcpPrefix = MCP_TOOL_PREFIX + MCP_TOOL_SEPARATOR
@@ -415,6 +439,26 @@ export class NativeToolCallParser {
 				arguments: toolCall.argumentsAccumulator,
 			},
 			_isCostrict,
+		)
+		let jsonComplete = false
+		try {
+			JSON.parse(toolCall.argumentsAccumulator)
+			jsonComplete = true
+		} catch {
+			jsonComplete = false
+		}
+		console.info(
+			"[ToolCallTrace] parser-finalize",
+			JSON.stringify({
+				toolCallId: toolCall.id,
+				tool: toolCall.name,
+				argumentBytes: Buffer.byteLength(toolCall.argumentsAccumulator, "utf8"),
+				argumentDeltaCount: toolCall.argumentDeltaCount,
+				jsonComplete,
+				emptyArguments: toolCall.argumentsAccumulator.length === 0,
+				parsed: finalToolUse !== null,
+				nativeArgsCreated: Boolean(finalToolUse && "nativeArgs" in finalToolUse && finalToolUse.nativeArgs),
+			}),
 		)
 		// Clean up streaming state
 		this.streamingToolCalls.delete(id)
@@ -580,6 +624,7 @@ export class NativeToolCallParser {
 					nativeArgs = {
 						path: partialArgs.path,
 						content: partialArgs.content,
+						operation: partialArgs.operation,
 					}
 				}
 				break
@@ -1122,6 +1167,7 @@ export class NativeToolCallParser {
 						nativeArgs = {
 							path: normalizedArgs.path,
 							content: normalizedArgs.content,
+							operation: normalizedArgs.operation,
 						} as NativeArgsFor<TName>
 					}
 					break

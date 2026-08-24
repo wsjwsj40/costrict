@@ -617,6 +617,10 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 		let time = Date.now()
 		let isPrinted = false
 		let hasReasoning = false
+		const toolCallDiagnostics = new Map<
+			number,
+			{ id?: string; name?: string; argumentBytes: number; argumentDeltaCount: number }
+		>()
 
 		// Yield selected LLM info if available (for Auto model mode)
 		if (isAuto) {
@@ -628,13 +632,8 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 			}
 		}
 
-		const lastDeltaInfo = {
-			activeToolCallIds,
-		} as {
-			delta?: ChatCompletionChunk.Choice["delta"]
-			finishReason?: ChatCompletionChunk.Choice["finish_reason"]
-			activeToolCallIds?: Set<string>
-		}
+		let terminalFinishReason: ChatCompletionChunk.Choice["finish_reason"] | undefined
+		let streamIterationCompleted = false
 
 		// Helper function to flush buffer content
 		const flushBuffer = () => {
@@ -667,6 +666,17 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 		) => {
 			if (delta?.tool_calls) {
 				for (const toolCall of delta.tool_calls) {
+					const diagnostic = toolCallDiagnostics.get(toolCall.index) ?? {
+						argumentBytes: 0,
+						argumentDeltaCount: 0,
+					}
+					if (toolCall.id) diagnostic.id = toolCall.id
+					if (toolCall.function?.name) diagnostic.name = toolCall.function.name
+					if (toolCall.function?.arguments !== undefined) {
+						diagnostic.argumentBytes += Buffer.byteLength(toolCall.function.arguments, "utf8")
+						diagnostic.argumentDeltaCount++
+					}
+					toolCallDiagnostics.set(toolCall.index, diagnostic)
 					if (toolCall.id) {
 						activeToolCallIds.add(toolCall.id)
 					}
@@ -681,6 +691,10 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 			}
 
 			if (finishReason === "tool_calls" && activeToolCallIds.size > 0) {
+				console.info(
+					"[ToolCallTrace] provider-normal-finish",
+					JSON.stringify({ requestId, finishReason, calls: [...toolCallDiagnostics.entries()] }),
+				)
 				for (const id of activeToolCallIds) {
 					toolCallBuffer.push({ type: "tool_call_end", id })
 				}
@@ -693,8 +707,9 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 			for await (const chunk of stream) {
 				const delta = chunk.choices?.[0]?.delta ?? {}
 				const finishReason = chunk.choices?.[0]?.finish_reason
-				lastDeltaInfo.finishReason = finishReason
-				lastDeltaInfo.delta = delta
+				// Usage-only chunks commonly have no finish_reason. Preserve the last
+				// actual terminal reason instead of overwriting it with null/undefined.
+				if (finishReason != null) terminalFinishReason = finishReason
 
 				// Cache content for batch processing
 				if (delta.content) {
@@ -790,11 +805,32 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 					break
 				}
 			}
+			streamIterationCompleted = true
 			if (!hasReasoning) {
 				// Add a fake reasoning event to ensure the frontend processes the response
 				yield { type: "fake_reasoning", text: "" }
 			}
 		} finally {
+			if (toolCallDiagnostics.size > 0) {
+				const completedNormally =
+					streamIterationCompleted &&
+					!this.abortController?.signal.aborted &&
+					activeToolCallIds.size === 0 &&
+					terminalFinishReason === "tool_calls"
+				const log = completedNormally ? console.info : console.warn
+				log(
+					"[ToolCallTrace] provider-stream-finally",
+					JSON.stringify({
+						requestId,
+						finishReason: terminalFinishReason ?? null,
+						streamIterationCompleted,
+						completedNormally,
+						aborted: Boolean(this.abortController?.signal.aborted),
+						activeToolCallIds: [...activeToolCallIds],
+						calls: [...toolCallDiagnostics.entries()],
+					}),
+				)
+			}
 			// Always flush remaining content, even on abort
 			// This ensures no content is lost in the buffer
 			if (contentBuffer.length > 0) {
@@ -808,12 +844,8 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 
 			// Always flush remaining tool calls
 			if (isNative) {
-				// First, buffer any remaining tool calls from lastDeltaInfo
-				if (lastDeltaInfo.delta || lastDeltaInfo.finishReason) {
-					bufferToolCalls(lastDeltaInfo.delta, lastDeltaInfo.finishReason)
-				}
-
-				// Then flush all buffered tool calls
+				// Every delta is buffered inside the loop. Replaying the last delta here
+				// duplicates argument bytes when a stream ends prematurely.
 				if (toolCallBuffer.length > 0) {
 					// eslint-disable-next-line @typescript-eslint/no-unused-expressions
 					isDev && this.logger.info(`[Flushing ${toolCallBuffer.length} remaining tool calls]`, requestId)

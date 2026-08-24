@@ -27,6 +27,7 @@ export const toolParamNames = [
 	"command",
 	"path",
 	"content",
+	"operation",
 	"regex",
 	"file_pattern",
 	"recursive",
@@ -152,7 +153,7 @@ export type NativeToolArgs = {
 	switch_mode: { mode_slug: string; reason: string }
 	update_todo_list: { todos: string }
 	use_mcp_tool: { server_name: string; tool_name: string; arguments?: Record<string, unknown> }
-	write_to_file: { path: string; content: string }
+	write_to_file: { path: string; content: string; operation?: "overwrite" | "append" }
 	costrict_checkpoint: {
 		action: "commit" | "list" | "show_diff" | "restore" | "revert"
 		message?: string

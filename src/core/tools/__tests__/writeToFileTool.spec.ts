@@ -7,6 +7,7 @@ import { isPathOutsideWorkspace } from "../../../utils/pathUtils"
 import { getReadablePath } from "../../../utils/path"
 import { unescapeHtmlEntities } from "../../../utils/text-normalization"
 import { everyLineHasLineNumbers, stripLineNumbers } from "../../../integrations/misc/extract-text"
+import { readFileWithEncodingDetection } from "../../../utils/encoding"
 import { ToolUse, ToolResponse } from "../../../shared/tools"
 import { writeToFileTool } from "../WriteToFileTool"
 
@@ -101,6 +102,10 @@ vi.mock("../../../utils/file", () => ({
 	getLanguage: vi.fn().mockResolvedValue("TypeScript"),
 }))
 
+vi.mock("../../../utils/encoding", () => ({
+	readFileWithEncodingDetection: vi.fn().mockResolvedValue(""),
+}))
+
 vi.mock("../../ignore/RooIgnoreController", () => ({
 	RooIgnoreController: class {
 		initialize() {
@@ -129,6 +134,7 @@ describe("writeToFileTool", () => {
 	const mockedEveryLineHasLineNumbers = everyLineHasLineNumbers as MockedFunction<typeof everyLineHasLineNumbers>
 	const mockedStripLineNumbers = stripLineNumbers as MockedFunction<typeof stripLineNumbers>
 	const mockedPathResolve = path.resolve as MockedFunction<typeof path.resolve>
+	const mockedReadFile = readFileWithEncodingDetection as MockedFunction<typeof readFileWithEncodingDetection>
 
 	const mockCline: any = {}
 	let mockAskApproval: ReturnType<typeof vi.fn>
@@ -148,6 +154,7 @@ describe("writeToFileTool", () => {
 		mockedUnescapeHtmlEntities.mockImplementation((content) => content)
 		mockedEveryLineHasLineNumbers.mockReturnValue(false)
 		mockedStripLineNumbers.mockImplementation((content) => content)
+		mockedReadFile.mockResolvedValue("")
 
 		mockCline.cwd = "/"
 		mockCline.consecutiveMistakeCount = 0
@@ -248,6 +255,7 @@ describe("writeToFileTool", () => {
 			nativeArgs: {
 				path: (params.path ?? testFilePath) as any,
 				content: (params.content ?? testContent) as any,
+				operation: params.operation as "overwrite" | "append" | undefined,
 			},
 			partial: isPartial,
 		}
@@ -389,6 +397,15 @@ describe("writeToFileTool", () => {
 	})
 
 	describe("file operations", () => {
+		it("appends a bounded chunk to the existing file", async () => {
+			mockedReadFile.mockResolvedValue("existing content\n")
+
+			await executeWriteFileTool({ content: "next chunk", operation: "append" }, { fileExists: true })
+
+			expect(mockedReadFile).toHaveBeenCalledWith(absoluteFilePath)
+			expect(mockCline.diffViewProvider.update).toHaveBeenCalledWith("existing content\nnext chunk", true)
+		})
+
 		it("successfully creates new files with full workflow", async () => {
 			await executeWriteFileTool({}, { fileExists: false })
 
@@ -419,6 +436,13 @@ describe("writeToFileTool", () => {
 	})
 
 	describe("partial block handling", () => {
+		it("does not render an append chunk as a replacement file while streaming", async () => {
+			await executeWriteFileTool({ operation: "append" }, { fileExists: true, isPartial: true })
+
+			expect(mockCline.diffViewProvider.open).not.toHaveBeenCalled()
+			expect(mockCline.diffViewProvider.update).not.toHaveBeenCalled()
+		})
+
 		it("returns early when path is missing in partial block", async () => {
 			await executeWriteFileTool({ path: undefined }, { isPartial: true })
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { ToolRegistry } from "../ToolRegistry"
+import { formatToolValidationError, getToolRetryInstruction, ToolRegistry } from "../ToolRegistry"
 
 const tools = [
 	{
@@ -53,5 +53,20 @@ describe("ToolRegistry", () => {
 			ok: false,
 			issues: [{ path: "filename", code: "additional_property" }],
 		})
+	})
+
+	it("returns a chunked-write recovery instruction for invalid write calls", () => {
+		const instruction = getToolRetryInstruction("write_to_file")
+		expect(instruction).toContain("6000")
+		expect(instruction).toContain("overwrite")
+		expect(instruction).toContain("append")
+		expect(instruction).toContain("Do not repeat")
+
+		const formatted = JSON.parse(
+			formatToolValidationError("write_to_file", [
+				{ path: "content", code: "required", message: "Required parameter is missing." },
+			]),
+		)
+		expect(formatted.instruction).toBe(instruction)
 	})
 })

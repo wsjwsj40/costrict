@@ -178,12 +178,24 @@ export class ToolRegistry {
 	}
 }
 
+export function getToolRetryInstruction(tool: string): string {
+	if (tool === "write_to_file") {
+		return (
+			"The write call ended before valid arguments were completed, commonly because a large content argument " +
+			"exceeded the response-stream timeout. Do not repeat the unchanged call. Write at most approximately 6000 " +
+			"characters per call: use operation 'overwrite' for the first chunk and operation 'append' for each subsequent " +
+			"contiguous chunk. Wait for every chunk to succeed before sending the next one."
+		)
+	}
+	return "Retry with corrected arguments. Do not repeat the unchanged invalid call."
+}
+
 export function formatToolValidationError(tool: string, issues: ToolValidationIssue[]): string {
 	return JSON.stringify({
 		error: "INVALID_TOOL_ARGUMENTS",
 		tool,
 		issues,
-		instruction: "Retry with corrected arguments. Do not repeat the unchanged invalid call.",
+		instruction: getToolRetryInstruction(tool),
 		retryable: true,
 	})
 }

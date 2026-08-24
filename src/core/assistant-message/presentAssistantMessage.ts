@@ -44,7 +44,7 @@ import { isValidToolName, validateToolUse } from "../tools/validateToolUse"
 
 import { formatResponse } from "../prompts/responses"
 import { getMcpServerTools, getNativeTools } from "../prompts/tools/native-tools"
-import { ToolRegistry, formatToolValidationError } from "../tools/registry/ToolRegistry"
+import { ToolRegistry, formatToolValidationError, getToolRetryInstruction } from "../tools/registry/ToolRegistry"
 // import { codebaseSearchTool } from "../tools/CodebaseSearchTool"
 import { updateCospecMetadata } from "../checkpoints"
 // import { fixBrowserLaunchAction } from "../../utils/fixbrowserLaunchAction"
@@ -495,6 +495,15 @@ export async function presentAssistantMessage(cline: Task) {
 			if (!block.partial && block.rawArgs && builtinToolRegistry.resolve(String(block.name)).ok) {
 				const validation = builtinToolRegistry.validate(String(block.name), block.rawArgs)
 				if (!validation.ok) {
+					console.warn(
+						"[ToolCallTrace] registry-rejected",
+						JSON.stringify({
+							toolCallId,
+							tool: block.name,
+							argumentKeys: Object.keys(block.rawArgs),
+							issues: validation.issues,
+						}),
+					)
 					const errorMessage = formatToolValidationError(String(block.name), validation.issues)
 					cline.consecutiveMistakeCount++
 					cline.recordToolError(block.name as ToolName, errorMessage)
@@ -504,6 +513,10 @@ export async function presentAssistantMessage(cline: Task) {
 						content: formatResponse.toolError(errorMessage),
 						is_error: true,
 					})
+					console.warn(
+						"[ToolCallTrace] validation-result-pushed",
+						JSON.stringify({ toolCallId, tool: block.name, error: "INVALID_TOOL_ARGUMENTS" }),
+					)
 					break
 				}
 			}
@@ -521,7 +534,8 @@ export async function presentAssistantMessage(cline: Task) {
 				if (isKnownTool && !block.nativeArgs && !customTool) {
 					const errorMessage =
 						`Invalid tool call for '${block.name}': missing nativeArgs. ` +
-						`This usually means the model streamed invalid or incomplete arguments and the call could not be finalized.`
+						`This usually means the model streamed invalid or incomplete arguments and the call could not be finalized. ` +
+						getToolRetryInstruction(String(block.name))
 
 					cline.consecutiveMistakeCount++
 					try {
@@ -538,6 +552,10 @@ export async function presentAssistantMessage(cline: Task) {
 						content: formatResponse.toolError(errorMessage),
 						is_error: true,
 					})
+					console.warn(
+						"[ToolCallTrace] validation-result-pushed",
+						JSON.stringify({ toolCallId, tool: block.name, error: "MISSING_NATIVE_ARGS" }),
+					)
 
 					break
 				}
@@ -586,6 +604,15 @@ export async function presentAssistantMessage(cline: Task) {
 					tool_use_id: sanitizeToolUseId(toolCallId),
 					content: resultContent,
 				})
+				console.info(
+					"[ToolCallTrace] tool-result-pushed",
+					JSON.stringify({
+						toolCallId,
+						tool: block.name,
+						resultCharacters: resultContent.length,
+						imageCount: imageBlocks.length,
+					}),
+				)
 
 				if (imageBlocks.length > 0) {
 					cline.userMessageContent.push(...imageBlocks)

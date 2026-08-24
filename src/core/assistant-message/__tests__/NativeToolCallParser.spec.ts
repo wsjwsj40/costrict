@@ -393,6 +393,7 @@ describe("NativeToolCallParser", () => {
 					arguments: JSON.stringify({
 						path: "src/output.txt",
 						content: "Hello, world!",
+						operation: "append",
 					}),
 				}
 
@@ -401,9 +402,10 @@ describe("NativeToolCallParser", () => {
 				expect(result).not.toBeNull()
 				expect(result?.type).toBe("tool_use")
 				if (result?.type === "tool_use") {
-					const nativeArgs = result.nativeArgs as { path: string; content: string }
+					const nativeArgs = result.nativeArgs as { path: string; content: string; operation?: string }
 					expect(nativeArgs.path).toBe("src/output.txt")
 					expect(nativeArgs.content).toBe("Hello, world!")
+					expect(nativeArgs.operation).toBe("append")
 				}
 			})
 		})
@@ -1145,16 +1147,20 @@ describe("NativeToolCallParser", () => {
 				const id = "toolu_finalize_write"
 				NativeToolCallParser.startStreamingToolCall(id, "write_to_file")
 
-				NativeToolCallParser.processStreamingChunk(id, JSON.stringify({ path: "out.txt", content: "data" }))
+				NativeToolCallParser.processStreamingChunk(
+					id,
+					JSON.stringify({ path: "out.txt", content: "data", operation: "append" }),
+				)
 
 				const result = NativeToolCallParser.finalizeStreamingToolCall(id)
 
 				expect(result).not.toBeNull()
 				expect(result?.type).toBe("tool_use")
 				if (result?.type === "tool_use") {
-					const nativeArgs = result.nativeArgs as { path: string; content: string }
+					const nativeArgs = result.nativeArgs as { path: string; content: string; operation?: string }
 					expect(nativeArgs.path).toBe("out.txt")
 					expect(nativeArgs.content).toBe("data")
+					expect(nativeArgs.operation).toBe("append")
 				}
 			})
 		})
