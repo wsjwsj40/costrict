@@ -45,6 +45,7 @@ import { defaultModeSlug, type Mode } from "../../../shared/modes"
 
 import {
 	buildReviewRequestOptions,
+	ensureReviewResultDirectory,
 	getReviewReportJsonPath,
 	resolveFromReportFile,
 	resolveFromReportText,
@@ -265,6 +266,23 @@ export class CodeReviewService {
 		}
 
 		this.reset()
+		const taskMode = options?.mode ?? "review"
+
+		try {
+			await ensureReviewResultDirectory(String(provider.cwd), taskMode)
+		} catch (error) {
+			const directoryError =
+				error instanceof Error ? error : new Error(`Failed to create review result directory: ${String(error)}`)
+			this.logger.error(
+				`[CodeReview] Failed to initialize result directory for mode ${taskMode}:`,
+				directoryError,
+			)
+			this.updateTaskState({
+				error: directoryError,
+				isCompleted: true,
+			})
+			return
+		}
 
 		this.updateTaskState({
 			isCompleted: false,
@@ -272,7 +290,6 @@ export class CodeReviewService {
 			total: 0,
 		})
 		this.prevMode = (await provider.getMode()) ?? defaultModeSlug
-		const taskMode = options?.mode ?? "review"
 		this.logger.debug(`[CodeReview] createReviewTask: prevMode=${this.prevMode}, taskMode=${taskMode}`)
 		await provider.handleModeSwitch(taskMode)
 		const modeAfterSwitch = await provider.getMode()

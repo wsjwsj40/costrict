@@ -85,6 +85,12 @@ export class CloudReviewController {
 		resolveConfig?: ResolveConfig,
 	): Promise<void> {
 		if (workspaceFolder) {
+			const reportDirectory = reportRelativePath.split("/").slice(0, -1).join("/")
+			if (reportDirectory) {
+				// VS Code's workspace filesystem supports local, remote and virtual
+				// workspaces and creates parent directories recursively.
+				await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(workspaceFolder.uri, reportDirectory))
+			}
 			cloudReviewReportWatcher.startWatching(workspaceFolder, reportRelativePath, resolveConfig)
 		}
 

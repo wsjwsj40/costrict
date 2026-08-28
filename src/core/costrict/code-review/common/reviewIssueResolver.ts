@@ -11,7 +11,7 @@
  */
 
 import path from "node:path"
-import { readFile } from "node:fs/promises"
+import { mkdir, readFile } from "node:fs/promises"
 import type { AxiosRequestConfig } from "axios"
 import { v7 as uuidv7 } from "uuid"
 
@@ -32,6 +32,19 @@ export const FULL_REPORT_JSONL = "full_report.jsonl"
 
 function getResultDir(mode: Mode): string {
 	return mode === "security-review" ? SECURITY_REVIEW_RESULT_DIR : CODE_REVIEW_RESULT_DIR
+}
+
+/**
+ * Create the report directory before a review task starts.
+ *
+ * Report-producing skills should only need to create files, not infer or
+ * bootstrap the plugin's directory contract. `recursive` also makes this
+ * safe when the directory already exists.
+ */
+export async function ensureReviewResultDirectory(cwd: string, mode: Mode): Promise<string> {
+	const resultDir = path.resolve(cwd, getResultDir(mode))
+	await mkdir(resultDir, { recursive: true })
+	return resultDir
 }
 
 export function getReviewReportJsonPath(cwd: string, mode: Mode): string {

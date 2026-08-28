@@ -132,9 +132,11 @@ vi.mock("./reviewComment", () => ({
 const resolveFromReportFileMock = vi.fn()
 const resolveFromReportTextMock = vi.fn()
 const buildReviewRequestOptionsMock = vi.fn()
+const ensureReviewResultDirectoryMock = vi.fn()
 
 vi.mock("./common/reviewIssueResolver", () => ({
 	buildReviewRequestOptions: (...args: any[]) => buildReviewRequestOptionsMock(...args),
+	ensureReviewResultDirectory: (...args: any[]) => ensureReviewResultDirectoryMock(...args),
 	getReviewReportJsonPath: vi.fn((cwd: string, _mode: string) => `${cwd}/code-review_result/review-report.json`),
 	getFullReportJsonlPath: vi.fn((cwd: string, _mode: string) => `${cwd}/code-review_result/full_report.jsonl`),
 	resolveFromReportFile: (...args: any[]) => resolveFromReportFileMock(...args),
@@ -195,6 +197,7 @@ describe("CodeReviewService delegation lifecycle", () => {
 		vi.useFakeTimers()
 		vi.clearAllMocks()
 		;(CodeReviewService as any).instance = null
+		ensureReviewResultDirectoryMock.mockResolvedValue("/workspace/code-review_result")
 	})
 
 	afterEach(async () => {
@@ -202,6 +205,45 @@ describe("CodeReviewService delegation lifecycle", () => {
 		await instance?.dispose()
 		;(CodeReviewService as any).instance = null
 		vi.useRealTimers()
+	})
+
+	it.each(["review", "security-review"] as const)(
+		"initializes the %s result directory before starting the model task",
+		async (mode) => {
+			const provider = new FakeProvider()
+			const task = new FakeTask(`task-${mode}`, `instance-${mode}`)
+			provider.createTask.mockResolvedValue(task)
+			provider.getCurrentTask.mockReturnValue(task)
+
+			const service = CodeReviewService.getInstance()
+			service.setProvider(provider as any)
+			await service.createReviewTask("review this", { type: ReviewTargetType.FILE, data: [] }, { mode })
+
+			expect(ensureReviewResultDirectoryMock).toHaveBeenCalledWith("/workspace", mode)
+			expect(ensureReviewResultDirectoryMock.mock.invocationCallOrder[0]).toBeLessThan(
+				provider.handleModeSwitch.mock.invocationCallOrder[0],
+			)
+			expect(provider.createTask).toHaveBeenCalledTimes(1)
+		},
+	)
+
+	it("does not start a review task when the result directory cannot be created", async () => {
+		const provider = new FakeProvider()
+		ensureReviewResultDirectoryMock.mockRejectedValueOnce(new Error("EACCES: permission denied"))
+
+		const service = CodeReviewService.getInstance()
+		service.setProvider(provider as any)
+		await service.createReviewTask("review this", { type: ReviewTargetType.FILE, data: [] })
+
+		expect(provider.handleModeSwitch).not.toHaveBeenCalled()
+		expect(provider.createTask).not.toHaveBeenCalled()
+		const updates = getReviewUpdates(provider)
+		expect(updates.at(-1)).toMatchObject({
+			values: {
+				status: ReviewTaskStatus.ERROR,
+				data: { error: "EACCES: permission denied" },
+			},
+		})
 	})
 
 	it("keeps the review alive across delegated subtasks and completes on the resumed root task", async () => {

@@ -5,6 +5,7 @@ import type { ReviewTarget } from "../../../../shared/codeReview"
 import { ReviewTargetType } from "../../../../shared/codeReview"
 import {
 	buildReviewRequestOptions,
+	ensureReviewResultDirectory,
 	getFullReportJsonlPath,
 	getReviewReportJsonPath,
 	getReviewReportJsonRelativePath,
@@ -35,6 +36,7 @@ vi.mock("../../../../shared/headers", () => ({
 }))
 
 vi.mock("node:fs/promises", () => ({
+	mkdir: vi.fn(),
 	readFile: vi.fn(),
 }))
 
@@ -98,6 +100,19 @@ describe("reviewIssueResolver shared helpers", () => {
 			expect(getReviewReportJsonRelativePath("security-review")).toBe("security-review_result/review-report.json")
 			expect(getReviewReportMdRelativePath("review")).toBe("code-review_result/review-report.md")
 			expect(getReviewReportMdRelativePath("security-review")).toBe("security-review_result/task_summary.md")
+		})
+	})
+
+	describe("result directory initialization", () => {
+		it.each([
+			["review", "code-review_result"],
+			["security-review", "security-review_result"],
+		] as const)("creates the %s directory recursively", async (mode, directory) => {
+			const { mkdir } = await import("node:fs/promises")
+			const expected = path.resolve("/workspace", directory)
+
+			await expect(ensureReviewResultDirectory("/workspace", mode)).resolves.toBe(expected)
+			expect(mkdir).toHaveBeenCalledWith(expected, { recursive: true })
 		})
 	})
 

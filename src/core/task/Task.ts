@@ -144,6 +144,8 @@ import { validateAndFixToolResultIds } from "./validateToolResultIds"
 import { ModelFallbackManager } from "./ModelFallbackManager"
 import { refreshModels } from "../../api/providers/fetchers/modelCache"
 import { mergeConsecutiveApiMessages } from "./mergeConsecutiveApiMessages"
+import { containsLegacyXmlToolHistory, sanitizeLegacyApiHistory } from "./legacyApiHistory"
+import { rebuildApiHistoryFromUiMessages } from "./rebuildApiHistoryFromUi"
 import { resolveToolAlias } from "../prompts/tools/filter-tools-for-mode"
 import {
 	describeModelPermissionError,
@@ -342,6 +344,8 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	// LLM Messages & Chat Messages
 	apiConversationHistory: ApiMessage[] = []
 	clineMessages: ClineMessage[] = []
+	private useLegacyHistoryCompatibility = false
+	private legacyHistorySanitizeLogged = false
 	private lastFileTreeUserMessageCount = 0
 	private lastSpecTaskStatusUserMessageCount = 0
 
@@ -629,7 +633,12 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				this.startTask(task, images)
 			} else if (historyItem) {
 				this.smartMistakeDetector?.clear()
-				this.resumeTaskFromHistory()
+				void this.resumeTaskFromHistory().catch((error) => {
+					const message = error instanceof Error ? error.message : String(error)
+					this.providerRef
+						.deref()
+						?.log(`[Task#resumeTaskFromHistory] Failed to resume task ${this.taskId}: ${message}`)
+				})
 			} else {
 				throw new Error("Either historyItem or task/images must be provided")
 			}
@@ -2303,7 +2312,12 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 	private async resumeTaskFromHistory() {
 		try {
+			const logResumeStage = (stage: string) =>
+				this.providerRef.deref()?.log(`[Task#resumeTaskFromHistory] task=${this.taskId} stage=${stage}`)
+
+			logResumeStage("start")
 			const modifiedClineMessages = await this.getSavedClineMessages()
+			logResumeStage(`ui-history-loaded count=${modifiedClineMessages.length}`)
 
 			// Remove any resume messages that may have been added before.
 			const lastRelevantMessageIndex = findLastIndex(
@@ -2353,6 +2367,11 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			// This is important in case the user deletes messages without resuming
 			// the task first.
 			this.apiConversationHistory = await this.getSavedApiConversationHistory()
+			this.useLegacyHistoryCompatibility = containsLegacyXmlToolHistory(this.apiConversationHistory)
+			logResumeStage(`api-history-loaded count=${this.apiConversationHistory.length}`)
+			if (this.useLegacyHistoryCompatibility) {
+				logResumeStage("legacy-xml-history-detected")
+			}
 
 			const lastClineMessage = this.clineMessages
 				.slice()
@@ -2368,7 +2387,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 			this.isInitialized = true
 
+			logResumeStage(`waiting-for-resume-response ask=${askType}`)
 			const { response, text, images } = await this.ask(askType) // Calls `postStateToWebview`.
+			logResumeStage(`resume-response-received response=${response}`)
 
 			let responseText: string | undefined
 			let responseImages: string[] | undefined
@@ -2382,6 +2403,10 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			// Make sure that the api conversation history can be resumed by the API,
 			// even if it goes out of sync with cline messages.
 			let existingApiConversationHistory: ApiMessage[] = await this.getSavedApiConversationHistory()
+			const lastApiMessage = existingApiConversationHistory.at(-1)
+			logResumeStage(
+				`api-history-reloaded count=${existingApiConversationHistory.length} lastRole=${lastApiMessage?.role ?? "missing"} lastContent=${Array.isArray(lastApiMessage?.content) ? "array" : typeof lastApiMessage?.content}`,
+			)
 
 			// Tool blocks are always preserved; native tool calling only.
 
@@ -2475,8 +2500,19 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					throw new Error("Unexpected: Last message is not a user or assistant message")
 				}
 			} else {
-				throw new Error("Unexpected: No existing API conversation history")
+				// Some legacy builds persisted only ui_messages.json. Rebuild a
+				// conservative text-only model history from this task's own UI messages
+				// so the resumed answer remains grounded in the visible conversation.
+				modifiedApiConversationHistory = rebuildApiHistoryFromUiMessages(modifiedClineMessages)
+				this.useLegacyHistoryCompatibility = containsLegacyXmlToolHistory(modifiedApiConversationHistory)
+				modifiedOldUserContent = []
+				logResumeStage(
+					`api-history-missing fallback=rebuilt-from-ui rebuilt=${modifiedApiConversationHistory.length}`,
+				)
 			}
+			logResumeStage(
+				`api-history-normalized retained=${modifiedApiConversationHistory.length} pendingUserBlocks=${modifiedOldUserContent.length}`,
+			)
 
 			let newUserContent: Anthropic.Messages.ContentBlockParam[] = [...modifiedOldUserContent]
 
@@ -2500,16 +2536,23 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				})
 			}
 
+			logResumeStage(`saving-normalized-api-history count=${modifiedApiConversationHistory.length}`)
 			await this.overwriteApiConversationHistory(modifiedApiConversationHistory)
 
 			// Task resuming from history item.
+			logResumeStage(`starting-task-loop userBlocks=${newUserContent.length}`)
 			await this.initiateTaskLoop(newUserContent)
+			logResumeStage("task-loop-ended")
 		} catch (error) {
 			// Resume and cancellation can race when users issue repeated cancels.
 			// Treat intentional abort/abandon flows as expected and avoid process-level crashes.
 			if (this.abandoned === true || this.abort === true || this.abortReason === "user_cancelled") {
 				return
 			}
+			const message = error instanceof Error ? error.message : String(error)
+			this.providerRef
+				.deref()
+				?.log(`[Task#resumeTaskFromHistory] task=${this.taskId} stage=failed error=${message}`)
 			throw error
 		}
 	}
@@ -2787,6 +2830,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	private async initiateTaskLoop(userContent: Anthropic.Messages.ContentBlockParam[]): Promise<void> {
 		// Kicks off the checkpoints initialization process in the background.
 		getCheckpointService(this)
+		this.providerRef
+			.deref()
+			?.log(`[Task#initiateTaskLoop] task=${this.taskId} stage=entered userBlocks=${userContent.length}`)
 
 		let nextUserContent = userContent
 		let includeFileDetails = true
@@ -2794,7 +2840,11 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		this.emit(RooCodeEventName.TaskStarted)
 
 		while (!this.abort) {
+			this.providerRef.deref()?.log(`[Task#initiateTaskLoop] task=${this.taskId} stage=request-start`)
 			const didEndLoop = await this.recursivelyMakeClineRequests(nextUserContent, includeFileDetails)
+			this.providerRef
+				.deref()
+				?.log(`[Task#initiateTaskLoop] task=${this.taskId} stage=request-ended didEndLoop=${didEndLoop}`)
 			includeFileDetails = false // We only need file details the first time.
 
 			// The way this agentic loop works is that cline will be given a
@@ -4715,7 +4765,19 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// mergeConsecutiveApiMessages implementation) without mutating stored history.
 		const mergedForApi = mergeConsecutiveApiMessages(messagesSinceLastSummary, { roles: ["user"] })
 		const messagesWithoutImages = maybeRemoveImageBlocks(mergedForApi, this.api)
-		const cleanConversationHistory = this.buildCleanConversationHistory(messagesWithoutImages as ApiMessage[])
+		let cleanConversationHistory = this.buildCleanConversationHistory(messagesWithoutImages as ApiMessage[])
+		if (this.useLegacyHistoryCompatibility) {
+			const sanitized = sanitizeLegacyApiHistory(cleanConversationHistory as ApiMessage[])
+			cleanConversationHistory = sanitized.messages as typeof cleanConversationHistory
+			if (!this.legacyHistorySanitizeLogged) {
+				this.legacyHistorySanitizeLogged = true
+				this.providerRef
+					.deref()
+					?.log(
+						`[Task#legacyApiHistory] task=${this.taskId} removedAutomated=${sanitized.removedAutomatedMessages} removedEnvironment=${sanitized.removedEnvironmentBlocks} convertedTools=${sanitized.convertedToolBlocks} incompleteTools=${sanitized.incompleteToolNames.join(",") || "none"}`,
+					)
+			}
+		}
 
 		// Check auto-approval limits
 		const approvalResult = await this.autoApprovalHandler.checkAutoApprovalLimits(

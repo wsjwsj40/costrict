@@ -265,20 +265,27 @@ export class TaskHistoryStore {
 			const cacheIds = new Set(this.cache.keys())
 			let changed = false
 
-			// Tasks on disk but not in cache: read their history_item.json. Older
-			// installations may only have ui_messages.json, so recover a minimal
-			// history item from those durable messages instead of hiding the task.
+			// Read missing tasks and repair legacy items whose workspace was kept
+			// only in the checkpoint shadow repository's core.worktree setting.
 			for (const taskId of onDiskIds) {
-				if (!cacheIds.has(taskId)) {
-					try {
-						const item = (await this.readTaskFile(taskId)) ?? (await this.recoverTaskFile(taskId))
-						if (item) {
-							this.cache.set(taskId, item)
-							changed = true
-						}
-					} catch {
-						// Corrupted or missing file, skip
+				try {
+					let item = this.cache.get(taskId)
+					if (!item) {
+						item = (await this.readTaskFile(taskId)) ?? (await this.recoverTaskFile(taskId)) ?? undefined
 					}
+					if (item && !item.workspace) {
+						const recoveredWorkspace = await this.recoverWorkspaceFromCheckpoint(taskId)
+						if (recoveredWorkspace) {
+							item = { ...item, workspace: recoveredWorkspace }
+							await this.writeTaskFile(item)
+						}
+					}
+					if (item && this.cache.get(taskId) !== item) {
+						this.cache.set(taskId, item)
+						changed = true
+					}
+				} catch {
+					// Corrupted or missing legacy metadata, skip
 				}
 			}
 
@@ -510,6 +517,41 @@ export class TaskHistoryStore {
 		}
 	}
 
+	/**
+	 * Legacy checkpoint repositories keep the original project directory in
+	 * `.git/config` as `core.worktree`. This is authoritative and avoids guessing
+	 * a workspace root from individual files recorded in task_metadata.json.
+	 */
+	private async recoverWorkspaceFromCheckpoint(taskId: string): Promise<string | undefined> {
+		const tasksDir = await this.getTasksDir()
+		const configPath = path.join(tasksDir, taskId, "checkpoints", ".git", "config")
+
+		try {
+			const config = await fs.readFile(configPath, "utf8")
+			const coreHeader = /^\s*\[core\]\s*$/im.exec(config)
+			if (!coreHeader) return undefined
+			const afterCoreHeader = config.slice(coreHeader.index + coreHeader[0].length)
+			const nextSectionIndex = afterCoreHeader.search(/^\s*\[/m)
+			const coreSection = nextSectionIndex >= 0 ? afterCoreHeader.slice(0, nextSectionIndex) : afterCoreHeader
+			const rawWorktree = coreSection?.match(/^\s*worktree\s*=\s*(.+?)\s*$/im)?.[1]
+			if (!rawWorktree) return undefined
+
+			let workspace = rawWorktree.trim()
+			if (workspace.startsWith('"') && workspace.endsWith('"')) {
+				try {
+					workspace = JSON.parse(workspace)
+				} catch {
+					workspace = workspace.slice(1, -1)
+				}
+			}
+
+			if (!path.isAbsolute(workspace) && !path.win32.isAbsolute(workspace)) return undefined
+			return path.normalize(workspace)
+		} catch {
+			return undefined
+		}
+	}
+
 	// ────────────────────────────── Private: fs.watch ──────────────────────────────
 
 	/**
@@ -610,7 +652,15 @@ export class TaskHistoryStore {
 	private async importLegacyExtensionStorage(tasksDir: string): Promise<void> {
 		const storageParent = path.dirname(this.globalStoragePath)
 		const currentStorageName = path.basename(this.globalStoragePath)
-		const legacyStorageNames = ["atad-apts.zgsm", "zgsm-ai.zgsm", "byd-ai.dicode"]
+		const legacyStorageNames = [
+			"atad-apts.zgsm",
+			"zgsm-ai.zgsm",
+			"byd-ai.dicode",
+			// Internal 2.0.2 builds used publisher ATAD-APTS and name byd.
+			// Keep both spellings because Linux storage paths are case-sensitive.
+			"ATAD-APTS.byd",
+			"atad-apts.byd",
+		]
 
 		for (const storageName of legacyStorageNames) {
 			if (storageName === currentStorageName) {
