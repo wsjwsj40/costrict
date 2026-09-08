@@ -178,11 +178,11 @@ function normalizeStatus(status: string | undefined): TodoStatus {
 export function parseMarkdownChecklist(md: string): TodoItem[] {
 	if (typeof md !== "string") return []
 	// Some OpenAI-compatible providers double-escape JSON newlines and return the
-	// literal characters "\\n"/"\\r\\n". Only recover those sequences when they
-	// introduce another checklist item, so ordinary text containing "\\n" is kept.
-	const normalizedMarkdown = md
-		.replace(/\\r\\n(?=\s*(?:-\s*)?\[\s*[ xX\-~]\s*\]\s+)/g, "\n")
-		.replace(/\\n(?=\s*(?:-\s*)?\[\s*[ xX\-~]\s*\]\s+)/g, "\n")
+	// literal characters "\\n"/"\\r\\n". Recover them only at markdown structure
+	// boundaries (another checklist item or an accidentally nested bullet). This
+	// keeps ordinary prose such as "document the \\n escape sequence" unchanged.
+	const escapedStructuralNewline = /\\(?:r\\n|n)(?=\s*(?:(?:-\s*)?\[\s*[ xX\-~]\s*\]\s+|[-*+•·]\s+))/g
+	const normalizedMarkdown = md.replace(escapedStructuralNewline, "\n")
 	const lines = normalizedMarkdown
 		.split(/\r?\n/)
 		.map((l) => l.trim())

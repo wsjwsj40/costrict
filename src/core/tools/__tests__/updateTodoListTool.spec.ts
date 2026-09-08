@@ -218,6 +218,16 @@ Just some text
 			expect(result.map(({ status }) => status)).toEqual(["in_progress", "pending", "pending", "completed"])
 		})
 
+		it("should discard double-escaped nested bullet details instead of displaying literal newline text", () => {
+			const md =
+				"[-] 第一阶段：目标筛选\\n- 扫描文件：`src/services/emcPipeline.ts`\\n- 项目环境：TypeScript | 完成\n[x] 第三阶段：验证"
+			const result = parseMarkdownChecklist(md)
+
+			expect(result).toHaveLength(2)
+			expect(result.map(({ content }) => content)).toEqual(["第一阶段：目标筛选", "第三阶段：验证"])
+			expect(result.every(({ content }) => !content.includes("\\n"))).toBe(true)
+		})
+
 		it("should preserve literal escaped newlines inside normal todo content", () => {
 			const result = parseMarkdownChecklist("[ ] Document the literal \\n escape sequence")
 

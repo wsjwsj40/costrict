@@ -38,6 +38,8 @@ vi.mock("../../../../shared/headers", () => ({
 vi.mock("node:fs/promises", () => ({
 	mkdir: vi.fn(),
 	readFile: vi.fn(),
+	readdir: vi.fn().mockResolvedValue([]),
+	rename: vi.fn(),
 }))
 
 const mockRequestOptions: AxiosRequestConfig = {
@@ -104,6 +106,11 @@ describe("reviewIssueResolver shared helpers", () => {
 	})
 
 	describe("result directory initialization", () => {
+		beforeEach(async () => {
+			const { readdir } = await import("node:fs/promises")
+			vi.mocked(readdir).mockResolvedValue([] as never)
+		})
+
 		it.each([
 			["review", "code-review_result"],
 			["security-review", "security-review_result"],
@@ -113,6 +120,37 @@ describe("reviewIssueResolver shared helpers", () => {
 
 			await expect(ensureReviewResultDirectory("/workspace", mode)).resolves.toBe(expected)
 			expect(mkdir).toHaveBeenCalledWith(expected, { recursive: true })
+		})
+
+		it("archives existing reports and drafts while preserving previous history", async () => {
+			const { mkdir, readdir, rename } = await import("node:fs/promises")
+			vi.mocked(readdir).mockResolvedValue([
+				"review-report.json",
+				"review-report.md",
+				"drafts",
+				"history",
+			] as never)
+			const resultDir = path.resolve("/workspace", "code-review_result")
+
+			await ensureReviewResultDirectory("/workspace", "review")
+
+			const archiveDir = vi
+				.mocked(mkdir)
+				.mock.calls.map(([directory]) => String(directory))
+				.find((directory) => directory.startsWith(path.join(resultDir, "history") + path.sep))
+			expect(archiveDir).toMatch(/test-uuid-1234$/)
+			expect(mkdir).toHaveBeenCalledWith(archiveDir, { recursive: true })
+			expect(rename).toHaveBeenCalledTimes(3)
+			expect(rename).toHaveBeenCalledWith(
+				path.join(resultDir, "review-report.json"),
+				path.join(archiveDir!, "review-report.json"),
+			)
+			expect(rename).toHaveBeenCalledWith(
+				path.join(resultDir, "review-report.md"),
+				path.join(archiveDir!, "review-report.md"),
+			)
+			expect(rename).toHaveBeenCalledWith(path.join(resultDir, "drafts"), path.join(archiveDir!, "drafts"))
+			expect(rename).not.toHaveBeenCalledWith(path.join(resultDir, "history"), expect.anything())
 		})
 	})
 

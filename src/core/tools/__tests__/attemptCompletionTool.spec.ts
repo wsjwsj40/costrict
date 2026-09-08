@@ -14,12 +14,24 @@ vi.mock("../../prompts/responses", () => ({
 const { mockCaptureTaskCompleted } = vi.hoisted(() => ({
 	mockCaptureTaskCompleted: vi.fn(),
 }))
+const { mockValidateReviewArtifacts, mockBuildReviewArtifactCorrectionMessage } = vi.hoisted(() => ({
+	mockValidateReviewArtifacts: vi.fn(),
+	mockBuildReviewArtifactCorrectionMessage: vi.fn(
+		(_mode: unknown, _result: unknown, _attempt: number) => "Review artifacts are missing",
+	),
+}))
 vi.mock("@roo-code/telemetry", () => ({
 	TelemetryService: {
 		instance: {
 			captureTaskCompleted: mockCaptureTaskCompleted,
 		},
 	},
+}))
+
+vi.mock("../../costrict/code-review/common/reviewArtifactValidator", () => ({
+	validateReviewArtifacts: (...args: any[]) => mockValidateReviewArtifacts(...args),
+	buildReviewArtifactCorrectionMessage: (mode: unknown, result: unknown, attempt: number) =>
+		mockBuildReviewArtifactCorrectionMessage(mode, result, attempt),
 }))
 
 // Mock vscode module
@@ -108,11 +120,14 @@ describe("attemptCompletionTool", () => {
 
 	beforeEach(() => {
 		mockCaptureTaskCompleted.mockReset()
+		mockValidateReviewArtifacts.mockReset()
+		mockBuildReviewArtifactCorrectionMessage.mockClear()
 		mockPushToolResult = vi.fn()
 		mockAskApproval = vi.fn()
 		mockHandleError = vi.fn()
 		mockToolDescription = vi.fn()
 		mockAskFinishSubTaskApproval = vi.fn()
+		mockValidateReviewArtifacts.mockResolvedValue({ valid: true, errors: [], recovered: [] })
 		mockGetConfiguration = vi.fn(() => ({
 			get: vi.fn((key: string, defaultValue: any) => {
 				if (key === "preventCompletionWithOpenTodos") {
@@ -136,9 +151,72 @@ describe("attemptCompletionTool", () => {
 			getTokenUsage: vi.fn().mockReturnValue({}),
 			toolUsage: {},
 			taskId: "task_1",
+			createdAt: 1_000,
+			workspacePath: "/workspace",
+			getTaskMode: vi.fn().mockResolvedValue("code"),
 			apiConfiguration: { apiProvider: "test" } as any,
 			api: { getModel: vi.fn().mockReturnValue({ id: "test-model", info: {} }) } as any,
 		}
+	})
+
+	describe("code review artifact validation", () => {
+		it.each(["review", "security-review"] as const)(
+			"blocks %s completion when artifacts are invalid",
+			async (mode) => {
+				mockTask.getTaskMode = vi.fn().mockResolvedValue(mode)
+				mockValidateReviewArtifacts.mockResolvedValueOnce({
+					valid: false,
+					errors: ["missing report"],
+					recovered: [],
+				})
+				const block: AttemptCompletionToolUse = {
+					type: "tool_use",
+					name: "attempt_completion",
+					params: { result: "Review complete" },
+					nativeArgs: { result: "Review complete" },
+					partial: false,
+				}
+				const callbacks: AttemptCompletionCallbacks = {
+					askApproval: mockAskApproval,
+					handleError: mockHandleError,
+					pushToolResult: mockPushToolResult,
+					askFinishSubTaskApproval: mockAskFinishSubTaskApproval,
+					toolDescription: mockToolDescription,
+				}
+
+				await attemptCompletionTool.handle(mockTask as Task, block, callbacks)
+
+				expect(mockValidateReviewArtifacts).toHaveBeenCalledWith({
+					workspace: "/workspace",
+					mode,
+					startedAt: 1_000,
+				})
+				expect(mockPushToolResult).toHaveBeenCalledWith(expect.stringContaining("Review artifacts are missing"))
+				expect(mockTask.ask).not.toHaveBeenCalled()
+			},
+		)
+
+		it("does not gate subreview completion", async () => {
+			mockTask.getTaskMode = vi.fn().mockResolvedValue("subreview")
+			const block: AttemptCompletionToolUse = {
+				type: "tool_use",
+				name: "attempt_completion",
+				params: { result: "Subreview complete" },
+				nativeArgs: { result: "Subreview complete" },
+				partial: false,
+			}
+			const callbacks: AttemptCompletionCallbacks = {
+				askApproval: mockAskApproval,
+				handleError: mockHandleError,
+				pushToolResult: mockPushToolResult,
+				askFinishSubTaskApproval: mockAskFinishSubTaskApproval,
+				toolDescription: mockToolDescription,
+			}
+
+			await attemptCompletionTool.handle(mockTask as Task, block, callbacks)
+
+			expect(mockValidateReviewArtifacts).not.toHaveBeenCalled()
+		})
 	})
 
 	describe("todo list validation", () => {

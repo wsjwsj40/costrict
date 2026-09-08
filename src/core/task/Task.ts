@@ -184,6 +184,8 @@ export interface TaskOptions extends CreateTaskOptions {
 
 export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	readonly taskId: string
+	/** Wall-clock creation time used to distinguish artifacts from earlier task runs. */
+	readonly createdAt = Date.now()
 	readonly costrictWorkflowMode?: string
 	readonly costrictWorkflowSpecScope?: string
 	readonly rootTaskId?: string
