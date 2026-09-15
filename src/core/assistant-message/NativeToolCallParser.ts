@@ -615,6 +615,8 @@ export class NativeToolCallParser {
 						command: partialArgs.command,
 						cwd: partialArgs.cwd,
 						timeout: partialArgs.timeout,
+						sandbox_permissions: partialArgs.sandbox_permissions,
+						justification: partialArgs.justification,
 					}
 				}
 				break
@@ -1027,6 +1029,8 @@ export class NativeToolCallParser {
 							command: normalizedArgs.command,
 							cwd: normalizedArgs.cwd,
 							timeout: normalizedArgs.timeout,
+							sandbox_permissions: normalizedArgs.sandbox_permissions,
+							justification: normalizedArgs.justification,
 						} as NativeArgsFor<TName>
 					}
 					break

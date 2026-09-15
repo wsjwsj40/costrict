@@ -1244,16 +1244,16 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 	/**
 	 * Check if we should attach task.md status update instructions.
-	 * Independent of KPT Tree: requires costrict provider OR strict code mode
+	 * Independent of KPT Tree: requires costrict provider OR Spec workflow mode
 	 */
 	private async shouldAttachSpecTaskStatusCheckInstructions(force = false): Promise<boolean> {
 		const provider = this.providerRef.deref()
 		const state = await provider?.getState()
 		const apiConfiguration = state?.apiConfiguration
 
-		// Apply when using costrict provider AND when in strict code mode
+		// Apply when using costrict provider and in the Spec workflow.
 		const isCostrictProvider = apiConfiguration?.apiProvider === "costrict"
-		const isStrictCodeMode = state?.costrictCodeMode === "strict"
+		const isStrictCodeMode = state?.costrictCodeMode === "spec"
 		const isStrictCodeEditAgent = isStrictCodeMode && ["code", "subcoding"].includes(state?.mode)
 
 		if (!isCostrictProvider || !isStrictCodeMode) {
@@ -1451,6 +1451,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		partial?: boolean,
 		progressStatus?: ToolProgressStatus,
 		isProtected?: boolean,
+		commandExecution?: ClineMessage["commandExecution"],
 	): Promise<{ response: ClineAskResponse; text?: string; images?: string[] }> {
 		// If this Cline instance was aborted by the provider, then the only
 		// thing keeping us alive is a promise still running in the background,
@@ -1479,6 +1480,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					lastMessage.partial = partial
 					lastMessage.progressStatus = progressStatus
 					lastMessage.isProtected = isProtected
+					lastMessage.commandExecution = commandExecution
 					// TODO: Be more efficient about saving and posting only new
 					// data or one whole message at a time so ignore partial for
 					// saves, and only post parts of partial message instead of
@@ -1491,7 +1493,15 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					// state.
 					askTs = Date.now()
 					this.lastMessageTs = askTs
-					await this.addToClineMessages({ ts: askTs, type: "ask", ask: type, text, partial, isProtected })
+					await this.addToClineMessages({
+						ts: askTs,
+						type: "ask",
+						ask: type,
+						text,
+						partial,
+						isProtected,
+						commandExecution,
+					})
 					// console.log("Task#ask: current ask promise was ignored (#2)")
 					throw new AskIgnoredError("new partial")
 				}
@@ -1520,6 +1530,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					lastMessage.partial = false
 					lastMessage.progressStatus = progressStatus
 					lastMessage.isProtected = isProtected
+					lastMessage.commandExecution = commandExecution
 					await this.saveClineMessages()
 					this.updateClineMessage(lastMessage)
 				} else {
@@ -1529,7 +1540,14 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					this.askResponseImages = undefined
 					askTs = Date.now()
 					this.lastMessageTs = askTs
-					await this.addToClineMessages({ ts: askTs, type: "ask", ask: type, text, isProtected })
+					await this.addToClineMessages({
+						ts: askTs,
+						type: "ask",
+						ask: type,
+						text,
+						isProtected,
+						commandExecution,
+					})
 				}
 			}
 		} else {
@@ -1539,7 +1557,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			this.askResponseImages = undefined
 			askTs = Date.now()
 			this.lastMessageTs = askTs
-			await this.addToClineMessages({ ts: askTs, type: "ask", ask: type, text, isProtected })
+			await this.addToClineMessages({ ts: askTs, type: "ask", ask: type, text, isProtected, commandExecution })
 		}
 
 		let timeouts: NodeJS.Timeout[] = []
@@ -1547,7 +1565,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// Automatically approve if the ask according to the user's settings.
 		const provider = this.providerRef.deref()
 		const state = provider ? await provider.getState() : undefined
-		const approval = await checkAutoApproval({ state, ask: type, text, isProtected })
+		const approval = await checkAutoApproval({ state, ask: type, text, isProtected, commandExecution })
 
 		if (approval.decision === "approve") {
 			this.approveAsk()
@@ -1571,7 +1589,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		const isMessageQueued = !this.messageQueueService.isEmpty()
 		// Keep queued user messages intact during command_output asks. Those asks
 		// are terminal flow-control, not conversational turns.
-		const shouldDrainQueuedMessageForAsk = type !== "command_output"
+		const shouldDrainQueuedMessageForAsk = type !== "command_output" && type !== "command"
 		const isStatusMutable = !partial && isBlocking && !isMessageQueued && approval.decision === "ask"
 
 		if (isStatusMutable) {
@@ -1623,7 +1641,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 			if (message) {
 				// Check if this is a tool approval ask that needs to be handled.
-				if (type === "tool" || type === "command" || type === "use_mcp_server") {
+				if (type === "tool" || type === "use_mcp_server") {
 					// For tool approvals, we need to approve first, then send
 					// the message if there's text/images.
 					this.handleWebviewAskResponse("yesButtonClicked", message.text, message.images)
@@ -1656,7 +1674,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					if (message) {
 						// If this is a tool approval ask, we need to approve first (yesButtonClicked)
 						// and include any queued text/images.
-						if (type === "tool" || type === "command" || type === "use_mcp_server") {
+						if (type === "tool" || type === "use_mcp_server") {
 							this.handleWebviewAskResponse("yesButtonClicked", message.text, message.images)
 						} else {
 							this.handleWebviewAskResponse("messageResponse", message.text, message.images)

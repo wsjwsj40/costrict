@@ -759,6 +759,19 @@
 		"inheritEnv": {
 			"label": "繼承環境變數",
 			"description": "啟用此選項以從父 VS Code 程序繼承環境變數。"
+		},
+		"sandbox": {
+			"label": "在沙箱中執行命令",
+			"description": "命令僅可寫入專案與暫存目錄，並保護敏感設定。指令碼與子程序同樣受限制。專案檔案仍可能被修改或刪除；已識別的破壞性命令需確認。為相容既有安裝，預設關閉。",
+			"setup": "Linux/WSL 需安裝 bubblewrap、socat、ripgrep；macOS 需安裝 ripgrep。Windows 支援為實驗性功能，需一次系統初始化。相依項目缺少時停止執行，不會自動改為無限制執行。",
+			"inside": "在專案沙箱內執行",
+			"outside": "在沙箱外執行 — 必須單次確認",
+			"review": "此命令可能刪除檔案或捨棄修改，請確認影響後執行。",
+			"check": "檢查沙箱可用性",
+			"install": "初始化 Windows 沙箱（需管理員確認）",
+			"checking": "正在檢查沙箱…",
+			"available": "沙箱相依項目可用。實際隔離會在命令啟動時檢查。",
+			"unavailable": "沙箱無法使用"
 		}
 	},
 	"advancedSettings": {

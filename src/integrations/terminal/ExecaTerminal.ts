@@ -15,10 +15,14 @@ export class ExecaTerminal extends BaseTerminal {
 		return false
 	}
 
-	public override runCommand(command: string, callbacks: RooTerminalCallbacks): RooTerminalProcessResultPromise {
+	public override runCommand(
+		command: string,
+		callbacks: RooTerminalCallbacks,
+		sandbox?: import("../sandbox").SandboxLaunch,
+	): RooTerminalProcessResultPromise {
 		this.busy = true
 
-		const process = new ExecaTerminalProcess(this)
+		const process = new ExecaTerminalProcess(this, sandbox)
 		process.command = command
 		this.process = process
 		process.on("line", (line) => {

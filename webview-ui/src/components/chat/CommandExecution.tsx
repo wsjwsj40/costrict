@@ -28,19 +28,30 @@ interface CommandPattern {
 
 interface CommandExecutionProps {
 	executionId: string
+	commandExecution?: import("@roo-code/types").ClineMessage["commandExecution"]
+	approvalPending?: boolean
 	text?: string
 	icon?: JSX.Element | null
 	title?: JSX.Element | null
 	onCommandStop?: () => void
 }
 
-export const CommandExecution = ({ executionId, text, icon, title, onCommandStop }: CommandExecutionProps) => {
+export const CommandExecution = ({
+	executionId,
+	text,
+	icon,
+	title,
+	onCommandStop,
+	commandExecution,
+	approvalPending = false,
+}: CommandExecutionProps) => {
 	const {
 		// terminalShellIntegrationDisabled = false,
 		allowedCommands = [],
 		deniedCommands = [],
 		setAllowedCommands,
 		setDeniedCommands,
+		projectPermissionProfile,
 	} = useExtensionState()
 
 	const { command, output: parsedOutput } = useMemo(() => parseCommandAndOutput(text), [text])
@@ -162,6 +173,20 @@ export const CommandExecution = ({ executionId, text, icon, title, onCommandStop
 
 	return (
 		<>
+			{commandExecution && (
+				<div className="mb-2 text-sm text-vscode-descriptionForeground">
+					<strong>
+						{t(
+							commandExecution.sandbox === "outside"
+								? "settings:terminal.sandbox.outside"
+								: "settings:terminal.sandbox.inside",
+						)}
+					</strong>
+					<div>{commandExecution.cwd}</div>
+					{commandExecution.reason && <div>{commandExecution.reason}</div>}
+					{commandExecution.requiresReview && <div>{t("settings:terminal.sandbox.review")}</div>}
+				</div>
+			)}
 			<div className="flex flex-row items-center justify-between gap-2 mb-1">
 				<div className="flex flex-row items-center gap-2">
 					{icon}
@@ -264,7 +289,7 @@ export const CommandExecution = ({ executionId, text, icon, title, onCommandStop
 						</div>
 					)}
 				</div>
-				{command && command?.trim() && (
+				{!projectPermissionProfile && command && command?.trim() && (
 					<CommandPatternSelector
 						patterns={commandPatterns}
 						allowedCommands={allowedCommands}
@@ -272,6 +297,43 @@ export const CommandExecution = ({ executionId, text, icon, title, onCommandStop
 						onAllowPatternChange={handleAllowPatternChange}
 						onDenyPatternChange={handleDenyPatternChange}
 					/>
+				)}
+				{approvalPending && (
+					<div className="border-t border-vscode-panel-border p-2 flex flex-col gap-2">
+						<p className="m-0 text-xs text-vscode-descriptionForeground">
+							{commandExecution?.requiresReview
+								? "This operation needs one-time approval because it may be destructive."
+								: commandExecution?.sandbox === "outside"
+									? "This command needs access outside the project sandbox."
+									: "Approve this command within the project boundary."}
+						</p>
+						<div className="flex gap-2">
+							<Button
+								size="sm"
+								variant="primary"
+								onClick={() =>
+									vscode.postMessage({ type: "askResponse", askResponse: "yesButtonClicked" })
+								}>
+								Allow once
+							</Button>
+							{commandExecution?.sandbox === "workspace" && !commandExecution.requiresReview && (
+								<Button
+									size="sm"
+									variant="secondary"
+									onClick={() => vscode.postMessage({ type: "approveSandboxCommandsForSession" })}>
+									Allow sandbox commands this session
+								</Button>
+							)}
+							<Button
+								size="sm"
+								variant="secondary"
+								onClick={() =>
+									vscode.postMessage({ type: "askResponse", askResponse: "noButtonClicked" })
+								}>
+								Deny
+							</Button>
+						</div>
+					</div>
 				)}
 			</div>
 		</>

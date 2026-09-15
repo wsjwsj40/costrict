@@ -65,7 +65,7 @@ async function initialize(provider: ClineProvider, logger: ILogger) {
 		case "plan":
 			await provider.setValue("mode", codeMode)
 			break
-		case "strict":
+		case "spec":
 			await provider.setValue("mode", codeMode)
 			break
 		default:

@@ -19,7 +19,10 @@ export class ExecaTerminalProcess extends BaseTerminalProcess {
 	private subprocess?: ReturnType<typeof execa>
 	private pidUpdatePromise?: Promise<void>
 
-	constructor(terminal: RooTerminal) {
+	constructor(
+		terminal: RooTerminal,
+		private readonly sandbox?: import("../sandbox").SandboxLaunch,
+	) {
 		super()
 
 		this.terminalRef = new WeakRef(terminal)
@@ -45,28 +48,39 @@ export class ExecaTerminalProcess extends BaseTerminalProcess {
 		try {
 			this.isHot = true
 
-			this.subprocess = execa({
-				shell: !isCliPatform() ? getShell() : BaseTerminal.getExecaShellPath() || true,
-				cwd: this.terminal.getCurrentWorkingDirectory(),
-				all: true,
-				encoding: "buffer",
-				// Ignore stdin to ensure non-interactive mode and prevent hanging
-				stdin: "ignore",
-				env: {
-					...(isJetbrainsPlatform() ? getIdeaShellEnvWithUpdatePath(process.env) : process.env),
-					// Ensure UTF-8 encoding for Ruby, CocoaPods, etc.
-					LANG: "en_US.UTF-8",
-					LC_ALL: "en_US.UTF-8",
-					LANGUAGE: "en_US.UTF-8",
-					PYTHONIOENCODING: "utf-8",
-				},
-			})`${command}`
+			this.subprocess = this.sandbox
+				? execa(this.sandbox.file, this.sandbox.args, {
+						cwd: this.terminal.getCurrentWorkingDirectory(),
+						shell: false,
+						all: true,
+						encoding: "buffer",
+						input: this.sandbox.input,
+						forceKillAfterDelay: 10_000,
+						env: this.sandbox.env,
+						extendEnv: false,
+					})
+				: execa({
+						shell: !isCliPatform() ? getShell() : BaseTerminal.getExecaShellPath() || true,
+						cwd: this.terminal.getCurrentWorkingDirectory(),
+						all: true,
+						encoding: "buffer",
+						// Ignore stdin to ensure non-interactive mode and prevent hanging
+						stdin: "ignore",
+						env: {
+							...(isJetbrainsPlatform() ? getIdeaShellEnvWithUpdatePath(process.env) : process.env),
+							// Ensure UTF-8 encoding for Ruby, CocoaPods, etc.
+							LANG: "en_US.UTF-8",
+							LC_ALL: "en_US.UTF-8",
+							LANGUAGE: "en_US.UTF-8",
+							PYTHONIOENCODING: "utf-8",
+						},
+					})`${command}`
 
 			this.pid = this.subprocess.pid
 
 			// When using shell: true, the PID is for the shell, not the actual command
 			// Find the actual command PID after a small delay
-			if (this.pid) {
+			if (this.pid && !this.sandbox) {
 				this.pidUpdatePromise = new Promise<void>((resolve) => {
 					setTimeout(() => {
 						psTree(this.pid!, (err, children) => {
@@ -200,6 +214,12 @@ export class ExecaTerminalProcess extends BaseTerminalProcess {
 
 	public override abort() {
 		this.aborted = true
+
+		if (this.sandbox && this.subprocess) {
+			// Let the broker terminate its sandbox process and restore Windows ACLs.
+			this.subprocess.kill("SIGTERM")
+			return
+		}
 
 		// Function to perform the kill operations
 		const performKill = () => {

@@ -1816,7 +1816,13 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 			getAllModes(customModes).filter((v) => {
 				if (v.costrictCodeModeGroup) {
 					if (v.costrictCodeModeGroup === "hide") return false
-					if (!v.costrictCodeModeGroup?.split(",").includes(costrictCodeMode!)) return false
+					if (
+						!v.costrictCodeModeGroup
+							.split(",")
+							.map((group) => (group.trim() === "strict" ? "spec" : group.trim()))
+							.includes(costrictCodeMode!)
+					)
+						return false
 				}
 
 				return true
@@ -1909,7 +1915,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 		vscode.postMessage({ type: "condenseTaskContextRequest", text: taskId })
 	}
 
-	const areButtonsVisible = showScrollToBottom || primaryButtonText || secondaryButtonText
+	const areButtonsVisible = (showScrollToBottom || primaryButtonText || secondaryButtonText) && clineAsk !== "command"
 	const lastUserFeedback = findLast(groupedMessages, (msg) => msg.say === "user_feedback")
 	return (
 		<div

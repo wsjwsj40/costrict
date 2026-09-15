@@ -1,3 +1,6 @@
+import { checkSandbox, sandboxRunnerPath } from "../../integrations/sandbox"
+import { sandboxEnvironment } from "../../integrations/sandbox/policy"
+import { execFile as sandboxExecFile } from "node:child_process"
 import { safeWriteJson } from "../../utils/safeWriteJson"
 import * as path from "path"
 import * as os from "os"
@@ -831,6 +834,33 @@ export const webviewMessageHandler = async (
 					)
 			}
 			break
+
+		case "checkCommandSandbox": {
+			const status = await checkSandbox(provider.context.extensionPath)
+			await provider.postMessageToWebview({
+				type: "commandSandboxStatus",
+				text: JSON.stringify({ ...status, platform: process.platform }),
+			})
+			break
+		}
+		case "installCommandSandbox": {
+			if (process.platform !== "win32") break
+			// Only invoked by the explicit settings button; the runtime presents UAC.
+			const detail = await new Promise<string>((resolve) => {
+				sandboxExecFile(
+					process.execPath,
+					[sandboxRunnerPath(provider.context.extensionPath), "--install-windows"],
+					{ env: { ...sandboxEnvironment(process.env), ELECTRON_RUN_AS_NODE: "1" }, timeout: 180_000 },
+					(error, _stdout, stderr) => resolve(error ? stderr || error.message : ""),
+				)
+			})
+			const status = detail ? { available: false, detail } : await checkSandbox(provider.context.extensionPath)
+			await provider.postMessageToWebview({
+				type: "commandSandboxStatus",
+				text: JSON.stringify({ ...status, platform: process.platform }),
+			})
+			break
+		}
 
 		case "updateSettings":
 			if (message.updatedSettings) {
@@ -1977,6 +2007,20 @@ export const webviewMessageHandler = async (
 			await updateGlobalState("autoApprovalEnabled", message.bool ?? false)
 			await provider.postStateToWebview()
 			break
+		case "setProjectPermissionMode": {
+			const mode = message.values?.mode
+			if (mode === "observe" || mode === "sandbox-development") {
+				await provider.setProjectPermissionMode(mode)
+				await provider.postStateToWebview()
+			}
+			break
+		}
+		case "approveSandboxCommandsForSession": {
+			provider.allowSandboxCommandsForSession()
+			provider.getCurrentTask()?.handleWebviewAskResponse("yesButtonClicked")
+			await provider.postStateToWebview()
+			break
+		}
 		case "enhancePrompt":
 			if (message.text) {
 				try {

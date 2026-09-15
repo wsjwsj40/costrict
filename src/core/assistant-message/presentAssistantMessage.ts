@@ -212,6 +212,7 @@ export async function presentAssistantMessage(cline: Task) {
 				partialMessage?: string,
 				progressStatus?: ToolProgressStatus,
 				isProtected?: boolean,
+				commandExecution?: import("@roo-code/types").ClineMessage["commandExecution"],
 			) => {
 				const { response, text, images } = await cline.ask(
 					type,
@@ -219,6 +220,7 @@ export async function presentAssistantMessage(cline: Task) {
 					false,
 					progressStatus,
 					isProtected || false,
+					commandExecution,
 				)
 
 				if (response !== "yesButtonClicked") {
@@ -628,6 +630,7 @@ export async function presentAssistantMessage(cline: Task) {
 				partialMessage?: string,
 				progressStatus?: ToolProgressStatus,
 				isProtected?: boolean,
+				commandExecution?: import("@roo-code/types").ClineMessage["commandExecution"],
 			) => {
 				const { response, text, images } = await cline.ask(
 					type,
@@ -635,6 +638,7 @@ export async function presentAssistantMessage(cline: Task) {
 					false,
 					progressStatus,
 					isProtected || false,
+					commandExecution,
 				)
 
 				if (response !== "yesButtonClicked") {

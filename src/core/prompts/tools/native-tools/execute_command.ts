@@ -2,6 +2,8 @@ import type OpenAI from "openai"
 
 const EXECUTE_COMMAND_DESCRIPTION = `Request to execute a CLI command on the system. Use this when you need to perform system operations or run specific commands to accomplish any step in the user's task. You must tailor your command to the user's system and provide a clear explanation of what the command does. Before producing a command, inspect the Current Shell from SYSTEM INFORMATION or environment_details and make the command fully compatible with that shell. For command chaining, use the appropriate chaining syntax for the user's shell. If the Current Shell is PowerShell or cmd.exe, do not emit bash/Unix-specific syntax or utilities unless their availability is explicitly confirmed. Prefer to execute complex CLI commands over creating executable scripts, as they are more flexible and easier to run. Prefer relative commands and paths that avoid location sensitivity for terminal consistency.
 
+When command sandboxing is enabled, ordinary commands run within filesystem and network restrictions. A failed command is never automatically retried outside the sandbox. Only when broader access is needed, request sandbox_permissions="require_escalated" and explain why in justification; this always requires explicit user approval. Do not use wrappers or other tools to bypass a sandbox denial.
+
 Parameters:
 - command: (required) The CLI command to execute. This should be valid for the current operating system and the Current Shell. Ensure the command is properly formatted and does not contain any harmful instructions.
 - cwd: (optional) The working directory to execute the command in
@@ -34,6 +36,16 @@ export default {
 		parameters: {
 			type: "object",
 			properties: {
+				sandbox_permissions: {
+					type: ["string", "null"],
+					enum: ["use_default", "require_escalated", null],
+					description:
+						"Use the configured sandbox by default. require_escalated requests explicit one-time approval to execute outside it.",
+				},
+				justification: {
+					type: ["string", "null"],
+					description: "Explain what access outside the sandbox is needed. Required for require_escalated.",
+				},
 				command: {
 					type: "string",
 					description: COMMAND_PARAMETER_DESCRIPTION,
@@ -47,7 +59,7 @@ export default {
 					description: TIMEOUT_PARAMETER_DESCRIPTION,
 				},
 			},
-			required: ["command", "cwd", "timeout"],
+			required: ["command", "cwd", "timeout", "sandbox_permissions", "justification"],
 			additionalProperties: false,
 		},
 	},

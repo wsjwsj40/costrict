@@ -759,6 +759,19 @@
 		"inheritEnv": {
 			"label": "继承环境变量",
 			"description": "启用此选项以从父 VS Code 进程继承环境变量。"
+		},
+		"sandbox": {
+			"label": "在沙箱中执行命令",
+			"description": "命令仅可写入项目和临时目录，并保护敏感配置。脚本及其子进程同样受限制。项目文件仍可能被修改或删除；已识别的破坏性命令需确认。为兼容现有安装，默认关闭。",
+			"setup": "Linux/WSL 需安装 bubblewrap、socat、ripgrep；macOS 需安装 ripgrep。Windows 支持为实验性功能，需一次系统初始化。依赖缺失时停止执行，不会自动退回无限制运行。",
+			"inside": "在项目沙箱内执行",
+			"outside": "在沙箱外执行 — 必须单次确认",
+			"review": "此命令可能删除文件或丢弃修改，请确认实际影响后执行。",
+			"check": "检查沙箱可用性",
+			"install": "初始化 Windows 沙箱（需管理员确认）",
+			"checking": "正在检查沙箱…",
+			"available": "沙箱依赖可用。实际隔离会在命令启动时检查。",
+			"unavailable": "沙箱不可用"
 		}
 	},
 	"advancedSettings": {

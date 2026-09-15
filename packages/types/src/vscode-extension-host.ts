@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import type { GlobalSettings, RooCodeSettings } from "./global-settings.js"
+import type { GlobalSettings, RooCodeSettings, ProjectPermissionProfile } from "./global-settings.js"
 import type { ProviderSettings, ProviderSettingsEntry } from "./provider-settings.js"
 import type { HistoryItem } from "./history.js"
 import type { ModeConfig, PromptComponent } from "./mode.js"
@@ -26,7 +26,7 @@ import type { ICostrictModelResponseData, ModelRecord, RouterModels } from "./mo
 import type { OpenAiCodexRateLimitInfo } from "./providers/openai-codex-rate-limits.js"
 import type { SkillMetadata } from "./skills.js"
 import type { WorktreeIncludeStatus } from "./worktree.js"
-export type CostrictCodeMode = "vibe" | "strict" | "raw" | "plan"
+export type CostrictCodeMode = "vibe" | "spec" | "raw" | "plan"
 /**
  * ExtensionMessage
  * Extension -> Webview | CLI
@@ -85,6 +85,7 @@ export interface ExtensionMessage {
 		| "setHistoryPreviewCollapsed"
 		| "commandExecutionStatus"
 		| "mcpExecutionStatus"
+		| "commandSandboxStatus"
 		| "vsCodeSetting"
 		| "authenticatedUser"
 		| "condenseTaskContextStarted"
@@ -313,6 +314,7 @@ export type ExtensionState = Pick<
 	| "soundVolume"
 	| "terminalOutputPreviewSize"
 	| "terminalShellIntegrationTimeout"
+	| "terminalSandboxEnabled"
 	| "terminalShellIntegrationDisabled"
 	| "terminalCommandDelay"
 	| "terminalPowershellCounter"
@@ -350,6 +352,8 @@ export type ExtensionState = Pick<
 	| "showWorktreesInHomeScreen"
 	| "disabledTools"
 > & {
+	projectPermissionProfile?: ProjectPermissionProfile
+	sessionSandboxCommandsAllowed?: boolean
 	lockApiConfigAcrossModes?: boolean
 	version: string
 	clineMessages: ClineMessage[]
@@ -548,6 +552,8 @@ export interface WebviewMessage {
 		| "cancelTask"
 		| "cancelAutoApproval"
 		| "updateVSCodeSetting"
+		| "checkCommandSandbox"
+		| "installCommandSandbox"
 		| "getVSCodeSetting"
 		| "vsCodeSetting"
 		| "updateCondensingPrompt"
@@ -651,6 +657,8 @@ export interface WebviewMessage {
 		| "getDismissedUpsells"
 		| "openMarkdownPreview"
 		| "updateSettings"
+		| "setProjectPermissionMode"
+		| "approveSandboxCommandsForSession"
 		| "allowedCommands"
 		| "getTaskWithAggregatedCosts"
 		| "deniedCommands"

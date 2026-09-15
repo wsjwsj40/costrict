@@ -9,6 +9,7 @@ export type AskApproval = (
 	partialMessage?: string,
 	progressStatus?: ToolProgressStatus,
 	forceApproval?: boolean,
+	commandExecution?: import("@roo-code/types").ClineMessage["commandExecution"],
 ) => Promise<boolean>
 
 export type HandleError = (action: string, error: Error) => Promise<void>
@@ -78,6 +79,8 @@ export const toolParamNames = [
 	"new_string", // search_replace and edit_file parameter
 	"replace_all", // edit tool parameter for replacing all occurrences
 	"expected_replacements", // edit_file parameter for multiple occurrences
+	"sandbox_permissions",
+	"justification",
 	"timeout", // execute_command parameter
 	"artifact_id", // read_command_output parameter
 	"search", // read_command_output parameter for grep-like search
@@ -119,7 +122,13 @@ export type NativeToolArgs = {
 		needsMoreThoughts?: boolean
 	}
 	attempt_completion: { result: string }
-	execute_command: { command: string; cwd?: string; timeout?: number | null }
+	execute_command: {
+		command: string
+		cwd?: string
+		timeout?: number | null
+		sandbox_permissions?: "use_default" | "require_escalated" | null
+		justification?: string | null
+	}
 	apply_diff: { path: string; diff: string }
 	edit: { file_path: string; old_string: string; new_string: string; replace_all?: boolean }
 	search_and_replace: { file_path: string; old_string: string; new_string: string; replace_all?: boolean }
@@ -215,7 +224,9 @@ export interface McpToolUse {
 export interface ExecuteCommandToolUse extends ToolUse<"execute_command"> {
 	name: "execute_command"
 	// Pick<Record<ToolParamName, string>, "command"> makes "command" required, but Partial<> makes it optional
-	params: Partial<Pick<Record<ToolParamName, string>, "command" | "cwd" | "timeout">>
+	params: Partial<
+		Pick<Record<ToolParamName, string>, "command" | "cwd" | "timeout" | "sandbox_permissions" | "justification">
+	>
 }
 
 export interface ReadFileToolUse extends ToolUse<"read_file"> {

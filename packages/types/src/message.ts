@@ -278,6 +278,14 @@ export const clineMessageSchema = z.object({
 	 */
 	contextTruncation: contextTruncationSchema.optional(),
 	isProtected: z.boolean().optional(),
+	commandExecution: z
+		.object({
+			cwd: z.string(),
+			sandbox: z.enum(["workspace", "outside"]),
+			requiresReview: z.boolean().optional(),
+			reason: z.string().optional(),
+		})
+		.optional(),
 	apiProtocol: z.union([z.literal("openai"), z.literal("anthropic")]).optional(),
 	isAnswered: z.boolean().optional(),
 	// Costrict : multiple choice user response

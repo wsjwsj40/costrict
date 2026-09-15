@@ -15,6 +15,7 @@ import { ClineAskResponse } from "../../shared/WebviewMessage"
 import { isWriteToolAction, isReadOnlyToolAction } from "./tools"
 import { isMcpToolAlwaysAllowed } from "./mcp"
 import { getCommandDecision } from "./commands"
+import { resolveEffectiveCapabilities } from "../permissions/effectiveCapabilities"
 
 /**
  * Get all global skill directory prefixes.
@@ -83,17 +84,23 @@ export async function checkAutoApproval({
 	ask,
 	text,
 	isProtected,
+	commandExecution,
 }: {
-	state?: Pick<ExtensionState, AutoApprovalState | AutoApprovalStateOptions>
+	state?: Pick<
+		ExtensionState,
+		AutoApprovalState | AutoApprovalStateOptions | "projectPermissionProfile" | "sessionSandboxCommandsAllowed"
+	> &
+		Partial<Pick<ExtensionState, "mode" | "costrictCodeMode">>
 	ask: ClineAsk
 	text?: string
 	isProtected?: boolean
+	commandExecution?: import("@roo-code/types").ClineMessage["commandExecution"]
 }): Promise<CheckAutoApprovalResult> {
 	if (isNonBlockingAsk(ask)) {
 		return { decision: "approve" }
 	}
 
-	if (!state || !state.autoApprovalEnabled) {
+	if (!state || (!state.autoApprovalEnabled && !state.projectPermissionProfile)) {
 		return { decision: "ask" }
 	}
 
@@ -147,6 +154,20 @@ export async function checkAutoApproval({
 	}
 
 	if (ask === "command") {
+		if (commandExecution) {
+			const profile = state.projectPermissionProfile
+			const capabilities = resolveEffectiveCapabilities({
+				workflow: state.costrictCodeMode,
+				projectPermissionProfile: profile,
+			})
+			// Explicit denials still apply even when the operation is sandboxed.
+			const decision = getCommandDecision(text || "", ["*"], state.deniedCommands || [])
+			if (decision === "auto_deny") return { decision: "deny" }
+			if (commandExecution.sandbox === "outside" || commandExecution.requiresReview) return { decision: "ask" }
+			if (state.sessionSandboxCommandsAllowed) return { decision: "approve" }
+			if (profile) return capabilities.canExecuteWorkspaceCommand ? { decision: "approve" } : { decision: "ask" }
+			return state.alwaysAllowExecute === true ? { decision: "approve" } : { decision: "ask" }
+		}
 		if (!text) {
 			return { decision: "ask" }
 		}
@@ -199,6 +220,9 @@ export async function checkAutoApproval({
 		const isOutsideWorkspace = !!tool.isOutsideWorkspace
 
 		if (isReadOnlyToolAction(tool)) {
+			const profile = state.projectPermissionProfile
+			if (profile && !isOutsideWorkspace) return { decision: "approve" }
+			if (profile) return { decision: "ask" }
 			// Auto-approve reads from skill directories (user-installed instruction files)
 			if (isOutsideWorkspace && tool.content && isInsideSkillDirectory(tool.content)) {
 				return { decision: "approve" }
@@ -219,6 +243,17 @@ export async function checkAutoApproval({
 		}
 
 		if (isWriteToolAction(tool)) {
+			const profile = state.projectPermissionProfile
+			const capabilities = resolveEffectiveCapabilities({
+				workflow: state.costrictCodeMode,
+				projectPermissionProfile: profile,
+			})
+			// Read-only never inherits the legacy global write setting.
+			if (profile?.mode === "observe") return { decision: "ask" }
+			if (profile && capabilities.canWriteWorkspace && !isOutsideWorkspace && !isProtected) {
+				return { decision: "approve" }
+			}
+			if (profile) return { decision: "ask" }
 			return state.alwaysAllowWrite === true &&
 				(!isOutsideWorkspace || state.alwaysAllowWriteOutsideWorkspace === true) &&
 				(!isProtected || state.alwaysAllowWriteProtected === true)

@@ -169,7 +169,7 @@ export type CustomSupportPrompts = z.infer<typeof customSupportPromptsSchema>
 export type modelType = ModeConfig & { [key: string]: unknown }
 const WORKFLOW_MODES: readonly modelType[] = [
 	{
-		slug: "strict",
+		slug: "spec",
 		name: "⛓ Strict",
 		roleDefinition:
 			"You are DiCode, a strict strategic workflow controller who coordinates complex tasks by delegating them to appropriate specialized modes. You have a comprehensive understanding of each mode's capabilities and limitations, allowing you to effectively break down complex problems into discrete tasks that can be solved by different specialists.",
@@ -193,7 +193,7 @@ const WORKFLOW_MODES: readonly modelType[] = [
 		pure: true,
 		disableSwitchMode: true,
 		source: "project",
-		costrictCodeModeGroup: "strict",
+		costrictCodeModeGroup: "spec",
 		apiProvider: "costrict",
 	},
 	{
@@ -210,7 +210,7 @@ const WORKFLOW_MODES: readonly modelType[] = [
 		groups: ["read", "edit", "mcp"],
 		pure: true,
 		source: "project",
-		costrictCodeModeGroup: "strict",
+		costrictCodeModeGroup: "spec",
 		apiProvider: "costrict",
 	},
 	{
@@ -226,7 +226,7 @@ const WORKFLOW_MODES: readonly modelType[] = [
 			"1. Do some information gathering (using provided tools) to get more context about the task.\n\n2. You should also ask the user clarifying questions to get a better understanding of the task.\n\n3. Once you've gained more context about the user's request, break down the task into clear, actionable steps and create a todo list using the `update_todo_list` tool. Each todo item should be:\n   - Specific and actionable\n   - Listed in logical execution order\n   - Focused on a single, well-defined outcome\n   - Clear enough that another mode could execute it independently\n\n   **Note:** If the `update_todo_list` tool is not available, write the plan to a markdown file (e.g., `plan.md` or `todo.md`) instead.\n\n4. As you gather more information or discover new requirements, update the todo list to reflect the current understanding of what needs to be accomplished.\n\n5. Ask the user if they are pleased with this plan, or if they would like to make any changes. Think of this as a brainstorming session where you can discuss the task and refine the todo list.\n\n6. Include Mermaid diagrams if they help clarify complex workflows or system architecture. Please avoid using double quotes (\"\") and parentheses () inside square brackets ([]) in Mermaid diagrams, as this can cause parsing errors.\n\n7. Use the switch_mode tool to request that the user switch to another mode to implement the solution.\n\n**IMPORTANT: Focus on creating clear, actionable todo lists rather than lengthy markdown documents. Use the todo list as your primary planning tool to track and organize the work that needs to be done.**\n\n**CRITICAL: Never provide level of effort time estimates (e.g., hours, days, weeks) for tasks. Focus solely on breaking down the work into clear, actionable steps without estimating how long they will take.**\n\nUnless told otherwise, if you want to save a plan file, put it in the /plans directory",
 		pure: true,
 		source: "project",
-		costrictCodeModeGroup: "strict",
+		costrictCodeModeGroup: "spec",
 		apiProvider: "costrict",
 	},
 	{
@@ -243,7 +243,7 @@ const WORKFLOW_MODES: readonly modelType[] = [
 		groups: ["read", "edit", "mcp"],
 		pure: true,
 		source: "project",
-		costrictCodeModeGroup: "strict",
+		costrictCodeModeGroup: "spec",
 		apiProvider: "costrict",
 	},
 	{
@@ -258,7 +258,7 @@ const WORKFLOW_MODES: readonly modelType[] = [
 			'- When executing tests, there is no need to review the testing mechanism from scratch; instructions on how to test should be obtained from user guidelines or global rules. Once it is clear how to perform the tests, they can be executed directly without reading the test scripts. Do not include any explanatory statements.\n- When an error occurs during test execution, it is essential to distinguish whether the current error belongs to a "functional implementation" error or a "testing method" error.\n- "Testing method" errors mainly revolve around issues such as test case design errors, test script errors, configuration file errors, interface configuration errors, etc., and do not involve changes to existing functional code; "functional implementation" errors refer to specific situations where the code implementation does not meet the expectations set by the test design and require code modification.\n- In cases where the test cases do not match the actual code, whether to directly modify the code or to correct the test cases or test scripts, suggestions for modification can be provided, but it is necessary to ask the user how to proceed. Unless given permission by the user, unilateral modifications are prohibited.\n- When the user allows for issue resolution, make every effort to resolve the issues. For example, modify code, fix test scripts, etc., until the test can pass. During this process, any tools or other agents can be used to resolve the issues. It is prohibited to simply end the current task upon discovering a problem.\n- When designing test cases, one should not rely on existing data in the database. For example, when validating cases for updating data, consider adjusting the order of the cases by first executing the case that creates the data, followed by the update operation, to ensure that the data exists. After the execution of the cases, it is also necessary to consider performing data cleanup operations to restore the environment.\n- Interface test cases should not rely on existing data in the library, for example, "query" and "delete" operations should not depend on data that may not exist. To ensure the success of the test cases, consider placing the "create" operation upfront or adding an additional "create" operation.\n- After executing the test case suite, it is essential to consciously clean up the environment by deleting the generated test data.\nTest cases involving data uniqueness should consider using a strategy of deleting before using. For example, to create data A, one should first delete data A (regardless of the result) before creating data A.',
 		groups: ["read", "edit", "command", "mcp"],
 		source: "project",
-		costrictCodeModeGroup: "strict",
+		costrictCodeModeGroup: "spec",
 		apiProvider: "costrict",
 	},
 	{
@@ -269,7 +269,7 @@ const WORKFLOW_MODES: readonly modelType[] = [
 		description: "Analyze and generate a testing plan",
 		groups: ["read", "edit", "command", "mcp"],
 		source: "project",
-		costrictCodeModeGroup: "strict,plan,vibe",
+		costrictCodeModeGroup: "spec,plan,vibe",
 		apiProvider: "costrict",
 	},
 	{
@@ -457,7 +457,7 @@ export const DEFAULT_MODES: readonly modelType[] = [
 			"Use this mode when you need to write, modify, or refactor code. Ideal for implementing features, fixing bugs, creating new files, or making code improvements across any programming language or framework.",
 		description: "Write, modify, and refactor code",
 		groups: ["read", "edit", "command", "mcp"],
-		costrictCodeModeGroup: "strict,vibe,plan",
+		costrictCodeModeGroup: "spec,vibe,plan",
 	},
 	{
 		slug: "architect",

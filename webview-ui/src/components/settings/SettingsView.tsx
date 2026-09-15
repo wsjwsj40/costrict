@@ -186,6 +186,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 		telemetrySetting,
 		terminalOutputPreviewSize,
 		terminalShellIntegrationTimeout,
+		terminalSandboxEnabled,
 		terminalShellIntegrationDisabled, // Added from upstream
 		terminalCommandDelay,
 		terminalPowershellCounter,
@@ -436,6 +437,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 					checkpointTimeout: checkpointTimeout ?? DEFAULT_CHECKPOINT_TIMEOUT_SECONDS,
 					writeDelayMs,
 					terminalShellIntegrationTimeout: terminalShellIntegrationTimeout ?? 30_000,
+					terminalSandboxEnabled,
 					terminalShellIntegrationDisabled,
 					terminalCommandDelay,
 					terminalPowershellCounter,
@@ -952,6 +954,7 @@ const SettingsView = forwardRef<SettingsViewRef, SettingsViewProps>(({ onDone, t
 							<TerminalSettings
 								terminalOutputPreviewSize={terminalOutputPreviewSize}
 								terminalShellIntegrationTimeout={terminalShellIntegrationTimeout}
+								terminalSandboxEnabled={terminalSandboxEnabled}
 								terminalShellIntegrationDisabled={terminalShellIntegrationDisabled}
 								terminalCommandDelay={terminalCommandDelay}
 								terminalPowershellCounter={terminalPowershellCounter}

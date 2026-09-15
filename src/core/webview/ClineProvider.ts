@@ -98,6 +98,7 @@ import { getWorkspacePath, toRelativePath } from "../../utils/path"
 import { OrganizationAllowListViolationError } from "../../utils/errors"
 
 import { setPanel } from "../../activate/registerCommands"
+import { normalizeProjectPermissionProfile, normalizeWorkflowMode } from "../permissions/effectiveCapabilities"
 
 import { getConfiguredUiMode } from "../../shared/uiMode"
 import type { AssistantUIContextMessage } from "../cs-cloud/extension/types"
@@ -201,6 +202,8 @@ export class ClineProvider
 	private taskHistoryStoreInitialized = false
 	private globalStateWriteThroughTimer: ReturnType<typeof setTimeout> | null = null
 	private static readonly GLOBAL_STATE_WRITE_THROUGH_DEBOUNCE_MS = 5000 // 5 seconds
+	private static readonly PROJECT_PERMISSION_PROFILE_KEY = "projectPermissionProfile"
+	private sessionSandboxCommandsAllowed = false
 	private pendingOperations: Map<string, PendingEditOperation> = new Map()
 	private static readonly PENDING_OPERATION_TIMEOUT_MS = 30000 // 30 seconds
 
@@ -1709,6 +1712,7 @@ export class ClineProvider
 	 * @param newMode The mode to switch to
 	 */
 	public async handleModeSwitch(newMode: Mode) {
+		if (newMode === "strict") newMode = "spec"
 		const task = this.getCurrentTask()
 
 		if (task) {
@@ -2771,6 +2775,7 @@ export class ClineProvider
 			writeDelayMs,
 			terminalShellIntegrationTimeout,
 			terminalShellIntegrationDisabled,
+			terminalSandboxEnabled,
 			terminalCommandDelay,
 			terminalPowershellCounter,
 			terminalZshClearEolMark,
@@ -2872,6 +2877,8 @@ export class ClineProvider
 
 		return {
 			version: this.context.extension?.packageJSON?.version ?? "",
+			projectPermissionProfile: this.getProjectPermissionProfile(),
+			sessionSandboxCommandsAllowed: this.sessionSandboxCommandsAllowed,
 			apiConfiguration,
 			costrictIsAuthenticated: this.hasCurrentCostrictAuthentication(apiConfiguration),
 			autoCleanup,
@@ -2921,6 +2928,7 @@ export class ClineProvider
 			writeDelayMs: writeDelayMs ?? DEFAULT_WRITE_DELAY_MS,
 			terminalShellIntegrationTimeout: terminalShellIntegrationTimeout ?? Terminal.defaultShellIntegrationTimeout,
 			terminalShellIntegrationDisabled: terminalShellIntegrationDisabled ?? true,
+			terminalSandboxEnabled: terminalSandboxEnabled ?? false,
 			terminalCommandDelay: terminalCommandDelay ?? 0,
 			terminalPowershellCounter: terminalPowershellCounter ?? false,
 			terminalZshClearEolMark: terminalZshClearEolMark ?? true,
@@ -2931,7 +2939,7 @@ export class ClineProvider
 			currentApiConfigName: currentApiConfigName ?? "default",
 			listApiConfigMeta: listApiConfigMeta ?? [],
 			pinnedApiConfigs: pinnedApiConfigs ?? {},
-			mode: mode ?? defaultModeSlug,
+			mode: mode === "strict" ? "spec" : (mode ?? defaultModeSlug),
 			costrictCodeMode: costrictCodeMode ?? "vibe",
 			customModePrompts: customModePrompts ?? {},
 			customSupportPrompts: customSupportPrompts ?? {},
@@ -3038,6 +3046,23 @@ export class ClineProvider
 		>
 	> {
 		return this.buildBaseState()
+	}
+
+	public getProjectPermissionProfile(): import("@roo-code/types").ProjectPermissionProfile | undefined {
+		return normalizeProjectPermissionProfile(
+			this.context.workspaceState.get(ClineProvider.PROJECT_PERMISSION_PROFILE_KEY),
+		)
+	}
+
+	public async setProjectPermissionMode(mode: import("@roo-code/types").ProjectPermissionMode): Promise<void> {
+		await this.context.workspaceState.update(ClineProvider.PROJECT_PERMISSION_PROFILE_KEY, {
+			mode,
+			updatedAt: Date.now(),
+		})
+	}
+
+	public allowSandboxCommandsForSession(): void {
+		this.sessionSandboxCommandsAllowed = true
 	}
 
 	private hasCurrentCostrictAuthentication(apiConfiguration: ProviderSettings): boolean {
@@ -3200,13 +3225,14 @@ export class ClineProvider
 			terminalShellIntegrationTimeout:
 				stateValues.terminalShellIntegrationTimeout ?? Terminal.defaultShellIntegrationTimeout,
 			terminalShellIntegrationDisabled: stateValues.terminalShellIntegrationDisabled ?? true,
+			terminalSandboxEnabled: stateValues.terminalSandboxEnabled ?? false,
 			terminalCommandDelay: stateValues.terminalCommandDelay ?? 0,
 			terminalPowershellCounter: stateValues.terminalPowershellCounter ?? false,
 			terminalZshClearEolMark: stateValues.terminalZshClearEolMark ?? true,
 			terminalZshOhMy: stateValues.terminalZshOhMy ?? false,
 			terminalZshP10k: stateValues.terminalZshP10k ?? false,
 			terminalZdotdir: stateValues.terminalZdotdir ?? false,
-			mode: stateValues.mode ?? defaultModeSlug,
+			mode: stateValues.mode === "strict" ? "spec" : (stateValues.mode ?? defaultModeSlug),
 			costrictCodeMode: stateValues.costrictCodeMode ?? "vibe",
 			language: stateValues.language ?? formatLanguage(await defaultLang()),
 			mcpEnabled: stateValues.mcpEnabled ?? true,
@@ -3883,11 +3909,11 @@ export class ClineProvider
 	}
 
 	public async setMode(mode: string): Promise<void> {
-		await this.setValues({ mode })
+		await this.setValues({ mode: mode === "strict" ? "spec" : mode })
 	}
 
 	public async setCostrictCodeMode(costrictCodeMode: CostrictCodeMode): Promise<void> {
-		await this.setValues({ costrictCodeMode })
+		await this.setValues({ costrictCodeMode: normalizeWorkflowMode(costrictCodeMode) })
 		await this.postStateToWebview()
 	}
 

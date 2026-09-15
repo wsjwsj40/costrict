@@ -866,6 +866,19 @@
 		"inheritEnv": {
 			"label": "Inherit environment variables",
 			"description": "Turn this on to inherit environment variables from the parent VS Code process."
+		},
+		"sandbox": {
+			"label": "Run commands in a sandbox",
+			"description": "Restrict command writes to the project and temporary directories and protect sensitive configuration. Applies to scripts and child processes. Project files can still be changed or deleted; known destructive commands require confirmation. Disabled by default for existing installations.",
+			"setup": "Linux/WSL: install bubblewrap, socat and ripgrep. macOS: install ripgrep. Windows support is experimental and requires one-time system setup. Missing dependencies block execution; commands never fall back automatically to unrestricted execution.",
+			"inside": "Run inside project sandbox",
+			"outside": "Run outside sandbox — one-time approval required",
+			"review": "This command may delete files or discard changes. Please review before running.",
+			"check": "Check sandbox availability",
+			"install": "Initialize Windows sandbox (administrator approval)",
+			"checking": "Checking sandbox…",
+			"available": "Sandbox dependencies are available. Actual enforcement is checked when a command starts.",
+			"unavailable": "Sandbox unavailable"
 		}
 	},
 	"advancedSettings": {
