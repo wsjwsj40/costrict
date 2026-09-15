@@ -2250,6 +2250,45 @@ export class ClineProvider
 	}
 
 	/**
+	 * Plan is read-only. Saving is a user-triggered export, deliberately kept
+	 * outside the model's generic file-writing tools.
+	 */
+	async saveCurrentPlan(): Promise<void> {
+		const task = this.getCurrentTask()
+		const state = await this.getState()
+		if (!task || state.costrictCodeMode !== "plan") return
+		if (!this.currentWorkspacePath) {
+			await vscode.window.showWarningMessage("Open a workspace before saving a plan.")
+			return
+		}
+		const plan = [...task.clineMessages]
+			.reverse()
+			.find((message) => message.type === "say" && !message.partial && message.text?.trim())?.text
+		if (!plan) {
+			await vscode.window.showWarningMessage("There is no completed plan to save yet.")
+			return
+		}
+
+		const planDirectory = path.join(this.currentWorkspacePath, ".dicode", "plans")
+		const target = path.join(planDirectory, `${task.taskId}.md`)
+		try {
+			await fs.mkdir(planDirectory, { recursive: true })
+			// `wx` guarantees that an explicit Save action never overwrites an
+			// earlier plan or any user-authored file.
+			await fs.writeFile(target, plan, { encoding: "utf8", flag: "wx" })
+			await vscode.window.showTextDocument(vscode.Uri.file(target), { preview: true })
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+				await vscode.window.showWarningMessage(
+					"This plan was already saved. Existing plan files are never overwritten.",
+				)
+				return
+			}
+			throw error
+		}
+	}
+
+	/**
 	 * Opens a save-file dialog and creates a .tar.gz backup of the entire tasks directory.
 	 */
 	async backupTaskHistory(): Promise<void> {

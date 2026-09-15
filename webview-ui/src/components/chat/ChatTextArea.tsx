@@ -2,13 +2,13 @@ import React, { forwardRef, useCallback, useEffect, useLayoutEffect, useMemo, us
 import { useEvent } from "react-use"
 import DynamicTextArea from "react-textarea-autosize"
 import { ReviewTaskStatus } from "@roo/codeReview"
-import { VolumeX, Image, WandSparkles, SendHorizontal, ListEnd, Square } from "lucide-react"
+import { VolumeX, Image, WandSparkles, SendHorizontal, ListEnd, Square, Save } from "lucide-react"
 
 import type { ExtensionMessage, ProviderName, RouterModels } from "@roo-code/types"
 
 import { mentionRegex, mentionRegexGlobal, commandRegexGlobal, unescapeSpaces } from "@roo/context-mentions"
 import { WebviewMessage } from "@roo/WebviewMessage"
-import { Mode, getAllModes, isProviderAllowedForCostrictCodeMode } from "@roo/modes"
+import { Mode, getAllModes, getModeBySlug, isProviderAllowedForCostrictCodeMode } from "@roo/modes"
 
 import { vscode } from "@src/utils/vscode"
 import { useExtensionState } from "@src/context/ExtensionStateContext"
@@ -398,7 +398,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					// Handle command selection.
 					setSelectedMenuIndex(-1)
 					setShowContextMenu(false)
-	
+
 					// Insert the command mention into the textarea. Only replace the slash-command
 					// query (from the "/" up to the cursor) with the selected command, preserving
 					// any content that already existed after the cursor (e.g. when "/" was typed
@@ -413,7 +413,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					const newCommandCursorPosition = beforeSlash.length + commandMention.length + 1
 					setCursorPosition(newCommandCursorPosition)
 					setIntendedCursorPosition(newCommandCursorPosition)
-	
+
 					// Focus the textarea
 					setTimeout(() => {
 						if (textAreaRef.current) {
@@ -1471,6 +1471,17 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					<div className="absolute top-2 left-2 z-30 bg-vscode-input-background">
 						<ModeSwitch isStreaming={isStreaming} />
 					</div>
+					{costrictCodeMode === "plan" && (
+						<StandardTooltip content="Save the completed plan to .dicode/plans">
+							<button
+								type="button"
+								className="absolute top-2 left-[166px] z-30 flex items-center gap-1 rounded border border-vscode-input-border bg-vscode-input-background px-2 py-1 text-xs hover:bg-vscode-list-hoverBackground disabled:opacity-50"
+								disabled={isStreaming}
+								onClick={() => vscode.postMessage({ type: "saveCurrentPlan" })}>
+								<Save className="size-3" /> Save plan
+							</button>
+						</StandardTooltip>
+					)}
 
 					{/* Api config selector positioned at the top right to keep the bottom toolbar compact */}
 					<div
@@ -1523,7 +1534,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 							value={mode}
 							title={
 								mode
-									? `${t("chat:modeSelector.title")}: ${mode.charAt(0).toUpperCase() + mode.slice(1)}`
+									? `${costrictCodeMode === "spec" ? `Spec · ${getModeBySlug(mode, customModes)?.workflowPhase ?? "coordination"} · ` : ""}${getModeBySlug(mode, customModes)?.name ?? mode}`
 									: t("chat:selectMode")
 							}
 							onChange={handleModeChange}

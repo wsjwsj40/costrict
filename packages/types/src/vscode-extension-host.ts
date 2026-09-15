@@ -526,6 +526,7 @@ export interface WebviewMessage {
 		| "didShowAnnouncement"
 		| "selectImages"
 		| "exportCurrentTask"
+		| "saveCurrentPlan"
 		| "shareCurrentTask"
 		| "showTaskWithId"
 		| "deleteTaskWithId"

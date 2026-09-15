@@ -1027,6 +1027,9 @@ export const webviewMessageHandler = async (
 				provider.exportTaskWithId(currentTaskId)
 			}
 			break
+		case "saveCurrentPlan":
+			await provider.saveCurrentPlan()
+			break
 		case "shareCurrentTask":
 			const shareTaskId = provider.getCurrentTask()?.taskId
 			const clineMessages = provider.getCurrentTask()?.clineMessages
