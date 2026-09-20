@@ -20,6 +20,7 @@ import { Package } from "../../shared/package"
 import { t } from "../../i18n"
 import { getTaskDirectoryPath } from "../../utils/storage"
 import { BaseTool, ToolCallbacks } from "./BaseTool"
+import { getCommandScope, needsDestructiveReview } from "../permissions/operationPolicy"
 import { isJetbrainsPlatform } from "../../utils/platform"
 
 class ShellIntegrationError extends Error {}
@@ -66,17 +67,22 @@ export class ExecuteCommandTool extends BaseTool<"execute_command"> {
 
 			task.consecutiveMistakeCount = 0
 
-			const didApprove = await askApproval("command", canonicalCommand)
-
-			if (!didApprove) {
-				return
-			}
-
-			const executionId = task.lastMessageTs?.toString() ?? Date.now().toString()
 			const provider = await task.providerRef.deref()
 			const providerState = await provider?.getState()
-
 			const { terminalShellIntegrationDisabled = true } = providerState ?? {}
+			let executionCwd = customCwd
+			let commandExecution: import("@roo-code/types").ClineMessage["commandExecution"]
+			const cwd = await fs.realpath(path.resolve(task.cwd, customCwd || "."))
+			const workspace = await fs.realpath(task.cwd)
+			executionCwd = cwd
+			commandExecution = {
+				cwd,
+				scope: getCommandScope(workspace, cwd),
+				requiresReview: needsDestructiveReview(canonicalCommand),
+			}
+			const didApprove = await askApproval("command", canonicalCommand, undefined, undefined, commandExecution)
+			if (!didApprove) return
+			const executionId = task.lastMessageTs?.toString() ?? Date.now().toString()
 
 			// Get command execution timeout from VSCode configuration (in seconds)
 			const commandExecutionTimeoutSeconds = vscode.workspace
@@ -102,7 +108,7 @@ export class ExecuteCommandTool extends BaseTool<"execute_command"> {
 			const options: ExecuteCommandOptions = {
 				executionId,
 				command: canonicalCommand,
-				customCwd,
+				customCwd: executionCwd,
 				terminalShellIntegrationDisabled,
 				commandExecutionTimeout,
 				agentTimeout,

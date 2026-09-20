@@ -1,6 +1,8 @@
 import { ModelInfo } from "../model.js"
 
-export const costrictDefaultModelId = "Auto"
+// Costrict models are supplied dynamically by the permission-filtered model
+// service; there is no client-side synthetic default model.
+export const costrictDefaultModelId = ""
 
 export const costrictModelsConfig = {
 	default: {

@@ -45,6 +45,7 @@ import { defaultModeSlug, type Mode } from "../../../shared/modes"
 
 import {
 	buildReviewRequestOptions,
+	ensureReviewResultDirectory,
 	getReviewReportJsonPath,
 	resolveFromReportFile,
 	resolveFromReportText,
@@ -265,6 +266,23 @@ export class CodeReviewService {
 		}
 
 		this.reset()
+		const taskMode = options?.mode ?? "review"
+
+		try {
+			await ensureReviewResultDirectory(String(provider.cwd), taskMode)
+		} catch (error) {
+			const directoryError =
+				error instanceof Error ? error : new Error(`Failed to create review result directory: ${String(error)}`)
+			this.logger.error(
+				`[CodeReview] Failed to initialize result directory for mode ${taskMode}:`,
+				directoryError,
+			)
+			this.updateTaskState({
+				error: directoryError,
+				isCompleted: true,
+			})
+			return
+		}
 
 		this.updateTaskState({
 			isCompleted: false,
@@ -272,7 +290,6 @@ export class CodeReviewService {
 			total: 0,
 		})
 		this.prevMode = (await provider.getMode()) ?? defaultModeSlug
-		const taskMode = options?.mode ?? "review"
 		this.logger.debug(`[CodeReview] createReviewTask: prevMode=${this.prevMode}, taskMode=${taskMode}`)
 		await provider.handleModeSwitch(taskMode)
 		const modeAfterSwitch = await provider.getMode()
@@ -376,7 +393,10 @@ export class CodeReviewService {
 					requestOptions,
 				})
 
-				if (!resolveResult?.issues || resolveResult.issues.length === 0) {
+				// A successful review may legitimately contain no issues. The resolver
+				// returns an empty task id when reading/parsing/reporting fails, so use
+				// that (and the response shape) to distinguish failure from a clean review.
+				if (!Array.isArray(resolveResult?.issues) || !resolveResult.review_task_id) {
 					throw new Error(t("common:review.tip.get_review_result_failed"))
 				}
 
@@ -389,7 +409,7 @@ export class CodeReviewService {
 				const validIssues = issues.filter((_, index) => existsResults[index])
 
 				this.updateCachedIssues(validIssues)
-				if (validIssues.length > 0 && review_task_id) {
+				if (review_task_id) {
 					await this.historyManager.addEntry(review_task_id, title, conclusion)
 				}
 
@@ -420,7 +440,9 @@ export class CodeReviewService {
 					options?.onTaskComplete?.()
 
 					// Switch to code review page if report was generated
-					const hasValidReport = this.currentTask?.taskId && this.getAllCachedIssues().length > 0
+					const hasValidReport = Boolean(
+						this.currentTask?.isCompleted && this.currentTask.taskId && !this.currentTask.error,
+					)
 					if (hasValidReport) {
 						provider.postMessageToWebview({
 							type: "action",
@@ -987,7 +1009,7 @@ export class CodeReviewService {
 				issue.id,
 				new vscode.MarkdownString(`${issue.title ? `### ${issue.title}\n\n` : ""}${issue.message}`),
 				vscode.CommentMode.Preview,
-				{ name: "CoStrict", iconPath },
+				{ name: "DiCode", iconPath },
 				undefined,
 				isJetbrainsPlatform() ? issue.id : (taskId ?? "Intial"),
 			),

@@ -70,7 +70,7 @@ describe("skillInvocation", () => {
 			const result = buildSkillResult("deploy", "production", mockSkillContent)
 
 			expect(result).toBe(
-				`Skill: deploy\nDescription: A test skill\nProvided arguments: production\nSource: project\n\n--- Skill Instructions ---\n\nDo the thing`,
+				`Skill: deploy\nDescription: A test skill\nProvided arguments: production\nSource: project\nSkill file: /mock/.roo/skills/test-skill/SKILL.md\nSkill root: /mock/.roo/skills/test-skill\nRelative resource rule: Resolve every relative file or directory referenced by these instructions against Skill root, not the workspace. Read required referenced resources before proceeding.\n\n--- Skill Instructions ---\n\nDo the thing`,
 			)
 		})
 
@@ -95,10 +95,14 @@ describe("skillInvocation", () => {
 			const result = buildSkillResult("minimal", undefined, {
 				source: "global",
 				description: "",
+				path: "/skills/minimal/SKILL.md",
 				instructions: "Step 1: do stuff",
 			})
 
 			expect(result).toContain("Source: global")
+			expect(result).toContain("Skill file: /skills/minimal/SKILL.md")
+			expect(result).toContain("Skill root: /skills/minimal")
+			expect(result).toContain("Resolve every relative file or directory")
 			expect(result).toContain("--- Skill Instructions ---")
 			expect(result).toContain("Step 1: do stuff")
 		})

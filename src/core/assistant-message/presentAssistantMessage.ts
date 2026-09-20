@@ -43,10 +43,11 @@ import { isValidToolName, validateToolUse } from "../tools/validateToolUse"
 // import { codebaseSearchTool } from "../tools/CodebaseSearchTool"
 
 import { formatResponse } from "../prompts/responses"
+import { getMcpServerTools, getNativeTools } from "../prompts/tools/native-tools"
+import { ToolRegistry, formatToolValidationError, getToolRetryInstruction } from "../tools/registry/ToolRegistry"
 // import { codebaseSearchTool } from "../tools/CodebaseSearchTool"
 import { updateCospecMetadata } from "../checkpoints"
 // import { fixBrowserLaunchAction } from "../../utils/fixbrowserLaunchAction"
-import { fixNativeToolname } from "../../utils/fixNativeToolname"
 // import { isNativeProtocol } from "@roo-code/types"
 // import { resolveToolProtocol } from "../../utils/resolveToolProtocol"
 import { sanitizeToolUseId } from "../../utils/tool-id"
@@ -60,6 +61,7 @@ const editTools = [
 	"edit",
 	"apply_patch",
 ]
+const builtinToolRegistry = new ToolRegistry(getNativeTools())
 /**
  * Processes and presents assistant message content to the user interface.
  *
@@ -210,6 +212,7 @@ export async function presentAssistantMessage(cline: Task) {
 				partialMessage?: string,
 				progressStatus?: ToolProgressStatus,
 				isProtected?: boolean,
+				commandExecution?: import("@roo-code/types").ClineMessage["commandExecution"],
 			) => {
 				const { response, text, images } = await cline.ask(
 					type,
@@ -217,6 +220,7 @@ export async function presentAssistantMessage(cline: Task) {
 					false,
 					progressStatus,
 					isProtected || false,
+					commandExecution,
 				)
 
 				if (response !== "yesButtonClicked") {
@@ -264,6 +268,32 @@ export async function presentAssistantMessage(cline: Task) {
 			// The serverName from parsing is sanitized (e.g., "my_server" from "my server")
 			// We need the original name to find the actual MCP connection
 			const mcpHub = cline.providerRef.deref()?.getMcpHub()
+			if (!mcpBlock.partial && mcpHub) {
+				const mcpRegistry = new ToolRegistry(getMcpServerTools(mcpHub), {})
+				const resolution = mcpRegistry.resolve(mcpBlock.name)
+				if (!resolution.ok) {
+					pushToolResult(
+						formatResponse.toolError(
+							JSON.stringify({
+								error: "MCP_TOOL_NOT_FOUND",
+								tool: mcpBlock.name,
+								suggestions: resolution.suggestions,
+								instruction: "Refresh the available MCP tools and choose an exact tool name.",
+								retryable: true,
+							}),
+						),
+					)
+					break
+				}
+				const validation = mcpRegistry.validate(mcpBlock.name, mcpBlock.arguments)
+				if (!validation.ok) {
+					pushToolResult(
+						formatResponse.toolError(formatToolValidationError(mcpBlock.name, validation.issues)),
+					)
+					break
+				}
+				mcpBlock.arguments = validation.value
+			}
 			let resolvedServerName = mcpBlock.serverName
 			if (mcpHub) {
 				const originalName = mcpHub.findServerNameBySanitizedName(mcpBlock.serverName)
@@ -272,7 +302,7 @@ export async function presentAssistantMessage(cline: Task) {
 				}
 			}
 
-			const toolName = fixNativeToolname(mcpBlock.toolName)
+			const toolName = mcpBlock.toolName
 			// Execute the MCP tool using the same handler as use_mcp_tool
 			// Create a synthetic ToolUse block that the useMcpToolTool can handle
 			const syntheticToolUse: ToolUse<"use_mcp_tool"> = {
@@ -461,6 +491,38 @@ export async function presentAssistantMessage(cline: Task) {
 			// Track if we've already pushed a tool result for this tool call (native tool calling only)
 			let hasToolResult = false
 
+			// Validate the exact model-visible schema before the legacy typed adapter is used.
+			// This produces actionable field-level feedback instead of the old generic
+			// "missing nativeArgs" error and prevents unchanged invalid calls from executing.
+			if (!block.partial && block.rawArgs && builtinToolRegistry.resolve(String(block.name)).ok) {
+				const validation = builtinToolRegistry.validate(String(block.name), block.rawArgs)
+				if (!validation.ok) {
+					console.warn(
+						"[ToolCallTrace] registry-rejected",
+						JSON.stringify({
+							toolCallId,
+							tool: block.name,
+							argumentKeys: Object.keys(block.rawArgs),
+							issues: validation.issues,
+						}),
+					)
+					const errorMessage = formatToolValidationError(String(block.name), validation.issues)
+					cline.consecutiveMistakeCount++
+					cline.recordToolError(block.name as ToolName, errorMessage)
+					cline.pushToolResultToUserContent({
+						type: "tool_result",
+						tool_use_id: sanitizeToolUseId(toolCallId),
+						content: formatResponse.toolError(errorMessage),
+						is_error: true,
+					})
+					console.warn(
+						"[ToolCallTrace] validation-result-pushed",
+						JSON.stringify({ toolCallId, tool: block.name, error: "INVALID_TOOL_ARGUMENTS" }),
+					)
+					break
+				}
+			}
+
 			// If this is a native tool call but the parser couldn't construct nativeArgs
 			// (e.g., malformed/unfinished JSON in a streaming tool call), we must NOT attempt to
 			// execute the tool. Instead, emit exactly one structured tool_result so the provider
@@ -474,7 +536,8 @@ export async function presentAssistantMessage(cline: Task) {
 				if (isKnownTool && !block.nativeArgs && !customTool) {
 					const errorMessage =
 						`Invalid tool call for '${block.name}': missing nativeArgs. ` +
-						`This usually means the model streamed invalid or incomplete arguments and the call could not be finalized.`
+						`This usually means the model streamed invalid or incomplete arguments and the call could not be finalized. ` +
+						getToolRetryInstruction(String(block.name))
 
 					cline.consecutiveMistakeCount++
 					try {
@@ -491,6 +554,10 @@ export async function presentAssistantMessage(cline: Task) {
 						content: formatResponse.toolError(errorMessage),
 						is_error: true,
 					})
+					console.warn(
+						"[ToolCallTrace] validation-result-pushed",
+						JSON.stringify({ toolCallId, tool: block.name, error: "MISSING_NATIVE_ARGS" }),
+					)
 
 					break
 				}
@@ -539,6 +606,15 @@ export async function presentAssistantMessage(cline: Task) {
 					tool_use_id: sanitizeToolUseId(toolCallId),
 					content: resultContent,
 				})
+				console.info(
+					"[ToolCallTrace] tool-result-pushed",
+					JSON.stringify({
+						toolCallId,
+						tool: block.name,
+						resultCharacters: resultContent.length,
+						imageCount: imageBlocks.length,
+					}),
+				)
 
 				if (imageBlocks.length > 0) {
 					cline.userMessageContent.push(...imageBlocks)
@@ -554,6 +630,7 @@ export async function presentAssistantMessage(cline: Task) {
 				partialMessage?: string,
 				progressStatus?: ToolProgressStatus,
 				isProtected?: boolean,
+				commandExecution?: import("@roo-code/types").ClineMessage["commandExecution"],
 			) => {
 				const { response, text, images } = await cline.ask(
 					type,
@@ -561,6 +638,7 @@ export async function presentAssistantMessage(cline: Task) {
 					false,
 					progressStatus,
 					isProtected || false,
+					commandExecution,
 				)
 
 				if (response !== "yesButtonClicked") {

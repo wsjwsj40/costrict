@@ -27,9 +27,9 @@ describe("make-nightly-vsix patchPackageJson", () => {
 		const packagePath = path.join(tempDir, "extension", "package.json")
 		const originalPackage = {
 			name: "zgsm-nightly",
-			publisher: "zgsm-ai",
+			publisher: "atad-apts",
 			version: "0.0.1-nightly",
-			displayName: "CoStrict Nightly",
+			displayName: "DiCode Nightly",
 			description: "nightly build for costrict",
 			command: "costrict.openPanel",
 			author: { name: "unexpected-author" },
@@ -47,17 +47,17 @@ describe("make-nightly-vsix patchPackageJson", () => {
 		const patchedPackage = JSON.parse(fs.readFileSync(packagePath, "utf8"))
 
 		expect(patchedPackage.name).toBe("zgsm-nightly")
-		expect(patchedPackage.publisher).toBe("zgsm-ai")
+		expect(patchedPackage.publisher).toBe("atad-apts")
 		expect(patchedPackage.version).toBe(sourcePackageJson.version)
-		expect(patchedPackage.displayName).toBe("CoStrict Nightly")
+		expect(patchedPackage.displayName).toBe("DiCode Nightly")
 		expect(patchedPackage.description).toBe("nightly build for costrict-nightly")
 		expect(patchedPackage.command).toBe("costrict-nightly.openPanel")
-		expect(patchedPackage.author).toEqual({ name: "zgsm-ai" })
+		expect(patchedPackage.author).toEqual({ name: "atad-apts" })
 		expect(patchedPackage.repository).toEqual({
 			type: "git",
-			url: "https://github.com/zgsm-ai/costrict",
+			url: "https://github.com/atad-apts/costrict",
 		})
-		expect(patchedPackage.homepage).toBe("https://github.com/zgsm-ai/costrict")
+		expect(patchedPackage.homepage).toBe("https://github.com/atad-apts/costrict")
 	})
 
 	it("patches runtime Package metadata for nightly activation", () => {
@@ -84,9 +84,9 @@ describe("make-nightly-vsix patchPackageJson", () => {
 			`<?xml version="1.0" encoding="utf-8"?>
 <PackageManifest>
 	<Metadata>
-		<Identity Language="en-US" Id="zgsm-nightly" Version="3.0.0" Publisher="zgsm-ai" />
-		<DisplayName>CoStrict</DisplayName>
-		<Description xml:space="preserve">CoStrict - strict AI coder for enterprises, quality first, including AI Agent, AI CodeReview, AI Completion.</Description>
+		<Identity Language="en-US" Id="zgsm-nightly" Version="3.0.0" Publisher="atad-apts" />
+		<DisplayName>DiCode</DisplayName>
+		<Description xml:space="preserve">DiCode - strict AI coder for enterprises, quality first, including AI Agent, AI CodeReview, AI Completion.</Description>
 	</Metadata>
 </PackageManifest>`,
 		)
@@ -94,15 +94,11 @@ describe("make-nightly-vsix patchPackageJson", () => {
 		patchVsixManifest(tempDir)
 
 		const patchedManifest = fs.readFileSync(manifestPath, "utf8")
+		expect(patchedManifest).toContain("<DisplayName>DiCode Nightly</DisplayName>")
 		expect(patchedManifest).toContain(
-			"<DisplayName>CoStrict Nightly</DisplayName>",
+			'<Description xml:space="preserve">DiCode Nightly - strict AI coder for enterprises, quality first, including AI Agent, AI CodeReview, AI Completion.</Description>',
 		)
-		expect(patchedManifest).toContain(
-			'<Description xml:space="preserve">CoStrict Nightly - strict AI coder for enterprises, quality first, including AI Agent, AI CodeReview, AI Completion.</Description>',
-		)
-		expect(patchedManifest).not.toContain(
-			"<DisplayName>CoStrict</DisplayName>",
-		)
+		expect(patchedManifest).not.toContain("<DisplayName>DiCode</DisplayName>")
 	})
 
 	it("removes Marketplace-flagged bundled skill files recursively", () => {

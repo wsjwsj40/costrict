@@ -342,7 +342,7 @@ Remember: The goal is to create documentation that enables AI assistants to be i
 
 5.After all above steps finish successfully, print the following usage guide:
 \`\`\`
-Next steps - Copy these prompts to CoStrict:
+Next steps - Copy these prompts to DiCode:
 ────────────────────────────────────────────────────────────
 1. Populate your project context:
    "Please read openspec/project.md and help me fill it out

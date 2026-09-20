@@ -8,6 +8,10 @@ import { formatResponse } from "../prompts/responses"
 import { Package } from "../../shared/package"
 import type { ToolUse } from "../../shared/tools"
 import { t } from "../../i18n"
+import {
+	buildReviewArtifactCorrectionMessage,
+	validateReviewArtifacts,
+} from "../costrict/code-review/common/reviewArtifactValidator"
 
 import { BaseTool, ToolCallbacks } from "./BaseTool"
 
@@ -15,6 +19,8 @@ interface AttemptCompletionParams {
 	result: string
 	command?: string
 }
+
+const MAX_REVIEW_ARTIFACT_CORRECTION_ATTEMPTS = 3
 
 export interface AttemptCompletionCallbacks extends ToolCallbacks {
 	askFinishSubTaskApproval: () => Promise<boolean>
@@ -37,6 +43,7 @@ interface DelegationProvider {
 
 export class AttemptCompletionTool extends BaseTool<"attempt_completion"> {
 	readonly name = "attempt_completion" as const
+	private readonly reviewArtifactValidationAttempts = new WeakMap<Task, number>()
 
 	async execute(params: AttemptCompletionParams, task: Task, callbacks: AttemptCompletionCallbacks): Promise<void> {
 		const { result } = params
@@ -68,6 +75,35 @@ export class AttemptCompletionTool extends BaseTool<"attempt_completion"> {
 			)
 
 			return
+		}
+
+		const taskMode = await task.getTaskMode()
+		if (taskMode === "review" || taskMode === "security-review") {
+			const validation = await validateReviewArtifacts({
+				workspace: task.workspacePath,
+				mode: taskMode,
+				startedAt: task.createdAt,
+			})
+
+			for (const recovery of validation.recovered) {
+				console.warn(`[CodeReview] Normalized report artifact ${recovery.from} -> ${recovery.to}`)
+			}
+
+			if (!validation.valid) {
+				const attempt = Math.min(
+					(this.reviewArtifactValidationAttempts.get(task) ?? 0) + 1,
+					MAX_REVIEW_ARTIFACT_CORRECTION_ATTEMPTS,
+				)
+				this.reviewArtifactValidationAttempts.set(task, attempt)
+				task.consecutiveMistakeCount++
+				task.recordToolError("attempt_completion")
+				pushToolResult(
+					formatResponse.toolError(buildReviewArtifactCorrectionMessage(taskMode, validation, attempt)),
+				)
+				return
+			}
+
+			this.reviewArtifactValidationAttempts.delete(task)
 		}
 
 		try {

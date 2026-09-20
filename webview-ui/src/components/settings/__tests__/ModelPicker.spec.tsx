@@ -71,7 +71,7 @@ describe("ModelPicker", () => {
 
 		await act(async () => {
 			// Open the popover by clicking the button.
-			const button = screen.getByTestId("model-picker-buttonAuto")
+			const button = screen.getByTestId("model-picker-button")
 			fireEvent.click(button)
 		})
 
@@ -102,12 +102,37 @@ describe("ModelPicker", () => {
 		expect(mockSetApiConfigurationField).toHaveBeenCalledWith(defaultProps.modelIdKey, "model2")
 	})
 
+	it("preserves the model order supplied by the service", async () => {
+		await act(async () =>
+			render(
+				<QueryClientProvider client={queryClient}>
+					<ModelPicker
+						{...defaultProps}
+						models={{
+							"server-first": modelInfo,
+							"alphabetically-first": modelInfo,
+						}}
+					/>
+				</QueryClientProvider>,
+			),
+		)
+
+		await act(async () => {
+			fireEvent.click(screen.getByTestId("model-picker-button"))
+			vi.advanceTimersByTime(100)
+		})
+
+		const serverFirst = screen.getByTestId("model-option-server-first")
+		const alphabeticallyFirst = screen.getByTestId("model-option-alphabetically-first")
+		expect(serverFirst.compareDocumentPosition(alphabeticallyFirst) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+	})
+
 	it("allows setting a custom model ID that's not in the predefined list", async () => {
 		await act(async () => renderModelPicker())
 
 		await act(async () => {
 			// Open the popover by clicking the button.
-			const button = screen.getByTestId("model-picker-buttonAuto")
+			const button = screen.getByTestId("model-picker-button")
 			fireEvent.click(button)
 		})
 
@@ -189,7 +214,7 @@ describe("ModelPicker", () => {
 			})
 
 			// Check that both the model selector and error message are present
-			const modelSelector = screen.getByTestId("model-picker-buttonAuto")
+			const modelSelector = screen.getByTestId("model-picker-button")
 			const errorContainer = screen.getByTestId("api-error-message")
 			const errorElement = screen.getByText(errorMessage)
 

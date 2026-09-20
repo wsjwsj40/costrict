@@ -57,6 +57,7 @@ import { TelemetryService } from "@roo-code/telemetry"
 import { CloudService, getRooCodeApiUrl } from "@roo-code/cloud"
 
 import { Package } from "../../shared/package"
+import { COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION, costrictDebugModeBuildEnabled } from "../../shared/costrictDebugMode"
 import { findLast } from "../../shared/array"
 import { supportPrompt, type SupportPromptType } from "../../shared/support-prompt"
 import { GlobalFileNames } from "../../shared/globalFileNames"
@@ -97,6 +98,7 @@ import { getWorkspacePath, toRelativePath } from "../../utils/path"
 import { OrganizationAllowListViolationError } from "../../utils/errors"
 
 import { setPanel } from "../../activate/registerCommands"
+import { normalizeProjectPermissionProfile, normalizeWorkflowMode } from "../permissions/effectiveCapabilities"
 
 import { getConfiguredUiMode } from "../../shared/uiMode"
 import type { AssistantUIContextMessage } from "../cs-cloud/extension/types"
@@ -126,7 +128,8 @@ import {
 import { readTaskMessages } from "../task-persistence/taskMessages"
 import { getNonce } from "./getNonce"
 import { getUri } from "./getUri"
-import { CostrictAuthCommands, CostrictAuthConfig } from "../costrict/auth"
+import { CostrictAuthCommands, CostrictAuthConfig, hasAcceptedCurrentAuthPolicy } from "../costrict/auth"
+import { readCostrictAccessToken } from "../costrict/runtime-config"
 import { generateNewSessionClientId, getClientId } from "../../utils/getClientId"
 import { defaultCodebaseIndexEnabled } from "../../services/code-index/constants"
 import { CodeReviewService, ReviewTargetType } from "../costrict/code-review"
@@ -199,6 +202,8 @@ export class ClineProvider
 	private taskHistoryStoreInitialized = false
 	private globalStateWriteThroughTimer: ReturnType<typeof setTimeout> | null = null
 	private static readonly GLOBAL_STATE_WRITE_THROUGH_DEBOUNCE_MS = 5000 // 5 seconds
+	private static readonly PROJECT_PERMISSION_PROFILE_KEY = "projectPermissionProfile"
+	private projectPermissionProfile?: import("@roo-code/types").ProjectPermissionProfile
 	private pendingOperations: Map<string, PendingEditOperation> = new Map()
 	private static readonly PENDING_OPERATION_TIMEOUT_MS = 30000 // 30 seconds
 
@@ -438,18 +443,22 @@ export class ClineProvider
 		try {
 			await this.taskHistoryStore.initialize()
 
-			// Migration: backfill per-task files from globalState on first run
+			// Migration: backfill per-task files from globalState.
+			//
+			// Do this on every startup. The migration itself is idempotent and this
+			// also repairs installations where VS Code retained globalState across
+			// an uninstall/reinstall but the file-backed index (or individual
+			// history_item.json files) was lost.
 			const migrationKey = "taskHistoryMigratedToFiles"
 			const alreadyMigrated = this.context.globalState.get<boolean>(migrationKey)
+			const legacyHistory = this.context.globalState.get<HistoryItem[]>("taskHistory") ?? []
+
+			if (legacyHistory.length > 0) {
+				this.log(`[initializeTaskHistoryStore] Reconciling ${legacyHistory.length} entries from globalState`)
+				await this.taskHistoryStore.migrateFromGlobalState(legacyHistory)
+			}
 
 			if (!alreadyMigrated) {
-				const legacyHistory = this.context.globalState.get<HistoryItem[]>("taskHistory") ?? []
-
-				if (legacyHistory.length > 0) {
-					this.log(`[initializeTaskHistoryStore] Migrating ${legacyHistory.length} entries from globalState`)
-					await this.taskHistoryStore.migrateFromGlobalState(legacyHistory)
-				}
-
 				await this.context.globalState.update(migrationKey, true)
 				this.log("[initializeTaskHistoryStore] Migration complete")
 			}
@@ -1582,7 +1591,7 @@ export class ClineProvider
 						window.AUDIO_BASE_URI = "${audioUri}"
 						window.MATERIAL_ICONS_BASE_URI = "${materialIconsUri}"
 					</script>
-					<title>CoStrict</title>
+					<title>DiCode</title>
 				</head>
 				<body data-platform="${platform}">
 					<div id="root"></div>
@@ -1673,7 +1682,7 @@ export class ClineProvider
 					"defaultLanguage": "${language}",
 				})
 			</script>
-            <title>CoStrict</title>
+            <title>DiCode</title>
           </head>
           <body data-platform="${platform}">
             <noscript>You need to enable JavaScript to run this app.</noscript>
@@ -1703,6 +1712,7 @@ export class ClineProvider
 	 * @param newMode The mode to switch to
 	 */
 	public async handleModeSwitch(newMode: Mode) {
+		if (newMode === "strict") newMode = "spec"
 		const task = this.getCurrentTask()
 
 		if (task) {
@@ -2822,7 +2832,7 @@ export class ClineProvider
 			openRouterImageApiKey,
 			openRouterImageGenerationSelectedModel,
 			autoCleanup,
-			debug,
+			debug: storedDebug,
 			hasClosedCodeReviewWelcomeTips,
 			lockApiConfigAcrossModes,
 		} = await this.buildBaseState({ includeTaskHistory: options?.includeTaskHistory ?? true })
@@ -2857,15 +2867,20 @@ export class ClineProvider
 		const currentTask = this.getCurrentTask()
 		const filteredTaskHistory = (taskHistory ?? []).filter((item: HistoryItem) => item.ts && item.task)
 
-		if (!debug) {
-			apiConfiguration.useCostrictCustomConfig = false
-		}
+		const costrictModelDebugEnabled = costrictDebugModeBuildEnabled && storedDebug
+		const costrictCustomConfigEnabled =
+			costrictModelDebugEnabled &&
+			(useCostrictCustomConfig ?? false) &&
+			apiConfiguration.costrictCustomConfigConsentVersion === COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION
+		apiConfiguration.useCostrictCustomConfig = costrictCustomConfigEnabled
 
 		return {
 			version: this.context.extension?.packageJSON?.version ?? "",
+			projectPermissionProfile: this.getProjectPermissionProfile(),
 			apiConfiguration,
+			costrictIsAuthenticated: this.hasCurrentCostrictAuthentication(apiConfiguration),
 			autoCleanup,
-			debug,
+			debug: costrictModelDebugEnabled,
 			customInstructions,
 			alwaysAllowReadOnly: alwaysAllowReadOnly ?? false,
 			alwaysAllowReadOnlyOutsideWorkspace: alwaysAllowReadOnlyOutsideWorkspace ?? true,
@@ -2901,7 +2916,7 @@ export class ClineProvider
 			ttsSpeed: ttsSpeed ?? 1.0,
 			customStoragePath,
 			enableCheckpoints: enableCheckpoints ?? true,
-			useCostrictCustomConfig: useCostrictCustomConfig ?? false,
+			useCostrictCustomConfig: costrictCustomConfigEnabled,
 			checkpointTimeout: checkpointTimeout ?? DEFAULT_CHECKPOINT_TIMEOUT_SECONDS,
 			shouldShowAnnouncement:
 				telemetrySetting !== "disabled" && lastShownAnnouncementId !== this.latestAnnouncementId,
@@ -2921,7 +2936,7 @@ export class ClineProvider
 			currentApiConfigName: currentApiConfigName ?? "default",
 			listApiConfigMeta: listApiConfigMeta ?? [],
 			pinnedApiConfigs: pinnedApiConfigs ?? {},
-			mode: mode ?? defaultModeSlug,
+			mode: mode === "strict" ? "spec" : (mode ?? defaultModeSlug),
 			costrictCodeMode: costrictCodeMode ?? "vibe",
 			customModePrompts: customModePrompts ?? {},
 			customSupportPrompts: customSupportPrompts ?? {},
@@ -3030,6 +3045,99 @@ export class ClineProvider
 		return this.buildBaseState()
 	}
 
+	public getProjectPermissionProfile(): import("@roo-code/types").ProjectPermissionProfile | undefined {
+		const persisted = normalizeProjectPermissionProfile(
+			this.context.workspaceState.get(ClineProvider.PROJECT_PERMISSION_PROFILE_KEY),
+		)
+		// New projects start in the restrictive mode. Returning a concrete
+		// profile also prevents legacy global write and execution settings from
+		// silently taking effect after this permission model is introduced.
+		return (
+			this.projectPermissionProfile ??
+			persisted ?? {
+				mode: "request-approval",
+				updatedAt: 0,
+				approvedCommands: [],
+				approvedWorkspaceWrites: false,
+			}
+		)
+	}
+
+	public async setProjectPermissionMode(mode: import("@roo-code/types").ProjectPermissionMode): Promise<void> {
+		const profile = {
+			mode,
+			updatedAt: Date.now(),
+			approvedCommands: this.getProjectPermissionProfile()?.approvedCommands ?? [],
+			approvedWorkspaceWrites: false,
+		}
+		// Make the selected mode observable by the active task immediately. The
+		// VS Code workspaceState write remains the durable value for later
+		// sessions, but must not delay a runtime permission boundary.
+		this.projectPermissionProfile = profile
+		// The old global write/execute switches are not part of project
+		// permissions. Clear any values saved by earlier releases when the user
+		// explicitly chooses a project mode, so they cannot affect this or an
+		// unconfigured workspace later.
+		await Promise.all([
+			this.context.workspaceState.update(ClineProvider.PROJECT_PERMISSION_PROFILE_KEY, profile),
+			this.updateGlobalState("alwaysAllowWrite", false),
+			this.updateGlobalState("alwaysAllowWriteOutsideWorkspace", false),
+			this.updateGlobalState("alwaysAllowWriteProtected", false),
+			this.updateGlobalState("alwaysAllowExecute", false),
+		])
+	}
+
+	public async approveProjectCommand(command: string): Promise<void> {
+		const profile = this.getProjectPermissionProfile()
+		if (!profile || profile.mode !== "request-approval" || !command.trim()) return
+		const approvedCommands = [...new Set([...(profile.approvedCommands ?? []), command.trim()])]
+		this.projectPermissionProfile = { ...profile, approvedCommands, updatedAt: Date.now() }
+		await this.context.workspaceState.update(
+			ClineProvider.PROJECT_PERMISSION_PROFILE_KEY,
+			this.projectPermissionProfile,
+		)
+	}
+
+	public async approveProjectWorkspaceWrites(): Promise<void> {
+		const profile = this.getProjectPermissionProfile()
+		if (!profile || profile.mode !== "request-approval") {
+			this.log(
+				`[projectPermissions] Ignored workspace write grant; current mode=${profile?.mode ?? "unset"}`,
+				"info",
+				"permissions",
+			)
+			return
+		}
+
+		// workspaceState belongs to the current VS Code workspace. Keep an
+		// in-memory copy as well so the next Task.ask() observes the grant even
+		// before VS Code completes its storage write.
+		this.projectPermissionProfile = { ...profile, approvedWorkspaceWrites: true, updatedAt: Date.now() }
+		this.log(
+			`[projectPermissions] Granting future ordinary workspace writes; updatedAt=${this.projectPermissionProfile.updatedAt}`,
+			"info",
+			"permissions",
+		)
+		await this.context.workspaceState.update(
+			ClineProvider.PROJECT_PERMISSION_PROFILE_KEY,
+			this.projectPermissionProfile,
+		)
+		this.log("[projectPermissions] Future workspace write grant persisted", "info", "permissions")
+	}
+
+	private hasCurrentCostrictAuthentication(apiConfiguration: ProviderSettings): boolean {
+		const policyAccepted = hasAcceptedCurrentAuthPolicy()
+		const localPair = Boolean(apiConfiguration.costrictAccessToken && apiConfiguration.costrictRefreshToken)
+		let runtimePair = false
+		try {
+			const runtimeTokens = readCostrictAccessToken()
+			runtimePair = Boolean(runtimeTokens?.access_token && runtimeTokens?.refresh_token)
+		} catch {
+			runtimePair = false
+		}
+		return policyAccepted && (localPair || runtimePair)
+	}
+
 	private async buildBaseState(options?: {
 		includeTaskHistory?: boolean
 	}): Promise<
@@ -3130,12 +3238,23 @@ export class ClineProvider
 		// }
 
 		const customStoragePath = this.getCachedCustomStoragePath()
+		const costrictCustomConfigEnabled =
+			costrictDebugModeBuildEnabled &&
+			(stateValues.debug ?? false) &&
+			(stateValues.useCostrictCustomConfig ?? false) &&
+			apiConfiguration.costrictCustomConfigConsentVersion === COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION
+		apiConfiguration.useCostrictCustomConfig = costrictCustomConfigEnabled
 
 		// Return the same structure as before.
 		return {
-			debug: stateValues.debug ?? false,
+			debug: costrictDebugModeBuildEnabled && (stateValues.debug ?? false),
+			// Task.ask() reads this base state rather than the webview-specific
+			// state builder. Keep project grants here so runtime approval decisions
+			// see the same profile that the UI displays and persists.
+			projectPermissionProfile: this.getProjectPermissionProfile(),
 			autoCleanup: stateValues.autoCleanup ?? DEFAULT_AUTO_CLEANUP_SETTINGS,
 			apiConfiguration,
+			costrictIsAuthenticated: this.hasCurrentCostrictAuthentication(apiConfiguration),
 			lastShownAnnouncementId: stateValues.lastShownAnnouncementId,
 			customInstructions: stateValues.customInstructions,
 			apiModelId: stateValues.apiModelId,
@@ -3163,7 +3282,7 @@ export class ClineProvider
 			ttsSpeed: stateValues.ttsSpeed ?? 1.0,
 			customStoragePath,
 			enableCheckpoints: stateValues.enableCheckpoints ?? true,
-			useCostrictCustomConfig: stateValues.useCostrictCustomConfig ?? false,
+			useCostrictCustomConfig: costrictCustomConfigEnabled,
 			checkpointTimeout: stateValues.checkpointTimeout ?? DEFAULT_CHECKPOINT_TIMEOUT_SECONDS,
 			soundVolume: stateValues.soundVolume,
 			writeDelayMs: stateValues.writeDelayMs ?? DEFAULT_WRITE_DELAY_MS,
@@ -3176,7 +3295,7 @@ export class ClineProvider
 			terminalZshOhMy: stateValues.terminalZshOhMy ?? false,
 			terminalZshP10k: stateValues.terminalZshP10k ?? false,
 			terminalZdotdir: stateValues.terminalZdotdir ?? false,
-			mode: stateValues.mode ?? defaultModeSlug,
+			mode: stateValues.mode === "strict" ? "spec" : (stateValues.mode ?? defaultModeSlug),
 			costrictCodeMode: stateValues.costrictCodeMode ?? "vibe",
 			language: stateValues.language ?? formatLanguage(await defaultLang()),
 			mcpEnabled: stateValues.mcpEnabled ?? true,
@@ -3769,11 +3888,10 @@ export class ClineProvider
 		// This ensures the stream fails quickly rather than waiting for network timeout
 		task.cancelCurrentRequest()
 
-		// Begin abort (non-blocking)
-		task.abortTask()
-
-		// Immediately mark the original instance as abandoned to prevent any residual activity
-		task.abandoned = true
+		// Wait for the final UI messages and history metadata to be durably saved
+		// before rehydrating this task. Rehydrating while abortTask() is still
+		// flushing can create a new Task from an empty/stale ui_messages.json.
+		await task.abortTask()
 
 		await pWaitFor(
 			() =>
@@ -3854,11 +3972,11 @@ export class ClineProvider
 	}
 
 	public async setMode(mode: string): Promise<void> {
-		await this.setValues({ mode })
+		await this.setValues({ mode: mode === "strict" ? "spec" : mode })
 	}
 
 	public async setCostrictCodeMode(costrictCodeMode: CostrictCodeMode): Promise<void> {
-		await this.setValues({ costrictCodeMode })
+		await this.setValues({ costrictCodeMode: normalizeWorkflowMode(costrictCodeMode) })
 		await this.postStateToWebview()
 	}
 
@@ -3984,7 +4102,11 @@ export class ClineProvider
 	}
 
 	public get cwd() {
-		return this.currentWorkspacePath || getWorkspacePath()
+		// Keep no-workspace windows consistent with Task's fallback directory.
+		// Chat history is grouped by cwd in the webview; returning an empty string
+		// here while Task persists "Desktop" makes successfully saved history
+		// invisible until a workspace is opened.
+		return this.currentWorkspacePath || getWorkspacePath(path.join(os.homedir(), "Desktop"))
 	}
 	public getCostrictAuthCommands() {
 		return this.costrictAuthCommands

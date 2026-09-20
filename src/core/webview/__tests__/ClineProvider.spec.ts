@@ -47,9 +47,9 @@ vi.mock("../../../i18n", () => ({
 vi.mock("../../shared/package", () => ({
 	Package: {
 		name: "zgsm",
-		publisher: "zgsm-ai",
+		publisher: "atad-apts",
 		version: "1.0.0",
-		outputChannel: "CoStrict",
+		outputChannel: "DiCode",
 		commandIDPrefix: "costrict",
 	},
 }))
@@ -163,7 +163,7 @@ vi.mock("vscode", async (importOriginal) => ({
 			extensionUri: { fsPath: "/mock/extension/path", path: "/mock/extension/path", scheme: "file" },
 			packageJSON: {
 				name: "costrict",
-				publisher: "zgsm-ai",
+				publisher: "atad-apts",
 				version: "2.0.27",
 			},
 		}),
@@ -602,6 +602,7 @@ describe("ClineProvider", () => {
 			apiConfiguration: {
 				apiProvider: "openrouter",
 			},
+			costrictIsAuthenticated: false,
 			customInstructions: undefined,
 			alwaysAllowReadOnly: false,
 			alwaysAllowReadOnlyOutsideWorkspace: false,
@@ -1103,6 +1104,34 @@ describe("ClineProvider", () => {
 		expect(first.customModes).toHaveLength(1)
 		expect(second.customModes).toHaveLength(1)
 		expect(customModesManager.getCustomModes).toHaveBeenCalledTimes(1)
+	})
+
+	test("getState exposes the persisted project permission profile to task approval checks", async () => {
+		vi.mocked(mockContext.workspaceState.get).mockImplementation((key: string) =>
+			key === "projectPermissionProfile"
+				? { mode: "request-approval", updatedAt: 1, approvedWorkspaceWrites: true }
+				: undefined,
+		)
+
+		await expect(provider.getState()).resolves.toMatchObject({
+			projectPermissionProfile: {
+				mode: "request-approval",
+				approvedWorkspaceWrites: true,
+			},
+		})
+	})
+
+	test("ignores an unsupported persisted permission mode", async () => {
+		vi.mocked(mockContext.workspaceState.get).mockImplementation((key: string) =>
+			key === "projectPermissionProfile" ? { mode: "unsupported", updatedAt: 1 } : undefined,
+		)
+
+		await expect(provider.getState()).resolves.toMatchObject({
+			projectPermissionProfile: {
+				mode: "request-approval",
+				approvedWorkspaceWrites: false,
+			},
+		})
 	})
 
 	test("createTask refreshes cached custom modes when configuration provides custom modes", async () => {

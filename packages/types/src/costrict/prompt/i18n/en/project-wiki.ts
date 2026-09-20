@@ -33,6 +33,7 @@ Coordinate the completion of **intelligent code repository analysis and document
 - **Mode Switching**: Must first switch to \`📋 Orchestrator\` mode
 - **Strict Sequence**: All subtasks must be executed in order, no skipping allowed
 - **Subtask Delegation**: Each subtask uses \`new_task\` tool to create subtasks, unified execution mode \`💻 Code\`
+- **Capability Boundary**: Orchestrator must not call \`read_file\`, editing, or command tools directly; delegate every file read and workspace operation to a \`💻 Code\` subtask
 - **Coordination Management**: Orchestrator responsible for coordination and progress tracking
 - **Context Management**: Avoid excessive context accumulation through subtask decomposition
 - **Completion Confirmation**: Declare "Subtask X completed" after each subtask finishes
@@ -65,17 +66,15 @@ new_task:
 
 ### Subtask 1: 📊 Project Classification Analysis
 Subtask instruction file path: \`${subtaskDir}${SUBTASK_FILENAMES.PROJECT_CLASSIFICATION_AGENT}\`
+Create a \`💻 Code\` subtask with \`new_task\` and include this instruction path in its message. The child reads the file; Orchestrator must not read it directly.
 
 ### Subtask 2: 🗂️ Documentation Structure Generation
 Subtask instruction file path: \`${subtaskDir}${SUBTASK_FILENAMES.THINK_CATALOGUE_AGENT}\`
-
-### Task 3: Read Documentation Structure Definition
-1. Use \`swtich_mode\` tool to switch to \`💻 Code\` mode
-2. Use \`read_file\` tool to read \`${workspace}${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON} file, for use in subsequent tasks
-4. Use \`switch_mode\` tool to switch back to \`📋 Orchestrator\` mode
+Create a \`💻 Code\` subtask with \`new_task\` and include this instruction path in its message. The child reads the file; Orchestrator must not read it directly.
+After writing \`${workspace}${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON}\`, require this child to return a compact scheduling manifest in \`attempt_completion.result\`: \`document_count\` and \`index/id/title/output_path\` for each document. Do not return full document descriptions.
 
 ### 🔄 Dynamic Subtask Decomposition
-Analyze the JSON format documentation structure definition read in Task 3, use \`new_task\` tool to create N (N = number of documents) documentation generation subtasks, each subtask responsible for generating one document.
+Use the compact manifest returned by Subtask 2 in \`attempt_completion.result\` to create N (N = number of documents) documentation-generation subtasks with \`new_task\`. Orchestrator must not read \`catalogue.json\` itself.
 **Note**:
 1. One top-level JSON object element corresponds to one document, JSON array length is the total number of documents. That is:
 \`\`\`json
@@ -89,7 +88,8 @@ Analyze the JSON format documentation structure definition read in Task 3, use \
 ]
 \`\`\`
 2. Information that must be input to subtasks (MUST STRICTLY FOLLOW):
-   - Document core information: Content extracted from documents read in Task 3, related to this subtask
+   - Document index or stable ID from the compact manifest returned by Subtask 2
+   - Catalogue path: \`${workspace}${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON}\`; the \`💻 Code\` child must read it and select its own entry
    - Document subtask instruction template path: \`${subtaskDir}${SUBTASK_FILENAMES.DOCUMENT_GENERATION_AGENT}\`
 
 ### Subtask 4.1: 📋 Document Generation-1

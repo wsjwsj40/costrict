@@ -9,6 +9,7 @@ export type AskApproval = (
 	partialMessage?: string,
 	progressStatus?: ToolProgressStatus,
 	forceApproval?: boolean,
+	commandExecution?: import("@roo-code/types").ClineMessage["commandExecution"],
 ) => Promise<boolean>
 
 export type HandleError = (action: string, error: Error) => Promise<void>
@@ -27,6 +28,7 @@ export const toolParamNames = [
 	"command",
 	"path",
 	"content",
+	"operation",
 	"regex",
 	"file_pattern",
 	"recursive",
@@ -118,7 +120,11 @@ export type NativeToolArgs = {
 		needsMoreThoughts?: boolean
 	}
 	attempt_completion: { result: string }
-	execute_command: { command: string; cwd?: string; timeout?: number | null }
+	execute_command: {
+		command: string
+		cwd?: string
+		timeout?: number | null
+	}
 	apply_diff: { path: string; diff: string }
 	edit: { file_path: string; old_string: string; new_string: string; replace_all?: boolean }
 	search_and_replace: { file_path: string; old_string: string; new_string: string; replace_all?: boolean }
@@ -152,7 +158,7 @@ export type NativeToolArgs = {
 	switch_mode: { mode_slug: string; reason: string }
 	update_todo_list: { todos: string }
 	use_mcp_tool: { server_name: string; tool_name: string; arguments?: Record<string, unknown> }
-	write_to_file: { path: string; content: string }
+	write_to_file: { path: string; content: string; operation?: "overwrite" | "append" }
 	costrict_checkpoint: {
 		action: "commit" | "list" | "show_diff" | "restore" | "revert"
 		message?: string
@@ -180,6 +186,8 @@ export interface ToolUse<TName extends ToolName = ToolName> {
 	// params is a partial record, allowing only some or none of the possible parameters to be used
 	params: Partial<Record<ToolParamName, string>>
 	partial: boolean
+	/** Original decoded function arguments, retained for schema validation and recovery diagnostics. */
+	rawArgs?: Record<string, unknown>
 	// nativeArgs is properly typed based on TName if it's in NativeToolArgs, otherwise never
 	nativeArgs?: TName extends keyof NativeToolArgs ? NativeToolArgs[TName] : never
 	/**
@@ -345,7 +353,6 @@ export const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
 	skill: "load skill",
 	generate_image: "generate images",
 	custom_tool: "use custom tools",
-	fake_tool_call: "use tool calls",
 	file_outline: "file outline",
 	costrict_checkpoint: "manage costrict checkpoints",
 } as const

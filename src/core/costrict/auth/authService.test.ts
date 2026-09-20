@@ -11,6 +11,7 @@ const fakeJwt = (exp: number) => {
 const mocks = vi.hoisted(() => ({
 	getTokens: vi.fn(),
 	readCostrictAccessToken: vi.fn(),
+	readCostrictAuthPolicyVersion: vi.fn(),
 }))
 
 vi.mock("./authStorage", () => ({
@@ -21,6 +22,8 @@ vi.mock("./authStorage", () => ({
 
 vi.mock("../runtime-config", () => ({
 	readCostrictAccessToken: mocks.readCostrictAccessToken,
+	readCostrictAuthPolicyVersion: mocks.readCostrictAuthPolicyVersion,
+	writeCostrictAuthPolicyVersion: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock("./authApi", () => ({
@@ -54,8 +57,13 @@ describe("CostrictAuthService.checkLoginStatusOnStartup", () => {
 	beforeEach(() => {
 		mocks.getTokens.mockReset()
 		mocks.readCostrictAccessToken.mockReset()
+		mocks.readCostrictAuthPolicyVersion.mockReset()
+		mocks.readCostrictAuthPolicyVersion.mockReturnValue(0)
 		CostrictAuthService._resetForTesting()
-		CostrictAuthService.setProvider({} as any)
+		CostrictAuthService.setProvider({
+			context: { globalState: { get: () => 1 } },
+			log: vi.fn(),
+		} as any)
 	})
 
 	it("returns true when SecretStorage has both tokens and a valid refresh_token", async () => {
@@ -157,5 +165,17 @@ describe("CostrictAuthService.checkLoginStatusOnStartup", () => {
 		})
 
 		expect(await CostrictAuthService.getInstance().checkLoginStatusOnStartup()).toBe(false)
+	})
+
+	it("accepts a valid current-policy token pair even when the legacy OAuth state is missing", async () => {
+		mocks.readCostrictAuthPolicyVersion.mockReturnValue(1)
+		mocks.getTokens.mockResolvedValue({
+			access_token: "access",
+			refresh_token: validRefresh,
+			state: "",
+		})
+		mocks.readCostrictAccessToken.mockReturnValue(null)
+
+		expect(await CostrictAuthService.getInstance().hasCurrentAuthentication()).toBe(true)
 	})
 })

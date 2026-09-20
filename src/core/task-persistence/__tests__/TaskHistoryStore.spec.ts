@@ -375,6 +375,76 @@ describe("TaskHistoryStore", () => {
 		})
 	})
 
+	describe("legacy task recovery", () => {
+		it("rebuilds missing history metadata from ui_messages.json", async () => {
+			const taskDir = path.join(tmpDir, "tasks", "messages-only")
+			await fs.mkdir(taskDir, { recursive: true })
+			await fs.mkdir(path.join(taskDir, "checkpoints", ".git"), { recursive: true })
+			await fs.writeFile(
+				path.join(taskDir, GlobalFileNames.uiMessages),
+				JSON.stringify([
+					{ type: "say", say: "task", text: "Recovered prompt", ts: 100 },
+					{ type: "say", say: "text", text: "Recovered response", ts: 200 },
+				]),
+			)
+			await fs.writeFile(
+				path.join(taskDir, "checkpoints", ".git", "config"),
+				"[core]\n\trepositoryformatversion = 0\n\tworktree = /projects/legacy\n[other]\n\tvalue = true\n",
+			)
+
+			await store.initialize()
+
+			expect(store.get("messages-only")).toMatchObject({
+				id: "messages-only",
+				task: "Recovered prompt",
+				ts: 200,
+				workspace: path.normalize("/projects/legacy"),
+			})
+			await expect(fs.access(path.join(taskDir, GlobalFileNames.historyItem))).resolves.toBeUndefined()
+		})
+
+		it("repairs workspace on an existing recovered history item", async () => {
+			const taskDir = path.join(tmpDir, "tasks", "missing-workspace")
+			await fs.mkdir(path.join(taskDir, "checkpoints", ".git"), { recursive: true })
+			await fs.writeFile(
+				path.join(taskDir, GlobalFileNames.historyItem),
+				JSON.stringify(makeHistoryItem({ id: "missing-workspace", workspace: undefined })),
+			)
+			await fs.writeFile(
+				path.join(taskDir, "checkpoints", ".git", "config"),
+				'[core]\n\tworktree = "/projects/recovered workspace"\n',
+			)
+
+			await store.initialize()
+
+			expect(store.get("missing-workspace")?.workspace).toBe(path.normalize("/projects/recovered workspace"))
+			const persisted = JSON.parse(await fs.readFile(path.join(taskDir, GlobalFileNames.historyItem), "utf8"))
+			expect(persisted.workspace).toBe(path.normalize("/projects/recovered workspace"))
+		})
+
+		it("imports tasks from the predecessor extension globalStorage directory", async () => {
+			const globalStorageParent = path.join(tmpDir, "globalStorage")
+			const legacyTaskDir = path.join(globalStorageParent, "atad-apts.zgsm", "tasks", "old-task")
+			const currentStorage = path.join(globalStorageParent, "atad-apts.dicode")
+			await fs.mkdir(legacyTaskDir, { recursive: true })
+			// A failed/partial migration may already have created the task folder.
+			await fs.mkdir(path.join(currentStorage, "tasks", "old-task"), { recursive: true })
+			await fs.writeFile(
+				path.join(legacyTaskDir, GlobalFileNames.uiMessages),
+				JSON.stringify([{ type: "say", say: "task", text: "Task from ZGSM", ts: 123 }]),
+			)
+
+			const migratedStore = new TaskHistoryStore(currentStorage)
+			await migratedStore.initialize()
+
+			expect(migratedStore.get("old-task")).toMatchObject({
+				id: "old-task",
+				task: "Task from ZGSM",
+			})
+			migratedStore.dispose()
+		})
+	})
+
 	describe("flushIndex()", () => {
 		it("writes index to disk on flush", async () => {
 			await store.initialize()

@@ -72,6 +72,9 @@ export const AutoApproveSettings = ({
 	setCachedStateField,
 	...props
 }: AutoApproveSettingsProps) => {
+	// Project permission modes now own filesystem and command approval. Keep
+	// legacy values for compatibility, but do not expose their unsafe controls.
+	const showLegacyFilesystemControls = false
 	const { t } = useAppTranslation()
 	const [commandInput, setCommandInput] = useState("")
 	const [deniedCommandInput, setDeniedCommandInput] = useState("")
@@ -170,7 +173,7 @@ export const AutoApproveSettings = ({
 
 				{/* ADDITIONAL SETTINGS */}
 
-				{alwaysAllowReadOnly && (
+				{showLegacyFilesystemControls && alwaysAllowReadOnly && (
 					<div className="flex flex-col gap-3 pl-3 border-l-2 border-vscode-button-background">
 						<div className="flex items-center gap-4 font-bold">
 							<span className="codicon codicon-eye" />
@@ -197,7 +200,7 @@ export const AutoApproveSettings = ({
 					</div>
 				)}
 
-				{alwaysAllowWrite && (
+				{showLegacyFilesystemControls && alwaysAllowWrite && (
 					<div className="flex flex-col gap-3 pl-3 border-l-2 border-vscode-button-background">
 						<div className="flex items-center gap-4 font-bold">
 							<span className="codicon codicon-edit" />
@@ -270,7 +273,7 @@ export const AutoApproveSettings = ({
 					</div>
 				)}
 
-				{alwaysAllowExecute && (
+				{showLegacyFilesystemControls && alwaysAllowExecute && (
 					<div className="flex flex-col gap-3 pl-3 border-l-2 border-vscode-button-background">
 						<div className="flex items-center gap-4 font-bold">
 							<span className="codicon codicon-terminal" />

@@ -21,7 +21,13 @@ import {
 	printLogo,
 	loadLocalLanguageExtensions,
 } from "./base/common"
-import { CostrictAuthApi, CostrictAuthCommands, CostrictAuthService, CostrictAuthStorage } from "./auth"
+import {
+	CostrictAuthApi,
+	CostrictAuthCommands,
+	CostrictAuthService,
+	CostrictAuthStorage,
+	enforceCurrentAuthPolicy,
+} from "./auth"
 import { initCodeReview, disposeGitCommitListener } from "./code-review"
 import { initTelemetry } from "./telemetry"
 import { initErrorCodeManager } from "./error-code"
@@ -59,7 +65,7 @@ async function initialize(provider: ClineProvider, logger: ILogger) {
 		case "plan":
 			await provider.setValue("mode", codeMode)
 			break
-		case "strict":
+		case "spec":
 			await provider.setValue("mode", codeMode)
 			break
 		default:
@@ -119,8 +125,17 @@ export async function activate(
 	context.subscriptions.push(costrictAuthService)
 	context.subscriptions.push(
 		onCostrictTokensUpdate((tokens: { state: string; access_token: string; refresh_token: string }) => {
-			costrictAuthService.saveTokens(tokens)
-			provider.log("Auth tokens refreshed from another window")
+			void costrictAuthService
+				.acceptSynchronizedTokens(tokens)
+				.then(async (acceptedCurrentLogin) => {
+					provider.log(
+						acceptedCurrentLogin
+							? "Auth tokens synchronized and current login policy accepted"
+							: "Auth tokens refreshed from another window",
+					)
+					await provider.postStateToWebview({ force: true })
+				})
+				.catch((error) => provider.log(`Failed to synchronize auth tokens: ${error}`))
 		}),
 		onCostrictLogout((sessionId: string) => {
 			if (generateNewSessionClientId() === sessionId) return
@@ -140,6 +155,7 @@ export async function activate(
 
 	let loginTip = () => {}
 	try {
+		await enforceCurrentAuthPolicy(provider)
 		const startupAuth = await costrictAuthService.getStartupAuthTokens()
 
 		if (startupAuth) {
@@ -149,9 +165,8 @@ export async function activate(
 			if (source === "file") {
 				provider.log("Startup reconciliation: adopted fresher tokens from auth.json")
 				await costrictAuthService.saveTokens(tokens)
-			} else {
-				prepareCompletionRuntimeAuth(tokens, provider)
 			}
+			prepareCompletionRuntimeAuth(tokens, provider)
 
 			costrictAuthService.startTokenRefresh(tokens.refresh_token, getClientId(), tokens.state)
 			costrictAuthService.updateUserInfo(tokens.access_token)
@@ -160,8 +175,8 @@ export async function activate(
 				costrictAuthService.getTokens().then(async (tokens) => {
 					if (!tokens) {
 						getPanel()?.webview.postMessage({
-							type: "showReauthConfirmationDialog",
-							messageTs: new Date().getTime(),
+							type: "action",
+							action: "costrictAccountButtonClicked",
 						})
 					}
 				})

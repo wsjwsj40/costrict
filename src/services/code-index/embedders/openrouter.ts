@@ -76,8 +76,8 @@ export class OpenRouterEmbedder implements IEmbedder {
 				baseURL: this.baseUrl,
 				apiKey: apiKey,
 				defaultHeaders: {
-					"HTTP-Referer": "https://github.com/zgsm-ai/costrict.git",
-					"X-Title": "CoStrict",
+					"HTTP-Referer": "https://github.com/atad-apts/costrict.git",
+					"X-Title": "DiCode",
 				},
 			})
 		} catch (error) {

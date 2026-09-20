@@ -76,7 +76,7 @@ class ErrorBoundary extends Component<ErrorProps, ErrorState> {
 				</h2>
 				<p className="mb-4">
 					{t("errorBoundary.reportText")}{" "}
-					<a href="https://github.com/zgsm-ai/costrict/issues" target="_blank" rel="noreferrer">
+					<a href="https://github.com/atad-apts/costrict/issues" target="_blank" rel="noreferrer">
 						{t("errorBoundary.githubText")}
 					</a>
 				</p>

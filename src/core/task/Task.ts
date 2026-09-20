@@ -14,7 +14,6 @@ import debounce from "lodash.debounce"
 import delay from "delay"
 import pWaitFor from "p-wait-for"
 import { serializeError } from "serialize-error"
-import { parseJSON } from "partial-json"
 import { Package } from "../../shared/package"
 import { getRawTaskReporter } from "../costrict/telemetry"
 // import { formatToolInvocation } from "../tools/helpers/toolResultFormatting"
@@ -31,6 +30,7 @@ import {
 	type ContextTruncation,
 	type ClineMessage,
 	type ClineSay,
+	type ClineSayTool,
 	type ClineAsk,
 	type ToolProgressStatus,
 	type HistoryItem,
@@ -138,12 +138,22 @@ import { MessageQueueService } from "../message-queue/MessageQueueService"
 
 import { ErrorCodeManager } from "../costrict/error-code"
 import { CostrictAuthService } from "../costrict/auth"
+import { refreshModelQuota } from "../costrict/quota/modelQuotaService"
 import { AutoApprovalHandler, checkAutoApproval } from "../auto-approval"
+import { isWriteToolAction } from "../auto-approval/tools"
 import { MessageManager } from "../message-manager"
 import { validateAndFixToolResultIds } from "./validateToolResultIds"
 import { ModelFallbackManager } from "./ModelFallbackManager"
+import { refreshModels } from "../../api/providers/fetchers/modelCache"
 import { mergeConsecutiveApiMessages } from "./mergeConsecutiveApiMessages"
+import { containsLegacyXmlToolHistory, sanitizeLegacyApiHistory } from "./legacyApiHistory"
+import { rebuildApiHistoryFromUiMessages } from "./rebuildApiHistoryFromUi"
 import { resolveToolAlias } from "../prompts/tools/filter-tools-for-mode"
+import {
+	describeModelPermissionError,
+	isForbiddenModelRequest,
+	selectPermissionReplacementModel,
+} from "./modelPermissionRecovery"
 
 const MAX_EXPONENTIAL_BACKOFF_SECONDS = 600 // 10 minutes
 const DEFAULT_USAGE_COLLECTION_TIMEOUT_MS = 5000 // 5 seconds
@@ -176,6 +186,8 @@ export interface TaskOptions extends CreateTaskOptions {
 
 export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	readonly taskId: string
+	/** Wall-clock creation time used to distinguish artifacts from earlier task runs. */
+	readonly createdAt = Date.now()
 	readonly costrictWorkflowMode?: string
 	readonly costrictWorkflowSpecScope?: string
 	readonly rootTaskId?: string
@@ -336,6 +348,8 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	// LLM Messages & Chat Messages
 	apiConversationHistory: ApiMessage[] = []
 	clineMessages: ClineMessage[] = []
+	private useLegacyHistoryCompatibility = false
+	private legacyHistorySanitizeLogged = false
 	private lastFileTreeUserMessageCount = 0
 	private lastSpecTaskStatusUserMessageCount = 0
 
@@ -623,7 +637,12 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				this.startTask(task, images)
 			} else if (historyItem) {
 				this.smartMistakeDetector?.clear()
-				this.resumeTaskFromHistory()
+				void this.resumeTaskFromHistory().catch((error) => {
+					const message = error instanceof Error ? error.message : String(error)
+					this.providerRef
+						.deref()
+						?.log(`[Task#resumeTaskFromHistory] Failed to resume task ${this.taskId}: ${message}`)
+				})
 			} else {
 				throw new Error("Either historyItem or task/images must be provided")
 			}
@@ -1227,16 +1246,16 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 	/**
 	 * Check if we should attach task.md status update instructions.
-	 * Independent of KPT Tree: requires costrict provider OR strict code mode
+	 * Independent of KPT Tree: requires costrict provider OR Spec workflow mode
 	 */
 	private async shouldAttachSpecTaskStatusCheckInstructions(force = false): Promise<boolean> {
 		const provider = this.providerRef.deref()
 		const state = await provider?.getState()
 		const apiConfiguration = state?.apiConfiguration
 
-		// Apply when using costrict provider AND when in strict code mode
+		// Apply when using costrict provider and in the Spec workflow.
 		const isCostrictProvider = apiConfiguration?.apiProvider === "costrict"
-		const isStrictCodeMode = state?.costrictCodeMode === "strict"
+		const isStrictCodeMode = state?.costrictCodeMode === "spec"
 		const isStrictCodeEditAgent = isStrictCodeMode && ["code", "subcoding"].includes(state?.mode)
 
 		if (!isCostrictProvider || !isStrictCodeMode) {
@@ -1392,7 +1411,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				await this.providerRef.deref()?.updateTaskHistory(historyItem)
 				return true
 			} catch (error) {
-				console.error("Failed to save CoStrict messages:", error)
+				console.error("Failed to save DiCode messages:", error)
 				return false
 			}
 		},
@@ -1434,6 +1453,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		partial?: boolean,
 		progressStatus?: ToolProgressStatus,
 		isProtected?: boolean,
+		commandExecution?: ClineMessage["commandExecution"],
 	): Promise<{ response: ClineAskResponse; text?: string; images?: string[] }> {
 		// If this Cline instance was aborted by the provider, then the only
 		// thing keeping us alive is a promise still running in the background,
@@ -1444,7 +1464,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// simply removes the reference to this instance, but the instance is
 		// still alive until this promise resolves or rejects.)
 		if (this.abort) {
-			throw new Error(`[CoStrict#ask] task ${this.taskId}.${this.instanceId} aborted`)
+			throw new Error(`[DiCode#ask] task ${this.taskId}.${this.instanceId} aborted`)
 		}
 
 		let askTs: number
@@ -1462,6 +1482,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					lastMessage.partial = partial
 					lastMessage.progressStatus = progressStatus
 					lastMessage.isProtected = isProtected
+					lastMessage.commandExecution = commandExecution
 					// TODO: Be more efficient about saving and posting only new
 					// data or one whole message at a time so ignore partial for
 					// saves, and only post parts of partial message instead of
@@ -1474,7 +1495,15 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					// state.
 					askTs = Date.now()
 					this.lastMessageTs = askTs
-					await this.addToClineMessages({ ts: askTs, type: "ask", ask: type, text, partial, isProtected })
+					await this.addToClineMessages({
+						ts: askTs,
+						type: "ask",
+						ask: type,
+						text,
+						partial,
+						isProtected,
+						commandExecution,
+					})
 					// console.log("Task#ask: current ask promise was ignored (#2)")
 					throw new AskIgnoredError("new partial")
 				}
@@ -1503,6 +1532,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					lastMessage.partial = false
 					lastMessage.progressStatus = progressStatus
 					lastMessage.isProtected = isProtected
+					lastMessage.commandExecution = commandExecution
 					await this.saveClineMessages()
 					this.updateClineMessage(lastMessage)
 				} else {
@@ -1512,7 +1542,14 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					this.askResponseImages = undefined
 					askTs = Date.now()
 					this.lastMessageTs = askTs
-					await this.addToClineMessages({ ts: askTs, type: "ask", ask: type, text, isProtected })
+					await this.addToClineMessages({
+						ts: askTs,
+						type: "ask",
+						ask: type,
+						text,
+						isProtected,
+						commandExecution,
+					})
 				}
 			}
 		} else {
@@ -1522,7 +1559,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			this.askResponseImages = undefined
 			askTs = Date.now()
 			this.lastMessageTs = askTs
-			await this.addToClineMessages({ ts: askTs, type: "ask", ask: type, text, isProtected })
+			await this.addToClineMessages({ ts: askTs, type: "ask", ask: type, text, isProtected, commandExecution })
 		}
 
 		let timeouts: NodeJS.Timeout[] = []
@@ -1530,7 +1567,37 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// Automatically approve if the ask according to the user's settings.
 		const provider = this.providerRef.deref()
 		const state = provider ? await provider.getState() : undefined
-		const approval = await checkAutoApproval({ state, ask: type, text, isProtected })
+		const approval = await checkAutoApproval({ state, ask: type, text, isProtected, commandExecution })
+		// Keep an audit trail for project file-write decisions. This is logged at
+		// the decision boundary, after state has been read, so it distinguishes a
+		// missing grant from protected/outside-workspace operations in either mode.
+		if (type === "tool" && state?.projectPermissionProfile) {
+			try {
+				const tool = JSON.parse(text || "{}") as ClineSayTool
+				if (isWriteToolAction(tool)) {
+					provider?.log(
+						`[projectPermissions] Write decision=${approval.decision}; tool=${tool.tool}; path=${tool.path ?? ""}; ` +
+							`mode=${state.projectPermissionProfile.mode}; ` +
+							`grant=${state.projectPermissionProfile.approvedWorkspaceWrites === true}; ` +
+							`outside=${tool.isOutsideWorkspace === true}; protected=${isProtected === true}`,
+						"info",
+						"permissions",
+					)
+				}
+			} catch {
+				// Malformed tool payloads are handled by checkAutoApproval; do not let
+				// diagnostic logging alter the approval path.
+			}
+		}
+		if (type === "command" && state?.projectPermissionProfile && commandExecution) {
+			provider?.log(
+				`[projectPermissions] Command decision=${approval.decision}; mode=${state.projectPermissionProfile.mode}; ` +
+					`scope=${commandExecution.scope}; destructive=${commandExecution.requiresReview === true}; ` +
+					`remembered=${state.projectPermissionProfile.approvedCommands?.includes(text || "") === true}`,
+				"info",
+				"permissions",
+			)
+		}
 
 		if (approval.decision === "approve") {
 			this.approveAsk()
@@ -1554,7 +1621,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		const isMessageQueued = !this.messageQueueService.isEmpty()
 		// Keep queued user messages intact during command_output asks. Those asks
 		// are terminal flow-control, not conversational turns.
-		const shouldDrainQueuedMessageForAsk = type !== "command_output"
+		const shouldDrainQueuedMessageForAsk = type !== "command_output" && type !== "command"
 		const isStatusMutable = !partial && isBlocking && !isMessageQueued && approval.decision === "ask"
 
 		if (isStatusMutable) {
@@ -1606,7 +1673,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 			if (message) {
 				// Check if this is a tool approval ask that needs to be handled.
-				if (type === "tool" || type === "command" || type === "use_mcp_server") {
+				if (type === "tool" || type === "use_mcp_server") {
 					// For tool approvals, we need to approve first, then send
 					// the message if there's text/images.
 					this.handleWebviewAskResponse("yesButtonClicked", message.text, message.images)
@@ -1639,7 +1706,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					if (message) {
 						// If this is a tool approval ask, we need to approve first (yesButtonClicked)
 						// and include any queued text/images.
-						if (type === "tool" || type === "command" || type === "use_mcp_server") {
+						if (type === "tool" || type === "use_mcp_server") {
 							this.handleWebviewAskResponse("yesButtonClicked", message.text, message.images)
 						} else {
 							this.handleWebviewAskResponse("messageResponse", message.text, message.images)
@@ -1781,15 +1848,18 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				this.saveClineMessages().catch((e) => console.error("Failed to save multiple choice state:", e))
 			}
 		}
-		// Mark the last tool-approval ask as answered when user approves (or auto-approval)
+		// Mark the last command or tool approval ask as answered when the user
+		// approves it or the project policy approves it automatically. Without
+		// this, an already-running auto-approved command is still rendered as a
+		// pending approval in the chat.
 		if (askResponse === "yesButtonClicked") {
-			const lastToolAskIndex = findLastIndex(
+			const lastApprovalAskIndex = findLastIndex(
 				this.clineMessages,
-				(msg) => msg.type === "ask" && msg.ask === "tool" && !msg.isAnswered,
+				(msg) => msg.type === "ask" && (msg.ask === "tool" || msg.ask === "command") && !msg.isAnswered,
 			)
-			if (lastToolAskIndex !== -1) {
-				this.clineMessages[lastToolAskIndex].isAnswered = true
-				void this.updateClineMessage(this.clineMessages[lastToolAskIndex])
+			if (lastApprovalAskIndex !== -1) {
+				this.clineMessages[lastApprovalAskIndex].isAnswered = true
+				void this.updateClineMessage(this.clineMessages[lastApprovalAskIndex])
 				this.saveClineMessages().catch((error) => {
 					console.error("Failed to save answered tool-ask state:", error)
 				})
@@ -2054,7 +2124,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		contextTruncation?: ContextTruncation,
 	): Promise<undefined> {
 		if (this.abort) {
-			throw new Error(`[CoStrict#say] task ${this.taskId}.${this.instanceId} aborted`)
+			throw new Error(`[DiCode#say] task ${this.taskId}.${this.instanceId} aborted`)
 		}
 		const isRateLimitRetry =
 			this.apiConfiguration.apiProvider === "costrict" &&
@@ -2166,7 +2236,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	async sayAndCreateMissingParamError(toolName: ToolName, paramName: string, relPath?: string) {
 		await this.say(
 			"error",
-			`Costrict tried to use ${toolName}${
+			`DiCode tried to use ${toolName}${
 				relPath ? ` for '${relPath.toPosix()}'` : ""
 			} without value for required parameter '${paramName}'. Retrying...`,
 		)
@@ -2297,7 +2367,12 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 	private async resumeTaskFromHistory() {
 		try {
+			const logResumeStage = (stage: string) =>
+				this.providerRef.deref()?.log(`[Task#resumeTaskFromHistory] task=${this.taskId} stage=${stage}`)
+
+			logResumeStage("start")
 			const modifiedClineMessages = await this.getSavedClineMessages()
+			logResumeStage(`ui-history-loaded count=${modifiedClineMessages.length}`)
 
 			// Remove any resume messages that may have been added before.
 			const lastRelevantMessageIndex = findLastIndex(
@@ -2347,6 +2422,11 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			// This is important in case the user deletes messages without resuming
 			// the task first.
 			this.apiConversationHistory = await this.getSavedApiConversationHistory()
+			this.useLegacyHistoryCompatibility = containsLegacyXmlToolHistory(this.apiConversationHistory)
+			logResumeStage(`api-history-loaded count=${this.apiConversationHistory.length}`)
+			if (this.useLegacyHistoryCompatibility) {
+				logResumeStage("legacy-xml-history-detected")
+			}
 
 			const lastClineMessage = this.clineMessages
 				.slice()
@@ -2362,7 +2442,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 			this.isInitialized = true
 
+			logResumeStage(`waiting-for-resume-response ask=${askType}`)
 			const { response, text, images } = await this.ask(askType) // Calls `postStateToWebview`.
+			logResumeStage(`resume-response-received response=${response}`)
 
 			let responseText: string | undefined
 			let responseImages: string[] | undefined
@@ -2376,6 +2458,10 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			// Make sure that the api conversation history can be resumed by the API,
 			// even if it goes out of sync with cline messages.
 			let existingApiConversationHistory: ApiMessage[] = await this.getSavedApiConversationHistory()
+			const lastApiMessage = existingApiConversationHistory.at(-1)
+			logResumeStage(
+				`api-history-reloaded count=${existingApiConversationHistory.length} lastRole=${lastApiMessage?.role ?? "missing"} lastContent=${Array.isArray(lastApiMessage?.content) ? "array" : typeof lastApiMessage?.content}`,
+			)
 
 			// Tool blocks are always preserved; native tool calling only.
 
@@ -2469,8 +2555,19 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					throw new Error("Unexpected: Last message is not a user or assistant message")
 				}
 			} else {
-				throw new Error("Unexpected: No existing API conversation history")
+				// Some legacy builds persisted only ui_messages.json. Rebuild a
+				// conservative text-only model history from this task's own UI messages
+				// so the resumed answer remains grounded in the visible conversation.
+				modifiedApiConversationHistory = rebuildApiHistoryFromUiMessages(modifiedClineMessages)
+				this.useLegacyHistoryCompatibility = containsLegacyXmlToolHistory(modifiedApiConversationHistory)
+				modifiedOldUserContent = []
+				logResumeStage(
+					`api-history-missing fallback=rebuilt-from-ui rebuilt=${modifiedApiConversationHistory.length}`,
+				)
 			}
+			logResumeStage(
+				`api-history-normalized retained=${modifiedApiConversationHistory.length} pendingUserBlocks=${modifiedOldUserContent.length}`,
+			)
 
 			let newUserContent: Anthropic.Messages.ContentBlockParam[] = [...modifiedOldUserContent]
 
@@ -2494,16 +2591,23 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				})
 			}
 
+			logResumeStage(`saving-normalized-api-history count=${modifiedApiConversationHistory.length}`)
 			await this.overwriteApiConversationHistory(modifiedApiConversationHistory)
 
 			// Task resuming from history item.
+			logResumeStage(`starting-task-loop userBlocks=${newUserContent.length}`)
 			await this.initiateTaskLoop(newUserContent)
+			logResumeStage("task-loop-ended")
 		} catch (error) {
 			// Resume and cancellation can race when users issue repeated cancels.
 			// Treat intentional abort/abandon flows as expected and avoid process-level crashes.
 			if (this.abandoned === true || this.abort === true || this.abortReason === "user_cancelled") {
 				return
 			}
+			const message = error instanceof Error ? error.message : String(error)
+			this.providerRef
+				.deref()
+				?.log(`[Task#resumeTaskFromHistory] task=${this.taskId} stage=failed error=${message}`)
 			throw error
 		}
 	}
@@ -2781,6 +2885,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 	private async initiateTaskLoop(userContent: Anthropic.Messages.ContentBlockParam[]): Promise<void> {
 		// Kicks off the checkpoints initialization process in the background.
 		getCheckpointService(this)
+		this.providerRef
+			.deref()
+			?.log(`[Task#initiateTaskLoop] task=${this.taskId} stage=entered userBlocks=${userContent.length}`)
 
 		let nextUserContent = userContent
 		let includeFileDetails = true
@@ -2788,7 +2895,11 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		this.emit(RooCodeEventName.TaskStarted)
 
 		while (!this.abort) {
+			this.providerRef.deref()?.log(`[Task#initiateTaskLoop] task=${this.taskId} stage=request-start`)
 			const didEndLoop = await this.recursivelyMakeClineRequests(nextUserContent, includeFileDetails)
+			this.providerRef
+				.deref()
+				?.log(`[Task#initiateTaskLoop] task=${this.taskId} stage=request-ended didEndLoop=${didEndLoop}`)
 			includeFileDetails = false // We only need file details the first time.
 
 			// The way this agentic loop works is that cline will be given a
@@ -2831,7 +2942,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			const currentIncludeFileDetails = currentItem.includeFileDetails
 
 			if (this.abort) {
-				throw new Error(`[CoStrict#recursivelyMakeRooRequests] task ${this.taskId}.${this.instanceId} aborted`)
+				throw new Error(`[DiCode#recursivelyMakeRooRequests] task ${this.taskId}.${this.instanceId} aborted`)
 			}
 
 			// Handle mistake limit based on experiment flag
@@ -3138,8 +3249,6 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				const stream = this.attemptApiRequest(currentItem.retryAttempt ?? 0, { skipProviderRateLimit: true })
 				let assistantMessage = ""
 				let reasoningMessage = ""
-				let assistantXmlToolMessage = ""
-				let assistantXmlToolCallId = ""
 				let streamingFailedMessage: string | undefined = ""
 				let pendingGroundingSources: GroundingSource[] = []
 				void (await this.updateStreamingStatus(true))
@@ -3214,19 +3323,6 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 								}
 								break
 
-							case "fake_tool_call": {
-								// During streaming, only accumulate fake_tool_call content without executing tools
-								// This maintains streaming output continuity
-								assistantXmlToolMessage += chunk.text
-
-								// Generate unique tool call ID if not already set
-								if (!assistantXmlToolCallId) {
-									assistantXmlToolCallId = uuidv7()
-								}
-
-								// Don't call presentAssistantMessage() here, wait until stream ends
-								break
-							}
 							case "tool_call_partial": {
 								// Process raw tool call chunk through NativeToolCallParser
 								// which handles tracking, buffering, and emits events
@@ -3751,6 +3847,10 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					}
 				} finally {
 					void (await this.updateStreamingStatus(false, this.abortReason))
+					const quotaTarget = this.providerRef.deref()
+					if (quotaTarget) {
+						void refreshModelQuota(quotaTarget, this.apiConfiguration)
+					}
 
 					// Clean up the abort controller when streaming completes
 					this.currentRequestAbortController = undefined
@@ -3759,7 +3859,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				// Need to call here in case the stream was aborted.
 				if (this.abort || this.abandoned) {
 					throw new Error(
-						`[CoStrict#recursivelyMakeRooRequests] task ${this.taskId}.${this.instanceId} aborted`,
+						`[DiCode#recursivelyMakeRooRequests] task ${this.taskId}.${this.instanceId} aborted`,
 					)
 				}
 
@@ -3770,57 +3870,6 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 					this.modelFallbackManager?.recordSuccess()
 				}
 
-				// Process accumulated fake_tool_call after stream ends
-				// Content was only accumulated during streaming, now parse and execute tool calls
-				if (assistantXmlToolCallId && assistantXmlToolMessage) {
-					try {
-						const toolCallData = parseJSON(assistantXmlToolMessage)
-						if (toolCallData && toolCallData.name && toolCallData.arguments) {
-							// Convert arguments to JSON string if not already
-							const argumentsStr =
-								typeof toolCallData.arguments === "string"
-									? toolCallData.arguments
-									: JSON.stringify(toolCallData.arguments)
-
-							// Use NativeToolCallParser to process tool call
-							NativeToolCallParser.startStreamingToolCall(assistantXmlToolCallId, toolCallData.name)
-							NativeToolCallParser.processStreamingChunk(assistantXmlToolCallId, argumentsStr)
-
-							// Finalize tool call and get ToolUse object
-							const toolUse = NativeToolCallParser.finalizeStreamingToolCall(
-								assistantXmlToolCallId,
-								this?.apiConfiguration?.apiProvider === "costrict",
-							)
-
-							if (toolUse) {
-								// Add ToolUse to assistantMessageContent
-								this.assistantMessageContent.push(toolUse)
-
-								// Update streaming tool call index
-								const toolUseIndex = this.assistantMessageContent.length - 1
-								this.streamingToolCallIndices.set(assistantXmlToolCallId, toolUseIndex)
-
-								// Mark that we have new content to process
-								this.userMessageContentReady = false
-
-								// Present the tool call to user - presentAssistantMessage will execute
-								// tools sequentially and accumulate all results in userMessageContent
-								presentAssistantMessage(this)
-							}
-						}
-					} catch (error) {
-						// JSON parsing failed, log warning
-						console.warn(
-							"[Task] Failed to parse fake_tool_call JSON after stream ended:",
-							assistantXmlToolMessage,
-							error,
-						)
-					}
-
-					// Clean up fake_tool_call state
-					assistantXmlToolMessage = ""
-					assistantXmlToolCallId = ""
-				}
 				// Set any blocks to be complete to allow `presentAssistantMessage`
 				// to finish and set `userMessageContentReady` to true.
 				// (Could be a text block that had no subsequent tool uses, or a
@@ -4543,7 +4592,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 	public async *attemptApiRequest(
 		retryAttempt: number = 0,
-		options: { skipProviderRateLimit?: boolean } = {},
+		options: { skipProviderRateLimit?: boolean; permissionRefreshAttempted?: boolean } = {},
 	): ApiStream {
 		const state = await this.providerRef.deref()?.getState()
 
@@ -4771,7 +4820,19 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// mergeConsecutiveApiMessages implementation) without mutating stored history.
 		const mergedForApi = mergeConsecutiveApiMessages(messagesSinceLastSummary, { roles: ["user"] })
 		const messagesWithoutImages = maybeRemoveImageBlocks(mergedForApi, this.api)
-		const cleanConversationHistory = this.buildCleanConversationHistory(messagesWithoutImages as ApiMessage[])
+		let cleanConversationHistory = this.buildCleanConversationHistory(messagesWithoutImages as ApiMessage[])
+		if (this.useLegacyHistoryCompatibility) {
+			const sanitized = sanitizeLegacyApiHistory(cleanConversationHistory as ApiMessage[])
+			cleanConversationHistory = sanitized.messages as typeof cleanConversationHistory
+			if (!this.legacyHistorySanitizeLogged) {
+				this.legacyHistorySanitizeLogged = true
+				this.providerRef
+					.deref()
+					?.log(
+						`[Task#legacyApiHistory] task=${this.taskId} removedAutomated=${sanitized.removedAutomatedMessages} removedEnvironment=${sanitized.removedEnvironmentBlocks} convertedTools=${sanitized.convertedToolBlocks} incompleteTools=${sanitized.incompleteToolNames.join(",") || "none"}`,
+					)
+			}
+		}
 
 		// Check auto-approval limits
 		const approvalResult = await this.autoApprovalHandler.checkAutoApprovalLimits(
@@ -4942,6 +5003,25 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			yield firstChunk.value
 			this.isWaitingForFirstChunk = false
 		} catch (error) {
+			this.providerRef
+				.deref()
+				?.log(
+					`[ModelPermissionRecovery] first-chunk error provider=${this.apiConfiguration.apiProvider} attempted=${Boolean(options.permissionRefreshAttempted)} forbidden=${isForbiddenModelRequest(error)} error=${describeModelPermissionError(error)}`,
+				)
+			if (
+				this.apiConfiguration.apiProvider === "costrict" &&
+				!options.permissionRefreshAttempted &&
+				isForbiddenModelRequest(error) &&
+				(await this.refreshForbiddenCostrictModel())
+			) {
+				this.isWaitingForFirstChunk = false
+				this.currentRequestAbortController = undefined
+				yield* this.attemptApiRequest(retryAttempt, {
+					skipProviderRateLimit: true,
+					permissionRefreshAttempted: true,
+				})
+				return
+			}
 			let forceAutoApprovaldisabled = false
 			const errorMsg = await this.convertErrorMessage(error, () => {
 				forceAutoApprovaldisabled = true
@@ -4975,7 +5055,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				)
 				await this.handleContextWindowExceededError()
 				// Retry the request after handling the context window error
-				yield* this.attemptApiRequest(retryAttempt + 1)
+				yield* this.attemptApiRequest(retryAttempt + 1, {
+					permissionRefreshAttempted: options.permissionRefreshAttempted,
+				})
 				return
 			}
 
@@ -4996,7 +5078,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				// Delegate generator output from the recursive call with
 				// incremented retry count.
 				this.api?.setChatType?.("system")
-				yield* this.attemptApiRequest(retryAttempt + 1)
+				yield* this.attemptApiRequest(retryAttempt + 1, {
+					permissionRefreshAttempted: options.permissionRefreshAttempted,
+				})
 
 				return
 			} else {
@@ -5012,7 +5096,9 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 
 				// Delegate generator output from the recursive call.
 				this.api?.setChatType?.("system")
-				yield* this.attemptApiRequest()
+				yield* this.attemptApiRequest(0, {
+					permissionRefreshAttempted: options.permissionRefreshAttempted,
+				})
 				return
 			}
 		}
@@ -5025,7 +5111,81 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		// it's saying "yield all remaining values from this iterator". This
 		// effectively passes along all subsequent chunks from the original
 		// stream.
-		yield* iterator
+		try {
+			yield* iterator
+		} catch (error) {
+			this.providerRef
+				.deref()
+				?.log(
+					`[ModelPermissionRecovery] downstream-stream error provider=${this.apiConfiguration.apiProvider} attempted=${Boolean(options.permissionRefreshAttempted)} forbidden=${isForbiddenModelRequest(error)} error=${describeModelPermissionError(error)}`,
+				)
+			if (
+				this.apiConfiguration.apiProvider === "costrict" &&
+				!options.permissionRefreshAttempted &&
+				isForbiddenModelRequest(error) &&
+				(await this.refreshForbiddenCostrictModel())
+			) {
+				this.currentRequestAbortController = undefined
+				yield* this.attemptApiRequest(retryAttempt, {
+					skipProviderRateLimit: true,
+					permissionRefreshAttempted: true,
+				})
+				return
+			}
+			throw error
+		}
+	}
+
+	private async refreshForbiddenCostrictModel(): Promise<boolean> {
+		const provider = this.providerRef.deref()
+		if (!provider) return false
+
+		const state = await provider.getState()
+		const currentModel = this.apiConfiguration.costrictModelId
+		const latestConfiguration = state.apiConfiguration
+		provider.log(`[ModelPermissionRecovery] 403 detected, currentModel=${currentModel || "-"}`)
+
+		let models
+		try {
+			models = await refreshModels(
+				{
+					provider: "costrict",
+					baseUrl: latestConfiguration.costrictBaseUrl,
+					apiKey: latestConfiguration.costrictAccessToken,
+					openAiHeaders: latestConfiguration.openAiHeaders,
+				},
+				{ fallbackToCacheOnError: false },
+			)
+		} catch (error) {
+			provider.log(
+				`[ModelPermissionRecovery] model refresh failed: ${error instanceof Error ? error.message : String(error)}`,
+			)
+			return false
+		}
+		const modelIds = Object.keys(models)
+		provider.log(`[ModelPermissionRecovery] refreshedModels=${JSON.stringify(modelIds)}`)
+		const nextModel = selectPermissionReplacementModel(models, currentModel)
+		if (!nextModel) {
+			provider.log(
+				`[ModelPermissionRecovery] no replacement selected; current model is still allowed or the model list is empty`,
+			)
+			return false
+		}
+		provider.log(`[ModelPermissionRecovery] switching ${currentModel || "-"} -> ${nextModel}`)
+		const nextConfiguration = { ...latestConfiguration, costrictModelId: nextModel }
+		if (state.currentApiConfigName) {
+			await provider.upsertProviderProfile(state.currentApiConfigName, nextConfiguration)
+		}
+		this.updateApiConfiguration(nextConfiguration)
+		await provider.postMessageToWebview({
+			type: "costrictModels",
+			openAiModels: modelIds,
+			fullResponseData: Object.entries(models).map(([id, info]) => ({ id, ...info })),
+		})
+		vscode.window.showInformationMessage(
+			t("common:modelAutoSwitched", { from: currentModel || "-", to: nextModel }),
+		)
+		return true
 	}
 
 	// Shared exponential backoff for retries (first-chunk and mid-stream)

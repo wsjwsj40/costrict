@@ -25,6 +25,7 @@ import { readFileWithEncodingDetection } from "../../utils/encoding"
 interface WriteToFileParams {
 	path: string
 	content: string
+	operation?: "overwrite" | "append"
 }
 
 export class WriteToFileTool extends BaseTool<"write_to_file"> {
@@ -34,6 +35,7 @@ export class WriteToFileTool extends BaseTool<"write_to_file"> {
 		const { pushToolResult, handleError, askApproval } = callbacks
 		const relPath = params?.path || ""
 		let newContent = params?.content || ""
+		const operation = params?.operation === "append" ? "append" : "overwrite"
 
 		if (newContent && newContent === "object") {
 			newContent = JSON.stringify(newContent)
@@ -90,6 +92,14 @@ export class WriteToFileTool extends BaseTool<"write_to_file"> {
 
 		if (!task.api.getModel().id.includes("claude")) {
 			newContent = unescapeHtmlEntities(newContent)
+		}
+
+		// Append is a transport strategy for long model-generated files. The model
+		// sends a bounded chunk while the executor still presents and saves a normal
+		// full-file diff. No newline is inserted implicitly between chunks.
+		if (operation === "append" && fileExists) {
+			const existingContent = await readFileWithEncodingDetection(absolutePath)
+			newContent = existingContent + newContent
 		}
 
 		const fullPath = relPath ? path.resolve(task.cwd, relPath) : ""
@@ -211,6 +221,11 @@ export class WriteToFileTool extends BaseTool<"write_to_file"> {
 	}
 
 	override async handlePartial(task: Task, block: ToolUse<"write_to_file">): Promise<void> {
+		// A streamed append chunk is not a complete replacement document. Waiting
+		// for execution avoids temporarily rendering the chunk as the whole file.
+		if (block.nativeArgs?.operation === "append" || block.params.operation === "append") {
+			return
+		}
 		const relPath: string | undefined = block.params.path
 		let newContent: string | undefined = block.params.content
 

@@ -279,6 +279,15 @@ export async function getEnvironmentDetails(cline: Task, includeFileDetails: boo
 	details += `<name>${modeDetails.name}</name>\n`
 	details += `<model>${modelId}</model>\n`
 
+	const projectPermissionProfile = state?.projectPermissionProfile
+	if (projectPermissionProfile) {
+		details += "\n# Project Permissions\n"
+		details +=
+			projectPermissionProfile.mode === "auto-approval"
+				? "Ordinary commands and file changes inside the project are permitted automatically."
+				: "Commands and file changes are permitted, but ordinary changes require user approval before execution. Use the relevant tool to request it; this is not a read-only environment."
+	}
+
 	const useKPTtree =
 		apiConfiguration?.apiProvider === "costrict" &&
 		(Experiments.isEnabled(experiments ?? {}, EXPERIMENT_IDS.USE_KPT_TREE) ?? true)

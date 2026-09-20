@@ -177,6 +177,12 @@ Based on the structure planning in Step 2, determine which core chapters the doc
 #### Output Document Content
 Based on the deep analysis in Step 3, strictly follow the document structure design, comply with quality requirements, and refer to the following template. According to output requirements, output a structurally complete and content-rich technical document.
 
+**Long-document write rules (mandatory):**
+- Do not generate a whole long document in one \`write_to_file\` call; keep each \`content\` argument at approximately 6000 characters or less
+- Create the file with \`operation: "overwrite"\`, then add subsequent content in order with \`operation: "append"\`
+- Every chunk must contain contiguous real content, never placeholders such as “rest unchanged”; the tool does not insert newlines
+- Wait for each write to succeed before generating the next chunk; after all chunks are written, use \`read_file\` to spot-check the beginning, boundaries, and ending
+
 **Document Quality Requirements:**
 - Based on actual code analysis, eliminate vague descriptions and subjective guesses
 - Diagrams and text complement each other, providing effective visual supplementation

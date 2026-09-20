@@ -1,0 +1,8 @@
+{
+	"version": "3.1.0",
+	"minimumVersion": "3.0.0",
+	"mandatory": false,
+	"releaseNotes": "修复已知问题并提升稳定性。",
+	"publishedAt": "2026-07-27T08:00:00Z",
+	"vsixPath": "dicode-3.1.0.vsix"
+}

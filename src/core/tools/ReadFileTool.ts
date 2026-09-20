@@ -35,6 +35,7 @@ import {
 	ImageMemoryTracker,
 } from "./helpers/imageHelpers"
 import { BaseTool, ToolCallbacks } from "./BaseTool"
+import { formatPathRecoveryError, resolveWorkspacePath } from "./path/WorkspacePathResolver"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -225,7 +226,20 @@ export class ReadFileTool extends BaseTool<"read_file"> {
 						nativeContent: `File: ${relPath}\n${result}`,
 					})
 				} catch (error) {
-					const errorMsg = error instanceof Error ? error.message : String(error)
+					const errorMsg =
+						(error as NodeJS.ErrnoException)?.code === "ENOENT"
+							? formatPathRecoveryError(
+									"read_file",
+									"path",
+									await resolveWorkspacePath(
+										task.cwd,
+										relPath,
+										(candidate) => task.rooIgnoreController?.validateAccess(candidate) !== false,
+									),
+								)
+							: error instanceof Error
+								? error.message
+								: String(error)
 					updateFileResult(relPath, {
 						status: "error",
 						error: `Error reading file: ${errorMsg}`,

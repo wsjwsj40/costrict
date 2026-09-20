@@ -51,7 +51,7 @@ export class TerminalRegistry {
 		try {
 			const startDisposable = vscode.window.onDidStartTerminalShellExecution?.(
 				async (e: vscode.TerminalShellExecutionStartEvent) => {
-					if (!isJetbrainsPlatform() && e?.terminal?.name !== "CoStrict") {
+					if (!isJetbrainsPlatform() && e?.terminal?.name !== "DiCode") {
 						return
 					}
 					// Get a handle to the stream as early as possible:
@@ -68,7 +68,7 @@ export class TerminalRegistry {
 						terminal.busy = true // Mark terminal as busy when shell execution starts
 					} else {
 						console.error(
-							"[onDidStartTerminalShellExecution] Shell execution started, but not from a CoStrict-registered terminal:",
+							"[onDidStartTerminalShellExecution] Shell execution started, but not from a DiCode-registered terminal:",
 							e,
 						)
 					}
@@ -81,7 +81,7 @@ export class TerminalRegistry {
 
 			const endDisposable = vscode.window.onDidEndTerminalShellExecution?.(
 				async (e: vscode.TerminalShellExecutionEndEvent) => {
-					if (!isJetbrainsPlatform() && e.terminal.name !== "CoStrict") {
+					if (!isJetbrainsPlatform() && e.terminal.name !== "DiCode") {
 						return
 					}
 					const terminal = this.getTerminalByVSCETerminal(e.terminal)
@@ -96,7 +96,7 @@ export class TerminalRegistry {
 
 					if (!terminal) {
 						console.error(
-							"[onDidEndTerminalShellExecution] Shell execution ended, but not from a CoStrict-registered terminal:",
+							"[onDidEndTerminalShellExecution] Shell execution ended, but not from a DiCode-registered terminal:",
 							e,
 						)
 

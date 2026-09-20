@@ -211,7 +211,7 @@ export const ErrorRow = memo(
 								style={{
 									color: "var(--vscode-charts-green)",
 								}}>
-								{`🪄 CoStrict Auto Switch Model：${message}`}
+								{`🪄 DiCode Auto Switch Model：${message}`}
 							</span>
 						</div>
 					</div>
@@ -315,15 +315,19 @@ export const ErrorRow = memo(
 						</div>
 					)}
 					<div className="ml-2 pl-4 mt-1 pt-0.5 border-l border-vscode-errorForeground/50">
-						<p className={
-							messageClassName ||
-							"cursor-default my-0 font-light whitespace-pre-wrap break-words text-vscode-descriptionForeground"
-						}>
-							{apiConfiguration.apiProvider !== "costrict" ? <span>{message}</span>:
-								<span dangerouslySetInnerHTML={{
-									__html: message,
-								}}></span>
-							}
+						<p
+							className={
+								messageClassName ||
+								"cursor-default my-0 font-light whitespace-pre-wrap break-words text-vscode-descriptionForeground"
+							}>
+							{apiConfiguration.apiProvider !== "costrict" ? (
+								<span>{message}</span>
+							) : (
+								<span
+									dangerouslySetInnerHTML={{
+										__html: message,
+									}}></span>
+							)}
 							{formattedErrorDetails && (
 								<button
 									onClick={() => setIsDetailsDialogOpen(true)}
@@ -338,7 +342,7 @@ export const ErrorRow = memo(
 				</div>
 
 				{/* Error Details Dialog */}
-					{formattedErrorDetails && (
+				{formattedErrorDetails && (
 					<Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
 						<DialogContent className="max-w-2xl">
 							<DialogHeader>

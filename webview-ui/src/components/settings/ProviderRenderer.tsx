@@ -5,7 +5,6 @@ import {
 	type ProviderSettings,
 	type ModelInfo,
 	costrictModelsConfig as costrictModels,
-	costrictDefaultModelId,
 	openRouterDefaultModelId,
 	requestyDefaultModelId,
 	// unboundDefaultModelId,
@@ -24,6 +23,10 @@ import { useSelectedModel } from "../ui/hooks/useSelectedModel"
 import { Brain } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getCorrectedCostrictModelId } from "./utils/correctModelSelection"
+import {
+	COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION,
+	costrictDebugModeBuildEnabled,
+} from "../../../../src/shared/costrictDebugMode"
 export interface ProviderRendererProps {
 	isEditMode?: boolean
 	isStreaming?: boolean
@@ -56,8 +59,6 @@ const ProviderRenderer: React.FC<ProviderRendererProps> = ({
 	const [costrictModelList, setCostrictModelList] = useState<Record<string, ModelInfo> | null>(null)
 	const [isRefreshing, setIsRefreshing] = useState(false)
 
-	// Last NON-EMPTY costrict server list; the "old list" baseline for correction.
-	const previousCostrictModelsRef = useRef<Record<string, ModelInfo> | null>(null)
 	// Mirrors apiConfiguration.costrictModelId; kept fresh by the effect below AND synchronously
 	// by the wrapped setter, so a just-typed custom model can't be mis-corrected by a racing refresh.
 	const selectedModelIdRef = useRef<string | undefined>(apiConfiguration.costrictModelId)
@@ -141,35 +142,24 @@ const ProviderRenderer: React.FC<ProviderRendererProps> = ({
 				) as Record<string, ModelInfo>
 				const newModelIds = Object.keys(newModels)
 
-				// Selection correction: compare against the dedicated costrict baseline.
-				// The pure rule (and its rationale) lives in ./utils/correctModelSelection.
-				const oldModelIds = Object.keys(previousCostrictModelsRef.current ?? {})
 				const selectedModelId = selectedModelIdRef.current
-				const corrected = getCorrectedCostrictModelId(oldModelIds, newModelIds, selectedModelId)
+				const corrected = getCorrectedCostrictModelId(newModelIds, selectedModelId)
 				// Only the primary costrict selector applies the correction + notice. Other providers
 				// also receive costrictModels pushes (requestRouterModels broadcasts them), and the
 				// message-edit duplicate instance must not fire these global side-effects.
-				if (
-					corrected &&
-					selectedModelId &&
-					!isEditModeRef.current &&
-					selectedProviderRef.current === "costrict"
-				) {
+				if (corrected && !isEditModeRef.current && selectedProviderRef.current === "costrict") {
 					setFieldRef.current("costrictModelId", corrected)
-					// Notify via the standard CoStrict provider tip (native VS Code notification),
+					// Notify via the standard DiCode provider tip (native VS Code notification),
 					// matching the existing tip UX instead of a custom in-dialog toast.
-					vscode.postMessage({
-						type: "costrictProviderTip",
-						values: {
-							tipType: "info",
-							msg: tRef.current("chat:modelAutoSwitched", { from: selectedModelId, to: corrected }),
-						},
-					})
-				}
-
-				// Preserve the last NON-EMPTY costrict list as the baseline for the next refresh.
-				if (newModelIds.length > 0) {
-					previousCostrictModelsRef.current = newModels
+					if (selectedModelId) {
+						vscode.postMessage({
+							type: "costrictProviderTip",
+							values: {
+								tipType: "info",
+								msg: tRef.current("chat:modelAutoSwitched", { from: selectedModelId, to: corrected }),
+							},
+						})
+					}
 				}
 
 				setCostrictModelList(newModels)
@@ -219,7 +209,12 @@ const ProviderRenderer: React.FC<ProviderRendererProps> = ({
 		() => {
 			if (selectedProvider === "costrict") {
 				// Use our custom headers state to build the headers object.
-				const headerObject = convertHeadersToObject(customHeaders)
+				const headerObject =
+					costrictDebugModeBuildEnabled &&
+					apiConfiguration.useCostrictCustomConfig &&
+					apiConfiguration.costrictCustomConfigConsentVersion === COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION
+						? convertHeadersToObject(customHeaders)
+						: {}
 
 				vscode.postMessage({
 					type: "requestRouterModels",
@@ -273,7 +268,7 @@ const ProviderRenderer: React.FC<ProviderRendererProps> = ({
 			costrict: {
 				modelIdKey: "costrictModelId",
 				serviceName: "costrict",
-				defaultModelId: apiConfiguration.costrictModelId || costrictDefaultModelId,
+				defaultModelId: apiConfiguration.costrictModelId || Object.keys(costrictModelList ?? {})[0],
 				serviceUrl: apiConfiguration.costrictBaseUrl?.trim() || (window as any).COSTRICT_BASE_URL,
 				models: costrictModelList ?? {},
 			},

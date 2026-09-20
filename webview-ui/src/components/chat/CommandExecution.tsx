@@ -10,38 +10,35 @@ import { COMMAND_OUTPUT_STRING } from "@roo/combineCommandSequences"
 import { parseCommand } from "@roo/parse-command"
 
 import { vscode } from "@src/utils/vscode"
-import { extractPatternsFromCommand } from "@src/utils/command-parser"
 import { useExtensionState } from "@src/context/ExtensionStateContext"
 import { cn } from "@src/lib/utils"
 
 import { Button, StandardTooltip } from "@src/components/ui"
 import CodeBlock from "@src/components/common/CodeBlock"
 
-import { CommandPatternSelector } from "./CommandPatternSelector"
 import { TerminalOutput } from "./TerminalOutput"
 import { VSCodeButton } from "@vscode/webview-ui-toolkit/react"
 
-interface CommandPattern {
-	pattern: string
-	description?: string
-}
-
 interface CommandExecutionProps {
 	executionId: string
+	commandExecution?: import("@roo-code/types").ClineMessage["commandExecution"]
+	approvalPending?: boolean
 	text?: string
 	icon?: JSX.Element | null
 	title?: JSX.Element | null
 	onCommandStop?: () => void
 }
 
-export const CommandExecution = ({ executionId, text, icon, title, onCommandStop }: CommandExecutionProps) => {
-	const {
-		// terminalShellIntegrationDisabled = false,
-		allowedCommands = [],
-		deniedCommands = [],
-		setAllowedCommands,
-		setDeniedCommands,
-	} = useExtensionState()
+export const CommandExecution = ({
+	executionId,
+	text,
+	icon,
+	title,
+	onCommandStop,
+	commandExecution,
+	approvalPending = false,
+}: CommandExecutionProps) => {
+	const { projectPermissionProfile } = useExtensionState()
 
 	const { command, output: parsedOutput } = useMemo(() => parseCommandAndOutput(text), [text])
 
@@ -60,61 +57,6 @@ export const CommandExecution = ({ executionId, text, icon, title, onCommandStop
 	// streaming output (this is the case for running commands).
 	const output = streamingOutput || parsedOutput
 	const isAbortable = status?.status === "started" || status?.status === "backgrounded"
-
-	// Extract command patterns from the actual command that was executed
-	const commandPatterns = useMemo<CommandPattern[]>(() => {
-		// First get all individual commands (including subshell commands) using parseCommand
-		const allCommands = parseCommand(command)
-
-		// Then extract patterns from each command using the existing pattern extraction logic
-		const allPatterns = new Set<string>()
-
-		// Add all individual commands first
-		allCommands.forEach((cmd) => {
-			if (cmd?.trim()) {
-				allPatterns.add(cmd?.trim())
-			}
-		})
-
-		// Then add extracted patterns for each command
-		allCommands.forEach((cmd) => {
-			const patterns = extractPatternsFromCommand(cmd)
-			patterns.forEach((pattern) => allPatterns.add(pattern))
-		})
-
-		return Array.from(allPatterns).map((pattern) => ({
-			pattern,
-		}))
-	}, [command])
-
-	// Handle pattern changes
-	const handleAllowPatternChange = (pattern: string) => {
-		const isAllowed = allowedCommands.includes(pattern)
-		const newAllowed = isAllowed ? allowedCommands.filter((p) => p !== pattern) : [...allowedCommands, pattern]
-		const newDenied = deniedCommands.filter((p) => p !== pattern)
-
-		setAllowedCommands(newAllowed)
-		setDeniedCommands(newDenied)
-
-		vscode.postMessage({
-			type: "updateSettings",
-			updatedSettings: { allowedCommands: newAllowed, deniedCommands: newDenied },
-		})
-	}
-
-	const handleDenyPatternChange = (pattern: string) => {
-		const isDenied = deniedCommands.includes(pattern)
-		const newDenied = isDenied ? deniedCommands.filter((p) => p !== pattern) : [...deniedCommands, pattern]
-		const newAllowed = allowedCommands.filter((p) => p !== pattern)
-
-		setAllowedCommands(newAllowed)
-		setDeniedCommands(newDenied)
-
-		vscode.postMessage({
-			type: "updateSettings",
-			updatedSettings: { allowedCommands: newAllowed, deniedCommands: newDenied },
-		})
-	}
 
 	const onMessage = useCallback(
 		(event: MessageEvent) => {
@@ -162,6 +104,19 @@ export const CommandExecution = ({ executionId, text, icon, title, onCommandStop
 
 	return (
 		<>
+			{commandExecution && (
+				<div className="mb-2 text-sm text-vscode-descriptionForeground">
+					<strong>
+						{t(
+							commandExecution.scope === "outside"
+								? "chat:commandExecution.outsideProject"
+								: "chat:commandExecution.withinProject",
+						)}
+					</strong>
+					<div>{commandExecution.cwd}</div>
+					{commandExecution.requiresReview && <div>{t("chat:commandExecution.review")}</div>}
+				</div>
+			)}
 			<div className="flex flex-row items-center justify-between gap-2 mb-1">
 				<div className="flex flex-row items-center gap-2">
 					{icon}
@@ -264,14 +219,49 @@ export const CommandExecution = ({ executionId, text, icon, title, onCommandStop
 						</div>
 					)}
 				</div>
-				{command && command?.trim() && (
-					<CommandPatternSelector
-						patterns={commandPatterns}
-						allowedCommands={allowedCommands}
-						deniedCommands={deniedCommands}
-						onAllowPatternChange={handleAllowPatternChange}
-						onDenyPatternChange={handleDenyPatternChange}
-					/>
+				{approvalPending && (
+					<div className="border-t border-vscode-panel-border p-2 flex flex-col gap-2">
+						<p className="m-0 text-xs text-vscode-descriptionForeground">
+							{commandExecution?.requiresReview
+								? t("chat:commandExecution.oneTimeDestructive")
+								: commandExecution?.scope === "outside"
+									? t("chat:commandExecution.oneTimeOutsideProject")
+									: t("chat:commandExecution.approveWithinProject")}
+						</p>
+						<div className="flex flex-wrap items-center gap-1.5">
+							<Button
+								data-testid="allow-command-once"
+								size="sm"
+								variant="primary"
+								onClick={() =>
+									vscode.postMessage({ type: "askResponse", askResponse: "yesButtonClicked" })
+								}>
+								{t("chat:commandExecution.allowOnce")}
+							</Button>
+							{projectPermissionProfile?.mode === "request-approval" &&
+								commandExecution?.scope === "workspace" &&
+								!commandExecution.requiresReview && (
+									<Button
+										data-testid="allow-project-command"
+										size="sm"
+										variant="secondary"
+										onClick={() =>
+											vscode.postMessage({ type: "approveProjectCommand", text: command })
+										}>
+										{t("chat:commandExecution.allowCommandInProject")}
+									</Button>
+								)}
+							<Button
+								data-testid="deny-command"
+								size="sm"
+								variant="secondary"
+								onClick={() =>
+									vscode.postMessage({ type: "askResponse", askResponse: "noButtonClicked" })
+								}>
+								{t("chat:commandExecution.deny")}
+							</Button>
+						</div>
+					</div>
 				)}
 			</div>
 		</>

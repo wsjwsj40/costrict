@@ -10,16 +10,16 @@ import type { FileMetadataEntry, RecordSource, TaskMetadata } from "./FileContex
 import { ClineProvider } from "../webview/ClineProvider"
 
 // This class is responsible for tracking file operations that may result in stale context.
-// If a user modifies a file outside of CoStrict, the context may become stale and need to be updated.
-// We do not want CoStrict to reload the context every time a file is modified, so we use this class merely
-// to inform CoStrict that the change has occurred, and tell CoStrict to reload the file before making
-// any changes to it. This fixes an issue with diff editing, where CoStrict was unable to complete a diff edit.
+// If a user modifies a file outside of DiCode, the context may become stale and need to be updated.
+// We do not want DiCode to reload the context every time a file is modified, so we use this class merely
+// to inform DiCode that the change has occurred, and tell DiCode to reload the file before making
+// any changes to it. This fixes an issue with diff editing, where DiCode was unable to complete a diff edit.
 
 // FileContextTracker
 //
 // This class is responsible for tracking file operations.
-// If the full contents of a file are passed to CoStrict via a tool, mention, or edit, the file is marked as active.
-// If a file is modified outside of CoStrict, we detect and track this change to prevent stale context.
+// If the full contents of a file are passed to DiCode via a tool, mention, or edit, the file is marked as active.
+// If a file is modified outside of DiCode, we detect and track this change to prevent stale context.
 export class FileContextTracker {
 	readonly taskId: string
 	private providerRef: WeakRef<ClineProvider>
@@ -65,9 +65,9 @@ export class FileContextTracker {
 		// Track file changes
 		watcher.onDidChange(() => {
 			if (this.recentlyEditedByRoo.has(filePath)) {
-				this.recentlyEditedByRoo.delete(filePath) // This was an edit by CoStrict, no need to inform CoStrict
+				this.recentlyEditedByRoo.delete(filePath) // This was an edit by DiCode, no need to inform DiCode
 			} else {
-				this.recentlyModifiedFiles.add(filePath) // This was a user edit, we will inform CoStrict
+				this.recentlyModifiedFiles.add(filePath) // This was a user edit, we will inform DiCode
 				this.trackFileContext(filePath, "user_edited") // Update the task metadata with file tracking
 			}
 		})
@@ -77,7 +77,7 @@ export class FileContextTracker {
 	}
 
 	// Tracks a file operation in metadata and sets up a watcher for the file
-	// This is the main entry point for FileContextTracker and is called when a file is passed to CoStrict via a tool, mention, or edit.
+	// This is the main entry point for FileContextTracker and is called when a file is passed to DiCode via a tool, mention, or edit.
 	async trackFileContext(filePath: string, operation: RecordSource) {
 		try {
 			const cwd = this.getCwd()
@@ -177,7 +177,7 @@ export class FileContextTracker {
 					this.recentlyModifiedFiles.add(filePath)
 					break
 
-				// roo_edited: CoStrict has edited the file
+				// roo_edited: DiCode has edited the file
 				case "roo_edited":
 					newEntry.roo_read_date = now
 					newEntry.roo_edit_date = now
@@ -185,7 +185,7 @@ export class FileContextTracker {
 					this.markFileAsEditedByRoo(filePath)
 					break
 
-				// read_tool/file_mentioned: CoStrict has read the file via a tool or file mention
+				// read_tool/file_mentioned: DiCode has read the file via a tool or file mention
 				case "read_tool":
 				case "file_mentioned":
 					newEntry.roo_read_date = now
@@ -265,7 +265,7 @@ export class FileContextTracker {
 		return files
 	}
 
-	// Marks a file as edited by CoStrict to prevent false positives in file watchers
+	// Marks a file as edited by DiCode to prevent false positives in file watchers
 	markFileAsEditedByRoo(filePath: string): void {
 		this.recentlyEditedByRoo.add(filePath)
 	}

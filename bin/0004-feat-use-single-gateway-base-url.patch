@@ -1,0 +1,114 @@
+From 8f5395d68f8da4920f842b27b8d3421f4f24e72b Mon Sep 17 00:00:00 2001
+From: wsjwsj40 <1309342119@qq.com>
+Date: Mon, 3 Aug 2026 05:43:14 +0000
+Subject: [PATCH] feat: use a single gateway base URL
+
+---
+ MODEL_ACCESS_CHANGES.md    | 3 ++-
+ configure.sh               | 7 +++----
+ costrict.sh                | 3 +--
+ docker-compose.yml.tpl     | 3 +--
+ k8s/costrict.yaml.tpl      | 6 ++----
+ scripts/newest-images.list | 2 +-
+ 6 files changed, 10 insertions(+), 14 deletions(-)
+
+diff --git a/MODEL_ACCESS_CHANGES.md b/MODEL_ACCESS_CHANGES.md
+index dec5396..59dcd1a 100644
+--- a/MODEL_ACCESS_CHANGES.md
++++ b/MODEL_ACCESS_CHANGES.md
+@@ -12,7 +12,7 @@
+    - 新增管理页面令牌 `MODEL_ACCESS_ADMIN_TOKEN`。
+ 
+ 3. `scripts/newest-images.list`
+-   - 将 `IMAGE_MODEL_PROXY` 更新为 `costrict-model-proxy-access:v0.3.0`。
++   - 将 `IMAGE_MODEL_PROXY` 更新为 `costrict-model-proxy-access:v0.3.1`。
+ 
+ 4. `k8s/costrict.yaml.tpl`
+    - 给 `model-proxy` 注入 PostgreSQL、JWT 和管理令牌环境变量。
+@@ -33,6 +33,7 @@
+    - 网关同步失败时记录失败明细并自动重试，管理页面展示最终状态。
+    - v0.3.0 改为持久化后台同步任务，支持批次、重试、严格比对返回模型和管理页面进度展示。
+    - 使用网关默认模型列表接口，在启用模型或修改套餐前拒绝网关不支持的模型。
++   - v0.3.1 将两个网关接口配置合并为 `MODEL_GATEWAY_BASE_URL`，服务内部拼接固定相对路径。
+ 
+ ## 现有 K8s 集群升级
+ 
+diff --git a/configure.sh b/configure.sh
+index 0e3fc9f..e2e76d8 100755
+--- a/configure.sh
++++ b/configure.sh
+@@ -147,10 +147,9 @@ MODEL_ACCESS_JWKS_URL="${OIDC_CASDOOR_ADDR}/.well-known/jwks"
+ MODEL_ACCESS_JWT_EMAIL_FIELD="email"
+ # 管理页面使用的令牌。生产部署前必须替换为随机高强度字符串。
+ MODEL_ACCESS_ADMIN_TOKEN="change-this-model-access-admin-token"
+-# 用户套餐变更时同步网关模型权限。URL 留空表示禁用同步。
+-MODEL_GATEWAY_PERMISSION_URL="https://yice.byd.com/ai-gate/api/opentoken/key/condition"
+-# 网关应用默认支持模型列表接口，用于保存前校验模型 ID。
+-MODEL_GATEWAY_SUPPORTED_MODELS_URL="http://10.111.175.240:3002/api/opentoken/key/app_support_models"
++# 网关服务根地址。正式环境可填 https://yice.byd.com/ai-gate；
++# 直连测试服务可填 http://10.111.175.240:3002。
++MODEL_GATEWAY_BASE_URL="https://yice.byd.com/ai-gate"
+ MODEL_GATEWAY_TOKEN="change-this-new-open-token"
+ # 代码补全固定使用的模型，会在同步时自动追加且去重。
+ MODEL_GATEWAY_COMPLETION_MODEL="DeepSeek-Coder-V2-Lite-Base"
+diff --git a/costrict.sh b/costrict.sh
+index bf0e7a6..76273ec 100755
+--- a/costrict.sh
++++ b/costrict.sh
+@@ -246,8 +246,7 @@ cmd_check() {
+     "MODEL_ACCESS_DATABASE"
+     "MODEL_ACCESS_JWKS_URL"
+     "MODEL_ACCESS_JWT_EMAIL_FIELD"
+-	"MODEL_GATEWAY_PERMISSION_URL"
+-	"MODEL_GATEWAY_SUPPORTED_MODELS_URL"
++	"MODEL_GATEWAY_BASE_URL"
+ 	"MODEL_GATEWAY_TOKEN"
+ 	"MODEL_GATEWAY_COMPLETION_MODEL"
+ 	"MODEL_GATEWAY_TIMEOUT_SECONDS"
+diff --git a/docker-compose.yml.tpl b/docker-compose.yml.tpl
+index 54f839c..be23ada 100644
+--- a/docker-compose.yml.tpl
++++ b/docker-compose.yml.tpl
+@@ -104,8 +104,7 @@ services:
+       JWT_JWKS_URL: "{{MODEL_ACCESS_JWKS_URL}}"
+       JWT_EMAIL_FIELD: "{{MODEL_ACCESS_JWT_EMAIL_FIELD}}"
+       ADMIN_TOKEN: "{{MODEL_ACCESS_ADMIN_TOKEN}}"
+-      MODEL_GATEWAY_PERMISSION_URL: "{{MODEL_GATEWAY_PERMISSION_URL}}"
+-      MODEL_GATEWAY_SUPPORTED_MODELS_URL: "{{MODEL_GATEWAY_SUPPORTED_MODELS_URL}}"
++      MODEL_GATEWAY_BASE_URL: "{{MODEL_GATEWAY_BASE_URL}}"
+       MODEL_GATEWAY_TOKEN: "{{MODEL_GATEWAY_TOKEN}}"
+       MODEL_GATEWAY_COMPLETION_MODEL: "{{MODEL_GATEWAY_COMPLETION_MODEL}}"
+       MODEL_GATEWAY_TIMEOUT_SECONDS: "{{MODEL_GATEWAY_TIMEOUT_SECONDS}}"
+diff --git a/k8s/costrict.yaml.tpl b/k8s/costrict.yaml.tpl
+index f7f4a0d..6d80e30 100644
+--- a/k8s/costrict.yaml.tpl
++++ b/k8s/costrict.yaml.tpl
+@@ -619,10 +619,8 @@ spec:
+               value: "{{MODEL_ACCESS_JWT_EMAIL_FIELD}}"
+             - name: ADMIN_TOKEN
+               value: "{{MODEL_ACCESS_ADMIN_TOKEN}}"
+-            - name: MODEL_GATEWAY_PERMISSION_URL
+-              value: "{{MODEL_GATEWAY_PERMISSION_URL}}"
+-            - name: MODEL_GATEWAY_SUPPORTED_MODELS_URL
+-              value: "{{MODEL_GATEWAY_SUPPORTED_MODELS_URL}}"
++            - name: MODEL_GATEWAY_BASE_URL
++              value: "{{MODEL_GATEWAY_BASE_URL}}"
+             - name: MODEL_GATEWAY_TOKEN
+               value: "{{MODEL_GATEWAY_TOKEN}}"
+             - name: MODEL_GATEWAY_COMPLETION_MODEL
+diff --git a/scripts/newest-images.list b/scripts/newest-images.list
+index 59e68f0..8c3bbf1 100644
+--- a/scripts/newest-images.list
++++ b/scripts/newest-images.list
+@@ -5,7 +5,7 @@ IMAGE_POSTGRES=postgres:15-alpine
+ IMAGE_NGINX=nginx:1.27.1
+ IMAGE_GRAFANA=grafana/grafana:11.2.0
+ IMAGE_PROMETHEUS=quay.io/prometheus/prometheus:v2.54.0
+-IMAGE_MODEL_PROXY=costrict-model-proxy-access:v0.3.0
++IMAGE_MODEL_PROXY=costrict-model-proxy-access:v0.3.1
+ IMAGE_CASDOOR=zgsm/casdoor:v2.1.3
+ IMAGE_CHATRAG=zgsm/chat-rag:v1.5.22
+ IMAGE_CODE_COMPLETION=zgsm/code-completion:v1.7.105
+-- 
+2.53.0
+

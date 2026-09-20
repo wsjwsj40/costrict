@@ -54,7 +54,7 @@ Before responding, evaluate the user request against available skill description
 Guidelines:
 - Skills provide structured expert knowledge and proven workflows that go beyond a mode's role definition — loading a relevant skill is strongly encouraged.
 - Do not reload a skill already present in conversation.
-- Files linked from skills must be explicitly read when needed.
+- Files linked from skills must be explicitly read when needed. Resolve every relative path against the directory containing that skill's SKILL.md, never against the workspace merely because the path is relative.
 - Skill list is pre-filtered for current mode: "${currentMode}".
 </skill_check>
 `

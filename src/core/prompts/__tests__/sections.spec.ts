@@ -81,7 +81,7 @@ describe("getRulesSection", () => {
 		const result = getRulesSection(cwd, settings)
 
 		expect(result).toContain("IDENTITY")
-		expect(result).toContain("You are CoStrict, an AI coding assistant")
+		expect(result).toContain("You are DiCode, an AI coding assistant")
 	})
 
 	it("excludes vendor confidentiality section when isStealthModel is false", () => {

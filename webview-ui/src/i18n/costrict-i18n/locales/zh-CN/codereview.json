@@ -1,7 +1,7 @@
 {
 	"welcomePage": {
-		"title": "CoStrict",
-		"tips": "你也可以选中函数/代码块/多文件，右键 > CoStrict > Code Review ",
+		"title": "DiCode",
+		"tips": "你也可以选中函数/代码块/多文件，右键 > DiCode > Code Review ",
 		"dismiss": "不再提示",
 		"reviewCurrentChanges": "代码扫描",
 		"securityScan": "安全扫描",

@@ -189,7 +189,9 @@ const createExtensionState = (overrides: Record<string, any> = {}) => ({
 	mdmCompliant: true,
 	apiConfiguration: {
 		apiProvider: "openai",
+		costrictAccessToken: "authenticated-session",
 	},
+	costrictIsAuthenticated: true,
 	hasClosedCodeReviewWelcomeTips: true,
 	didHydrateCliState: false,
 	setDidHydrateSClitate: vi.fn(),
@@ -247,6 +249,23 @@ describe("App", () => {
 
 		const chatView = screen.getByTestId("chat-view")
 		expect(chatView.getAttribute("data-hidden")).toBe("true")
+	})
+
+	it("redirects unauthenticated users to the account login before settings", async () => {
+		mockUseExtensionState.mockReturnValue(
+			createExtensionState({
+				apiConfiguration: { apiProvider: "openai" },
+				costrictIsAuthenticated: false,
+			}),
+		)
+		render(<AppWithProviders />)
+
+		act(() => {
+			triggerActionMessage("settingsButtonClicked")
+		})
+
+		expect(await screen.findByText("account:signIn")).toBeInTheDocument()
+		expect(screen.queryByTestId("settings-view")).not.toBeInTheDocument()
 	})
 
 	it("switches to history view when receiving historyButtonClicked action", async () => {

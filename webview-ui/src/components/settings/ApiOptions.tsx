@@ -26,7 +26,6 @@ import {
 	basetenDefaultModelId,
 	bedrockDefaultModelId,
 	vertexDefaultModelId,
-	costrictDefaultModelId,
 	sambaNovaDefaultModelId,
 	internationalZAiDefaultModelId,
 	mainlandZAiDefaultModelId,
@@ -39,6 +38,10 @@ import {
 	// TOOL_PROTOCOL,
 	unboundDefaultModelId,
 } from "@roo-code/types"
+import {
+	COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION,
+	costrictDebugModeBuildEnabled,
+} from "../../../../src/shared/costrictDebugMode"
 
 import {
 	getProviderServiceConfig,
@@ -105,7 +108,7 @@ import {
 	Mimo,
 } from "./providers"
 
-import { MODELS_BY_PROVIDER, PROVIDERS } from "./constants"
+import { MODELS_BY_PROVIDER, PROVIDERS, SELECTABLE_PROVIDER_IDS } from "./constants"
 import { inputEventTransform, noTransform } from "./transforms"
 import { ModelPicker } from "./ModelPicker"
 import { ApiErrorMessage } from "./ApiErrorMessage"
@@ -136,6 +139,7 @@ export interface ApiOptionsProps {
 	errorMessage: string | undefined
 	setErrorMessage: React.Dispatch<React.SetStateAction<string | undefined>>
 	useCostrictCustomConfig?: boolean
+	debug?: boolean
 	setCachedStateField: SetCachedStateField<"useCostrictCustomConfig">
 }
 
@@ -147,6 +151,7 @@ const ApiOptions = ({
 	errorMessage,
 	setErrorMessage,
 	useCostrictCustomConfig,
+	debug = false,
 	setCachedStateField,
 }: ApiOptionsProps) => {
 	const { t } = useAppTranslation()
@@ -154,7 +159,6 @@ const ApiOptions = ({
 		setCostrictCodeMode,
 		organizationAllowList,
 		claudeCodeIsAuthenticated /* cloudIsAuthenticated */,
-		debug,
 		openAiCodexIsAuthenticated,
 	} = useExtensionState()
 
@@ -414,7 +418,7 @@ const ApiOptions = ({
 				roo: { field: "apiModelId", default: rooDefaultModelId },
 				"vercel-ai-gateway": { field: "vercelAiGatewayModelId", default: vercelAiGatewayDefaultModelId },
 				openai: { field: "openAiModelId" },
-				costrict: { field: "costrictModelId", default: costrictDefaultModelId },
+				costrict: { field: "costrictModelId" },
 				ollama: { field: "ollamaModelId" },
 				lmstudio: { field: "lmStudioModelId" },
 			}
@@ -496,7 +500,10 @@ const ApiOptions = ({
 	// Convert providers to SearchableSelect options
 	const providerOptions = useMemo(() => {
 		// First filter by organization allow list
-		const allowedProviders = filterProviders(PROVIDERS, organizationAllowList)
+		const allowedProviders = filterProviders(
+			PROVIDERS.filter(({ value }) => SELECTABLE_PROVIDER_IDS.has(value as ProviderName)),
+			organizationAllowList,
+		)
 
 		// Then filter out static providers that have no models (unless currently selected)
 		const providersWithModels = allowedProviders.filter(({ value }) => {
@@ -584,13 +591,19 @@ const ApiOptions = ({
 				<>
 					{!fromWelcomeView && selectedProvider === "costrict" && (
 						<CostrictAI
-							debug={debug}
+							debug={costrictDebugModeBuildEnabled && debug}
 							fromWelcomeView={fromWelcomeView}
 							apiConfiguration={apiConfiguration}
 							setApiConfigurationField={setApiConfigurationField}
 							organizationAllowList={organizationAllowList}
 							modelValidationError={modelValidationError}
-							useCostrictCustomConfig={useCostrictCustomConfig}
+							useCostrictCustomConfig={
+								costrictDebugModeBuildEnabled &&
+								debug &&
+								useCostrictCustomConfig === true &&
+								apiConfiguration.costrictCustomConfigConsentVersion ===
+									COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION
+							}
 							setCachedStateField={setCachedStateField}
 							refetchRouterModels={refetchRouterModels}
 						/>

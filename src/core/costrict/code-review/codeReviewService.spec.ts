@@ -132,9 +132,11 @@ vi.mock("./reviewComment", () => ({
 const resolveFromReportFileMock = vi.fn()
 const resolveFromReportTextMock = vi.fn()
 const buildReviewRequestOptionsMock = vi.fn()
+const ensureReviewResultDirectoryMock = vi.fn()
 
 vi.mock("./common/reviewIssueResolver", () => ({
 	buildReviewRequestOptions: (...args: any[]) => buildReviewRequestOptionsMock(...args),
+	ensureReviewResultDirectory: (...args: any[]) => ensureReviewResultDirectoryMock(...args),
 	getReviewReportJsonPath: vi.fn((cwd: string, _mode: string) => `${cwd}/code-review_result/review-report.json`),
 	getFullReportJsonlPath: vi.fn((cwd: string, _mode: string) => `${cwd}/code-review_result/full_report.jsonl`),
 	resolveFromReportFile: (...args: any[]) => resolveFromReportFileMock(...args),
@@ -195,6 +197,7 @@ describe("CodeReviewService delegation lifecycle", () => {
 		vi.useFakeTimers()
 		vi.clearAllMocks()
 		;(CodeReviewService as any).instance = null
+		ensureReviewResultDirectoryMock.mockResolvedValue("/workspace/code-review_result")
 	})
 
 	afterEach(async () => {
@@ -202,6 +205,45 @@ describe("CodeReviewService delegation lifecycle", () => {
 		await instance?.dispose()
 		;(CodeReviewService as any).instance = null
 		vi.useRealTimers()
+	})
+
+	it.each(["review", "security-review"] as const)(
+		"initializes the %s result directory before starting the model task",
+		async (mode) => {
+			const provider = new FakeProvider()
+			const task = new FakeTask(`task-${mode}`, `instance-${mode}`)
+			provider.createTask.mockResolvedValue(task)
+			provider.getCurrentTask.mockReturnValue(task)
+
+			const service = CodeReviewService.getInstance()
+			service.setProvider(provider as any)
+			await service.createReviewTask("review this", { type: ReviewTargetType.FILE, data: [] }, { mode })
+
+			expect(ensureReviewResultDirectoryMock).toHaveBeenCalledWith("/workspace", mode)
+			expect(ensureReviewResultDirectoryMock.mock.invocationCallOrder[0]).toBeLessThan(
+				provider.handleModeSwitch.mock.invocationCallOrder[0],
+			)
+			expect(provider.createTask).toHaveBeenCalledTimes(1)
+		},
+	)
+
+	it("does not start a review task when the result directory cannot be created", async () => {
+		const provider = new FakeProvider()
+		ensureReviewResultDirectoryMock.mockRejectedValueOnce(new Error("EACCES: permission denied"))
+
+		const service = CodeReviewService.getInstance()
+		service.setProvider(provider as any)
+		await service.createReviewTask("review this", { type: ReviewTargetType.FILE, data: [] })
+
+		expect(provider.handleModeSwitch).not.toHaveBeenCalled()
+		expect(provider.createTask).not.toHaveBeenCalled()
+		const updates = getReviewUpdates(provider)
+		expect(updates.at(-1)).toMatchObject({
+			values: {
+				status: ReviewTaskStatus.ERROR,
+				data: { error: "EACCES: permission denied" },
+			},
+		})
 	})
 
 	it("keeps the review alive across delegated subtasks and completes on the resumed root task", async () => {
@@ -407,7 +449,7 @@ describe("CodeReviewService delegation lifecycle", () => {
 		expect(finalUpdate?.values.status).toBe(ReviewTaskStatus.ERROR)
 	})
 
-	it("throws error when resolveFromReportFile returns no issues", async () => {
+	it("completes successfully when a valid review report contains no issues", async () => {
 		const provider = new FakeProvider()
 		const task = new FakeTask("review-empty", "inst-empty")
 
@@ -417,15 +459,15 @@ describe("CodeReviewService delegation lifecycle", () => {
 		const service = CodeReviewService.getInstance()
 		service.setProvider(provider as any)
 
-		// JSON report exists but resolver returns empty issues
+		// A successful clean review still has a server-assigned review task id.
 		;(fileExistsAtPath as any).mockResolvedValue(true)
 
 		resolveFromReportFileMock.mockResolvedValue({
 			issues: [],
-			review_task_id: "",
+			review_task_id: "clean-review-task",
 			count: 0,
-			title: "",
-			conclusion: "",
+			title: "Clean review",
+			conclusion: "No issues found",
 		})
 
 		await service.createReviewTask(
@@ -449,13 +491,55 @@ describe("CodeReviewService delegation lifecycle", () => {
 
 		await vi.runAllTimersAsync()
 
-		// resolveFromReportFile was called but returned empty
+		// The empty issue list is a valid result, not a transport/report failure.
 		expect(resolveFromReportFileMock).toHaveBeenCalledTimes(1)
 		// No fallback to resolveFromReportText
 		expect(resolveFromReportTextMock).not.toHaveBeenCalled()
 
 		const reviewUpdates = getReviewUpdates(provider)
 		const finalUpdate = reviewUpdates.at(-1)
+		expect(finalUpdate?.values.status).toBe(ReviewTaskStatus.COMPLETED)
+		expect(finalUpdate?.values.data.error).toBeUndefined()
+		expect(finalUpdate?.values.data.issues).toEqual([])
+		expect(
+			provider.postMessageToWebview.mock.calls.some(
+				([message]) => message?.type === "action" && message.action === "codeReviewButtonClicked",
+			),
+		).toBe(true)
+	})
+
+	it("reports an error when resolving the report fails without a review task id", async () => {
+		const provider = new FakeProvider()
+		const task = new FakeTask("review-invalid", "inst-invalid")
+
+		provider.createTask.mockResolvedValue(task)
+		provider.getCurrentTask.mockImplementation(() => task)
+
+		const service = CodeReviewService.getInstance()
+		service.setProvider(provider as any)
+		;(fileExistsAtPath as any).mockResolvedValue(true)
+		resolveFromReportFileMock.mockResolvedValue({
+			issues: [],
+			review_task_id: "",
+			count: 0,
+			title: "",
+			conclusion: "",
+		})
+
+		await service.createReviewTask(
+			"@/src/invalid.ts",
+			{
+				type: ReviewTargetType.FILE,
+				data: [{ file_path: "src/invalid.ts" }],
+			} as any,
+			{ mode: "review" },
+		)
+
+		task.emit(RooCodeEventName.TaskCompleted)
+		await vi.runAllTimersAsync()
+
+		const finalUpdate = getReviewUpdates(provider).at(-1)
 		expect(finalUpdate?.values.status).toBe(ReviewTaskStatus.ERROR)
+		expect(finalUpdate?.values.data.error).toBe("common:review.tip.get_review_result_failed")
 	})
 })

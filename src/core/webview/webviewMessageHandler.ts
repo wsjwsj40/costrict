@@ -49,6 +49,19 @@ import { Package } from "../../shared/package"
 import { type RouterName, toRouterName } from "../../shared/api"
 import { MessageEnhancer } from "./messageEnhancer"
 
+const requireCurrentAuthentication = async (provider: ClineProvider): Promise<boolean> => {
+	const authenticated = await CostrictAuthService.getInstance().hasCurrentAuthentication()
+	if (authenticated) {
+		return true
+	}
+
+	await provider.postMessageToWebview({
+		type: "action",
+		action: "costrictAccountButtonClicked",
+	})
+	return false
+}
+
 // import { CodeIndexManager } from "../../services/code-index/manager"
 import { checkExistKey } from "../../shared/checkExistApiConfig"
 import { experimentDefault } from "../../shared/experiments"
@@ -100,6 +113,7 @@ import { ensureProjectWikiSubtasksExists } from "../costrict/wiki/projectWikiHel
 import { setPendingTodoList } from "../tools/UpdateTodoListTool"
 import { getEditorType } from "../../utils/getEditorType"
 import { updateDefaultDebug } from "../../utils/getDebugState"
+import { costrictDebugModeBuildEnabled } from "../../shared/costrictDebugMode"
 import {
 	handleListWorktrees,
 	handleCreateWorktree,
@@ -116,6 +130,7 @@ import { isJetbrainsPlatform } from "../../utils/platform"
 import { showFileDiffFromGitStatus } from "../../utils/costrictUtils"
 import { ReviewTargetType } from "../../shared/codeReview"
 import { getRawTaskReporter } from "../costrict/telemetry"
+import { refreshModelQuota } from "../costrict/quota/modelQuotaService"
 import { handleQueryMcpAsyncTask } from "../../services/mcp/asyncPolling/handleQueryMessage"
 
 let webviewDidLaunchTimer: NodeJS.Timeout | undefined
@@ -772,6 +787,7 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "newTask":
+			if (!(await requireCurrentAuthentication(provider))) break
 			// Initializing new instance of Cline will make sure that any
 			// agentically running promises in old instance don't affect our new
 			// task. This essentially creates a fresh slate for the new task.
@@ -801,6 +817,7 @@ export const webviewMessageHandler = async (
 
 		case "askResponse":
 			{
+				if (!(await requireCurrentAuthentication(provider))) break
 				const resolved = await resolveIncomingImages({ text: message.text, images: message.images })
 				//costrict: transparently forward the dedicated multiple choice response channel to Task
 				provider
@@ -1142,6 +1159,9 @@ export const webviewMessageHandler = async (
 		case "fixHistory":
 			await provider.fixHistory()
 			break
+		case "checkForUpdates":
+			await vscode.commands.executeCommand(`${Package.commandIDPrefix}.checkForUpdates`)
+			break
 		case "flushRouterModels": {
 			const { apiConfiguration } = await provider.getState()
 			const routerNameFlush: RouterName = toRouterName(message.text)
@@ -1432,6 +1452,7 @@ export const webviewMessageHandler = async (
 		// 	break
 		// }
 		case "requestOpenAiModels":
+			if (!(await requireCurrentAuthentication(provider))) break
 			if (message?.values?.baseUrl && message?.values?.apiKey) {
 				const openAiModels = await getOpenAiModels(
 					message?.values?.baseUrl,
@@ -1619,7 +1640,7 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "openKeyboardShortcuts": {
-			// Open VSCode keyboard shortcuts settings and optionally filter to show the CoStrict commands
+			// Open VSCode keyboard shortcuts settings and optionally filter to show the DiCode commands
 			const searchQuery = message.text || ""
 			if (searchQuery) {
 				// Open with a search query pre-filled
@@ -1956,6 +1977,31 @@ export const webviewMessageHandler = async (
 			await updateGlobalState("autoApprovalEnabled", message.bool ?? false)
 			await provider.postStateToWebview()
 			break
+		case "setProjectPermissionMode": {
+			// Accept the former object payload while installed webviews update, but
+			// use the scalar field for all newly built clients.
+			const mode = message.text ?? (message.values as { mode?: unknown } | undefined)?.mode
+			if (mode === "request-approval" || mode === "auto-approval") {
+				await provider.setProjectPermissionMode(mode)
+				await provider.postStateToWebview()
+			}
+			break
+		}
+		case "approveProjectCommand": {
+			const command = message.text?.trim()
+			if (command) {
+				await provider.approveProjectCommand(command)
+				provider.getCurrentTask()?.handleWebviewAskResponse("yesButtonClicked")
+				await provider.postStateToWebview()
+			}
+			break
+		}
+		case "approveProjectWorkspaceWrites": {
+			await provider.approveProjectWorkspaceWrites()
+			provider.getCurrentTask()?.handleWebviewAskResponse("yesButtonClicked")
+			await provider.postStateToWebview()
+			break
+		}
 		case "enhancePrompt":
 			if (message.text) {
 				try {
@@ -2142,6 +2188,7 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "saveApiConfiguration":
+			if (!(await requireCurrentAuthentication(provider))) break
 			if (message.text && message.apiConfiguration) {
 				try {
 					await provider.providerSettingsManager.saveConfig(message.text, message.apiConfiguration)
@@ -2156,6 +2203,7 @@ export const webviewMessageHandler = async (
 			}
 			break
 		case "upsertApiConfiguration":
+			if (!(await requireCurrentAuthentication(provider))) break
 			if (message.text && message.apiConfiguration) {
 				if (message.apiConfiguration.apiProvider === "costrict") {
 					await provider.providerSettingsManager.saveMergeConfig(
@@ -2179,6 +2227,7 @@ export const webviewMessageHandler = async (
 			}
 			break
 		case "renameApiConfiguration":
+			if (!(await requireCurrentAuthentication(provider))) break
 			if (message.values && message.apiConfiguration) {
 				try {
 					const { oldName, newName } = message.values
@@ -2220,6 +2269,7 @@ export const webviewMessageHandler = async (
 			}
 			break
 		case "loadApiConfiguration":
+			if (!(await requireCurrentAuthentication(provider))) break
 			if (message.text) {
 				try {
 					const state = await provider.getState()
@@ -2274,6 +2324,7 @@ export const webviewMessageHandler = async (
 			}
 			break
 		case "deleteApiConfiguration":
+			if (!(await requireCurrentAuthentication(provider))) break
 			if (message.text) {
 				const answer = await vscode.window.showInformationMessage(
 					t("common:confirmation.delete_config_profile"),
@@ -2708,10 +2759,16 @@ export const webviewMessageHandler = async (
 			break
 		}
 		case "debugSetting": {
+			const configuration = vscode.workspace.getConfiguration(Package.commandIDPrefix)
+			const previousDebug = configuration.get<boolean>("debug", false)
+			const nextDebug = costrictDebugModeBuildEnabled && (message.bool ?? false)
 			await vscode.workspace
 				.getConfiguration(Package.commandIDPrefix)
-				.update("debug", message.bool ?? false, vscode.ConfigurationTarget.Global)
-			updateDefaultDebug(message.bool ?? false)
+				.update("debug", nextDebug, vscode.ConfigurationTarget.Global)
+			updateDefaultDebug(nextDebug)
+			if (previousDebug !== nextDebug) {
+				await provider.setValue("useCostrictCustomConfig", false)
+			}
 			await provider.postStateToWebview()
 			break
 		}
@@ -3854,6 +3911,11 @@ export const webviewMessageHandler = async (
 					values: data,
 				})
 			}
+			break
+		}
+		case "fetchModelQuota": {
+			const { apiConfiguration } = await provider.getState()
+			void refreshModelQuota(provider, apiConfiguration)
 			break
 		}
 

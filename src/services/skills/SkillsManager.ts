@@ -795,7 +795,7 @@ Add your skill instructions here.
 			// .roo mode-specific
 			this.watchDirectory(path.join(globalRooDir, `skills-${mode}`))
 			this.watchDirectory(path.join(projectRooDir, `skills-${mode}`))
-			// .costrict mode-specific
+			// .dicode mode-specific
 			this.watchDirectory(path.join(getGlobalCostrictDirectory(), `skills-${mode}`))
 			this.watchDirectory(path.join(getGlobalCostrictCLIDirectory(), `skills-${mode}`))
 			// .agents mode-specific

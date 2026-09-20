@@ -4,6 +4,7 @@ const UPDATE_TODO_LIST_DESCRIPTION = `Replace the entire TODO list with an updat
 
 Checklist Format:
 - Use a single-level markdown checklist (no nesting or subtasks)
+- Keep each checklist item on exactly one line; do not embed escaped newlines or bullet-point details inside an item
 - List todos in the intended execution order
 - Status options: [ ] (pending), [x] (completed), [-] (in progress)
 
@@ -31,7 +32,7 @@ When NOT to Use:
 - Task can be completed in one or two simple steps
 - Request is purely conversational or informational`
 
-const TODOS_PARAMETER_DESCRIPTION = `Full markdown checklist in execution order, using [ ] for pending, [x] for completed, and [-] for in progress`
+const TODOS_PARAMETER_DESCRIPTION = `Full single-level markdown checklist in execution order, using [ ] for pending, [x] for completed, and [-] for in progress. Keep every item on one line without nested bullets or escaped newline text.`
 
 export default {
 	type: "function",

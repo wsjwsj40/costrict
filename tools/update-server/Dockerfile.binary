@@ -1,0 +1,19 @@
+FROM alpine:3.21
+
+RUN apk add --no-cache bash ca-certificates \
+	&& addgroup -S dicode \
+	&& adduser -S -G dicode dicode
+
+COPY dicode-update-server /usr/local/bin/dicode-update-server
+
+RUN chown dicode:dicode /usr/local/bin/dicode-update-server \
+	&& chmod 0755 /usr/local/bin/dicode-update-server
+
+ENV UPDATE_SERVER_CONFIG_DIR=/config
+ENV UPDATE_SERVER_RELEASES_DIR=/releases
+
+EXPOSE 8080
+
+USER dicode
+
+ENTRYPOINT ["/usr/local/bin/dicode-update-server"]
