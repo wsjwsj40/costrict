@@ -258,6 +258,7 @@ export class CodeReviewService {
 		options?: {
 			mode?: Mode
 			onTaskComplete?: () => void
+			workspacePath?: string
 		},
 	) {
 		const provider = this.getProvider()
@@ -269,7 +270,7 @@ export class CodeReviewService {
 		const taskMode = options?.mode ?? "review"
 
 		try {
-			await ensureReviewResultDirectory(String(provider.cwd), taskMode)
+			await ensureReviewResultDirectory(options?.workspacePath ?? String(provider.cwd), taskMode)
 		} catch (error) {
 			const directoryError =
 				error instanceof Error ? error : new Error(`Failed to create review result directory: ${String(error)}`)
@@ -296,6 +297,7 @@ export class CodeReviewService {
 		this.logger.debug(`[CodeReview] createReviewTask: mode after handleModeSwitch=${modeAfterSwitch}`)
 		const task = await provider.createTask(message, undefined, undefined, {
 			costrictWorkflowMode: taskMode,
+			workspacePath: options?.workspacePath,
 		})
 		const modeAfterCreateTask = await provider.getMode()
 		this.logger.debug(
@@ -377,7 +379,7 @@ export class CodeReviewService {
 			try {
 				this.logger.debug("[CodeReview] Review Task completed")
 
-				const workspace = String(provider.cwd)
+				const workspace = options?.workspacePath ?? String(provider.cwd)
 				const requestOptions = await this.getRequestOptions()
 				const jsonPath = getReviewReportJsonPath(workspace, taskMode as Mode)
 				this.logger.debug(`[CodeReview] Reading review report from ${jsonPath}`)
@@ -404,7 +406,7 @@ export class CodeReviewService {
 				this.logger.debug(`[CodeReview] Resolved ${issues.length} issues from review report`)
 
 				const existsResults = await Promise.all(
-					issues.map((issue) => fileExistsAtPath(path.resolve(provider.cwd, issue.file_path))),
+					issues.map((issue) => fileExistsAtPath(path.resolve(workspace, issue.file_path))),
 				)
 				const validIssues = issues.filter((_, index) => existsResults[index])
 

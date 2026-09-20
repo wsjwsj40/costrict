@@ -5,7 +5,13 @@
 		"dismiss": "dismiss",
 		"reviewCurrentChanges": "Code Review",
 		"securityScan": "Security Review",
-		"noFiles": "No files to review"
+		"noFiles": "No files to review",
+		"reviewScope": "Review scope",
+		"uncommittedChanges": "Current uncommitted changes",
+		"specificCommit": "A specific commit",
+		"searchCommits": "Search commits by message or hash",
+		"selectCommit": "Select a commit",
+		"repository": "Repository"
 	},
 	"history": {
 		"title": "Review History",

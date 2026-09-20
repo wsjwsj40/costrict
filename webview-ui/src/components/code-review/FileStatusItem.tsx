@@ -5,12 +5,13 @@ interface FileStatusItemProps {
 	path: string
 	status: string
 	oldPath?: string
+	repositoryPath?: string
 }
 
 /**
  * Component to display a single file with its Git status
  */
-const FileStatusItem = ({ path, status, oldPath }: FileStatusItemProps) => {
+const FileStatusItem = ({ path, status, oldPath, repositoryPath }: FileStatusItemProps) => {
 	// Determine status color based on Git status
 	const getStatusColor = (status: string): string => {
 		const normalizedStatus = status?.trim()
@@ -52,6 +53,7 @@ const FileStatusItem = ({ path, status, oldPath }: FileStatusItemProps) => {
 				oldFilePath: oldPath,
 				// Keep original porcelain XY status (e.g. " M", "AM") for backend logic.
 				status,
+				repositoryPath,
 			},
 		})
 	}

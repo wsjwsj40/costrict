@@ -237,8 +237,10 @@ export async function searchCommits(query: string, cwd: string): Promise<GitComm
 		}
 
 		// Search commits by hash or message, limiting to 15 results
+		const escapedQuery = query.replace(/["\\$`]/g, "\\$&")
 		const { stdout } = await execAsync(
-			`git log -n 15 --format="%H%n%h%n%s%n%an%n%ad" --date=short ` + `--grep="${query}" --regexp-ignore-case`,
+			`git log -n 15 --format="%H%n%h%n%s%n%an%n%ad" --date=short ` +
+				`--grep="${escapedQuery}" --regexp-ignore-case`,
 			{ cwd },
 		)
 
@@ -589,6 +591,44 @@ export async function getUncommittedFiles(cwd: string): Promise<FileChangeItem[]
 		return result
 	} catch (error) {
 		console.error("Error getting uncommitted files:", error)
+		return []
+	}
+}
+
+/**
+ * Gets the files changed by one commit, including status and rename source.
+ * The commit is deliberately restricted to a full/short SHA so that this
+ * helper cannot turn UI input into a shell expression.
+ */
+export async function getCommitFiles(commit: string, cwd: string): Promise<FileChangeItem[]> {
+	if (!/^[a-f0-9]{7,40}$/i.test(commit)) {
+		return []
+	}
+
+	try {
+		if (!(await checkGitInstalled()) || !(await checkGitRepo(cwd))) {
+			return []
+		}
+
+		const { stdout } = await execAsync(`git diff-tree --root --no-commit-id --name-status -r -M ${commit}`, { cwd })
+		return stdout
+			.trim()
+			.split("\n")
+			.filter(Boolean)
+			.flatMap((line) => {
+				const [rawStatus, firstPath, secondPath] = line.split("\t")
+				if (!rawStatus || !firstPath) return []
+				const status = rawStatus[0]
+				if (status === "R" || status === "C") {
+					return secondPath ? [{ path: secondPath, status, oldPath: firstPath }] : []
+				}
+				return [{ path: firstPath, status }]
+			})
+			.filter(
+				(file) => !excludedFileExtensions.some((ext) => file.path.toLowerCase().endsWith(ext.toLowerCase())),
+			)
+	} catch (error) {
+		console.error("Error getting commit files:", error)
 		return []
 	}
 }

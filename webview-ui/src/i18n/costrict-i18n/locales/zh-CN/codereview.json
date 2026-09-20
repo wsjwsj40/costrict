@@ -5,7 +5,13 @@
 		"dismiss": "不再提示",
 		"reviewCurrentChanges": "代码扫描",
 		"securityScan": "安全扫描",
-		"noFiles": "没有需要审查的文件"
+		"noFiles": "没有需要审查的文件",
+		"reviewScope": "审查范围",
+		"uncommittedChanges": "当前未提交改动",
+		"specificCommit": "选择某次提交",
+		"searchCommits": "按提交信息或哈希搜索",
+		"selectCommit": "选择一次提交",
+		"repository": "Git 仓库"
 	},
 	"history": {
 		"title": "审查历史",

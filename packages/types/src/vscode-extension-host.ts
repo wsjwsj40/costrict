@@ -115,6 +115,9 @@ export interface ExtensionMessage {
 		| "interactionRequired"
 		| "claudeCodeRateLimits"
 		| "reviewFilesResponse"
+		| "reviewCommitsResponse"
+		| "commitReviewFilesResponse"
+		| "reviewRepositoriesResponse"
 		| "customToolsResult"
 		| "modes"
 		| "taskWithAggregatedCosts"
@@ -493,6 +496,9 @@ export interface WebviewMessage {
 		| "cancelReviewTask"
 		| "startCodereview"
 		| "getReviewFiles"
+		| "getReviewCommits"
+		| "getCommitReviewFiles"
+		| "getReviewRepositories"
 		| "createReviewTask"
 		| "setCodeReviewWelcomeTips"
 		| "showFileDiff"
@@ -863,6 +869,10 @@ export interface ReviewFilesPayload {
 export interface CreateReviewTaskPayload {
 	files?: Array<{ path: string; status: string }>
 	mode?: string
+	/** Full hash of the historical commit to review. */
+	commit?: string
+	/** Absolute root path of the Git repository being reviewed. */
+	repositoryPath?: string
 }
 
 export interface CodeReviewWelcomeTipsPayload {

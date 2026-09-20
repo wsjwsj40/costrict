@@ -5,7 +5,13 @@
 		"dismiss": "不再提示",
 		"reviewCurrentChanges": "審查當前變更",
 		"securityScan": "安全掃描",
-		"noFiles": "沒有需要審查的文件"
+		"noFiles": "沒有需要審查的文件",
+		"reviewScope": "審查範圍",
+		"uncommittedChanges": "目前未提交的變更",
+		"specificCommit": "選擇某次提交",
+		"searchCommits": "依提交訊息或雜湊搜尋",
+		"selectCommit": "選擇一次提交",
+		"repository": "Git 儲存庫"
 	},
 	"history": {
 		"title": "審查歷史",
