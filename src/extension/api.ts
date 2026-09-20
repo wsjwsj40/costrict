@@ -261,7 +261,7 @@ export class API extends EventEmitter<RooCodeEvents> implements RooCodeAPI {
 	public async sendMessage(text?: string, images?: string[]) {
 		const currentTask = this.sidebarProvider.getCurrentTask()
 
-		// In headless/sandbox flows the webview may not be launched, so routing
+		// In headless flows the webview may not be launched, so routing
 		// through invoke=sendMessage drops the message. Deliver directly to the
 		// task ask-response channel instead.
 		if (!this.sidebarProvider.viewLaunched) {

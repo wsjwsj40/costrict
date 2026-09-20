@@ -6,30 +6,33 @@ import {
 } from "../effectiveCapabilities"
 
 describe("effective capabilities", () => {
-	it("migrates removed permission modes to sandbox development", () => {
-		expect(normalizeProjectPermissionProfile({ mode: "safe-development", updatedAt: 1 })).toEqual({
-			mode: "sandbox-development",
-			updatedAt: 1,
+	it("accepts only request approval and auto approval", () => {
+		expect(normalizeProjectPermissionProfile({ mode: "request-approval", updatedAt: 1 })).toMatchObject({
+			mode: "request-approval",
 		})
-		expect(normalizeProjectPermissionProfile({ mode: "automatic-development", updatedAt: 2 })).toEqual({
-			mode: "sandbox-development",
-			updatedAt: 2,
+		expect(normalizeProjectPermissionProfile({ mode: "auto-approval", updatedAt: 2 })).toMatchObject({
+			mode: "auto-approval",
 		})
 	})
 
-	it("migrates Strict to Spec and keeps Plan read-only", () => {
+	it("does not interpret removed permission modes", () => {
+		for (const mode of ["observe", "unsupported", "safe-development", "automatic-development"]) {
+			expect(normalizeProjectPermissionProfile({ mode, updatedAt: 1 })).toBeUndefined()
+		}
+	})
+
+	it("keeps workflow selection separate from project approval", () => {
 		expect(normalizeWorkflowMode("strict")).toBe("spec")
 		expect(
 			resolveEffectiveCapabilities({
 				workflow: "plan",
-				projectPermissionProfile: { mode: "sandbox-development", updatedAt: 1 },
+				projectPermissionProfile: { mode: "auto-approval", updatedAt: 1 },
 			}),
 		).toMatchObject({
 			workflow: "plan",
 			canReadWorkspace: true,
-			canWriteWorkspace: false,
-			canExecuteWorkspaceCommand: false,
-			usesSandbox: true,
+			canWriteWorkspace: true,
+			canExecuteWorkspaceCommand: true,
 		})
 	})
 })

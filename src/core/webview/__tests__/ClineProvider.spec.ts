@@ -1106,6 +1106,34 @@ describe("ClineProvider", () => {
 		expect(customModesManager.getCustomModes).toHaveBeenCalledTimes(1)
 	})
 
+	test("getState exposes the persisted project permission profile to task approval checks", async () => {
+		vi.mocked(mockContext.workspaceState.get).mockImplementation((key: string) =>
+			key === "projectPermissionProfile"
+				? { mode: "request-approval", updatedAt: 1, approvedWorkspaceWrites: true }
+				: undefined,
+		)
+
+		await expect(provider.getState()).resolves.toMatchObject({
+			projectPermissionProfile: {
+				mode: "request-approval",
+				approvedWorkspaceWrites: true,
+			},
+		})
+	})
+
+	test("ignores an unsupported persisted permission mode", async () => {
+		vi.mocked(mockContext.workspaceState.get).mockImplementation((key: string) =>
+			key === "projectPermissionProfile" ? { mode: "unsupported", updatedAt: 1 } : undefined,
+		)
+
+		await expect(provider.getState()).resolves.toMatchObject({
+			projectPermissionProfile: {
+				mode: "request-approval",
+				approvedWorkspaceWrites: false,
+			},
+		})
+	})
+
 	test("createTask refreshes cached custom modes when configuration provides custom modes", async () => {
 		const customModesManager = provider.customModesManager as any
 		customModesManager.getCustomModes

@@ -30,6 +30,7 @@ import {
 	type ContextTruncation,
 	type ClineMessage,
 	type ClineSay,
+	type ClineSayTool,
 	type ClineAsk,
 	type ToolProgressStatus,
 	type HistoryItem,
@@ -139,6 +140,7 @@ import { ErrorCodeManager } from "../costrict/error-code"
 import { CostrictAuthService } from "../costrict/auth"
 import { refreshModelQuota } from "../costrict/quota/modelQuotaService"
 import { AutoApprovalHandler, checkAutoApproval } from "../auto-approval"
+import { isWriteToolAction } from "../auto-approval/tools"
 import { MessageManager } from "../message-manager"
 import { validateAndFixToolResultIds } from "./validateToolResultIds"
 import { ModelFallbackManager } from "./ModelFallbackManager"
@@ -1566,6 +1568,36 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 		const provider = this.providerRef.deref()
 		const state = provider ? await provider.getState() : undefined
 		const approval = await checkAutoApproval({ state, ask: type, text, isProtected, commandExecution })
+		// Keep an audit trail for project file-write decisions. This is logged at
+		// the decision boundary, after state has been read, so it distinguishes a
+		// missing grant from protected/outside-workspace operations in either mode.
+		if (type === "tool" && state?.projectPermissionProfile) {
+			try {
+				const tool = JSON.parse(text || "{}") as ClineSayTool
+				if (isWriteToolAction(tool)) {
+					provider?.log(
+						`[projectPermissions] Write decision=${approval.decision}; tool=${tool.tool}; path=${tool.path ?? ""}; ` +
+							`mode=${state.projectPermissionProfile.mode}; ` +
+							`grant=${state.projectPermissionProfile.approvedWorkspaceWrites === true}; ` +
+							`outside=${tool.isOutsideWorkspace === true}; protected=${isProtected === true}`,
+						"info",
+						"permissions",
+					)
+				}
+			} catch {
+				// Malformed tool payloads are handled by checkAutoApproval; do not let
+				// diagnostic logging alter the approval path.
+			}
+		}
+		if (type === "command" && state?.projectPermissionProfile && commandExecution) {
+			provider?.log(
+				`[projectPermissions] Command decision=${approval.decision}; mode=${state.projectPermissionProfile.mode}; ` +
+					`scope=${commandExecution.scope}; destructive=${commandExecution.requiresReview === true}; ` +
+					`remembered=${state.projectPermissionProfile.approvedCommands?.includes(text || "") === true}`,
+				"info",
+				"permissions",
+			)
+		}
 
 		if (approval.decision === "approve") {
 			this.approveAsk()
@@ -1816,15 +1848,18 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 				this.saveClineMessages().catch((e) => console.error("Failed to save multiple choice state:", e))
 			}
 		}
-		// Mark the last tool-approval ask as answered when user approves (or auto-approval)
+		// Mark the last command or tool approval ask as answered when the user
+		// approves it or the project policy approves it automatically. Without
+		// this, an already-running auto-approved command is still rendered as a
+		// pending approval in the chat.
 		if (askResponse === "yesButtonClicked") {
-			const lastToolAskIndex = findLastIndex(
+			const lastApprovalAskIndex = findLastIndex(
 				this.clineMessages,
-				(msg) => msg.type === "ask" && msg.ask === "tool" && !msg.isAnswered,
+				(msg) => msg.type === "ask" && (msg.ask === "tool" || msg.ask === "command") && !msg.isAnswered,
 			)
-			if (lastToolAskIndex !== -1) {
-				this.clineMessages[lastToolAskIndex].isAnswered = true
-				void this.updateClineMessage(this.clineMessages[lastToolAskIndex])
+			if (lastApprovalAskIndex !== -1) {
+				this.clineMessages[lastApprovalAskIndex].isAnswered = true
+				void this.updateClineMessage(this.clineMessages[lastApprovalAskIndex])
 				this.saveClineMessages().catch((error) => {
 					console.error("Failed to save answered tool-ask state:", error)
 				})

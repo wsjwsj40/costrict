@@ -203,7 +203,7 @@ export class ClineProvider
 	private globalStateWriteThroughTimer: ReturnType<typeof setTimeout> | null = null
 	private static readonly GLOBAL_STATE_WRITE_THROUGH_DEBOUNCE_MS = 5000 // 5 seconds
 	private static readonly PROJECT_PERMISSION_PROFILE_KEY = "projectPermissionProfile"
-	private sessionSandboxCommandsAllowed = false
+	private projectPermissionProfile?: import("@roo-code/types").ProjectPermissionProfile
 	private pendingOperations: Map<string, PendingEditOperation> = new Map()
 	private static readonly PENDING_OPERATION_TIMEOUT_MS = 30000 // 30 seconds
 
@@ -2250,45 +2250,6 @@ export class ClineProvider
 	}
 
 	/**
-	 * Plan is read-only. Saving is a user-triggered export, deliberately kept
-	 * outside the model's generic file-writing tools.
-	 */
-	async saveCurrentPlan(): Promise<void> {
-		const task = this.getCurrentTask()
-		const state = await this.getState()
-		if (!task || state.costrictCodeMode !== "plan") return
-		if (!this.currentWorkspacePath) {
-			await vscode.window.showWarningMessage("Open a workspace before saving a plan.")
-			return
-		}
-		const plan = [...task.clineMessages]
-			.reverse()
-			.find((message) => message.type === "say" && !message.partial && message.text?.trim())?.text
-		if (!plan) {
-			await vscode.window.showWarningMessage("There is no completed plan to save yet.")
-			return
-		}
-
-		const planDirectory = path.join(this.currentWorkspacePath, ".dicode", "plans")
-		const target = path.join(planDirectory, `${task.taskId}.md`)
-		try {
-			await fs.mkdir(planDirectory, { recursive: true })
-			// `wx` guarantees that an explicit Save action never overwrites an
-			// earlier plan or any user-authored file.
-			await fs.writeFile(target, plan, { encoding: "utf8", flag: "wx" })
-			await vscode.window.showTextDocument(vscode.Uri.file(target), { preview: true })
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-				await vscode.window.showWarningMessage(
-					"This plan was already saved. Existing plan files are never overwritten.",
-				)
-				return
-			}
-			throw error
-		}
-	}
-
-	/**
 	 * Opens a save-file dialog and creates a .tar.gz backup of the entire tasks directory.
 	 */
 	async backupTaskHistory(): Promise<void> {
@@ -2814,7 +2775,6 @@ export class ClineProvider
 			writeDelayMs,
 			terminalShellIntegrationTimeout,
 			terminalShellIntegrationDisabled,
-			terminalSandboxEnabled,
 			terminalCommandDelay,
 			terminalPowershellCounter,
 			terminalZshClearEolMark,
@@ -2917,7 +2877,6 @@ export class ClineProvider
 		return {
 			version: this.context.extension?.packageJSON?.version ?? "",
 			projectPermissionProfile: this.getProjectPermissionProfile(),
-			sessionSandboxCommandsAllowed: this.sessionSandboxCommandsAllowed,
 			apiConfiguration,
 			costrictIsAuthenticated: this.hasCurrentCostrictAuthentication(apiConfiguration),
 			autoCleanup,
@@ -2967,7 +2926,6 @@ export class ClineProvider
 			writeDelayMs: writeDelayMs ?? DEFAULT_WRITE_DELAY_MS,
 			terminalShellIntegrationTimeout: terminalShellIntegrationTimeout ?? Terminal.defaultShellIntegrationTimeout,
 			terminalShellIntegrationDisabled: terminalShellIntegrationDisabled ?? true,
-			terminalSandboxEnabled: terminalSandboxEnabled ?? false,
 			terminalCommandDelay: terminalCommandDelay ?? 0,
 			terminalPowershellCounter: terminalPowershellCounter ?? false,
 			terminalZshClearEolMark: terminalZshClearEolMark ?? true,
@@ -3088,20 +3046,83 @@ export class ClineProvider
 	}
 
 	public getProjectPermissionProfile(): import("@roo-code/types").ProjectPermissionProfile | undefined {
-		return normalizeProjectPermissionProfile(
+		const persisted = normalizeProjectPermissionProfile(
 			this.context.workspaceState.get(ClineProvider.PROJECT_PERMISSION_PROFILE_KEY),
+		)
+		// New projects start in the restrictive mode. Returning a concrete
+		// profile also prevents legacy global write and execution settings from
+		// silently taking effect after this permission model is introduced.
+		return (
+			this.projectPermissionProfile ??
+			persisted ?? {
+				mode: "request-approval",
+				updatedAt: 0,
+				approvedCommands: [],
+				approvedWorkspaceWrites: false,
+			}
 		)
 	}
 
 	public async setProjectPermissionMode(mode: import("@roo-code/types").ProjectPermissionMode): Promise<void> {
-		await this.context.workspaceState.update(ClineProvider.PROJECT_PERMISSION_PROFILE_KEY, {
+		const profile = {
 			mode,
 			updatedAt: Date.now(),
-		})
+			approvedCommands: this.getProjectPermissionProfile()?.approvedCommands ?? [],
+			approvedWorkspaceWrites: false,
+		}
+		// Make the selected mode observable by the active task immediately. The
+		// VS Code workspaceState write remains the durable value for later
+		// sessions, but must not delay a runtime permission boundary.
+		this.projectPermissionProfile = profile
+		// The old global write/execute switches are not part of project
+		// permissions. Clear any values saved by earlier releases when the user
+		// explicitly chooses a project mode, so they cannot affect this or an
+		// unconfigured workspace later.
+		await Promise.all([
+			this.context.workspaceState.update(ClineProvider.PROJECT_PERMISSION_PROFILE_KEY, profile),
+			this.updateGlobalState("alwaysAllowWrite", false),
+			this.updateGlobalState("alwaysAllowWriteOutsideWorkspace", false),
+			this.updateGlobalState("alwaysAllowWriteProtected", false),
+			this.updateGlobalState("alwaysAllowExecute", false),
+		])
 	}
 
-	public allowSandboxCommandsForSession(): void {
-		this.sessionSandboxCommandsAllowed = true
+	public async approveProjectCommand(command: string): Promise<void> {
+		const profile = this.getProjectPermissionProfile()
+		if (!profile || profile.mode !== "request-approval" || !command.trim()) return
+		const approvedCommands = [...new Set([...(profile.approvedCommands ?? []), command.trim()])]
+		this.projectPermissionProfile = { ...profile, approvedCommands, updatedAt: Date.now() }
+		await this.context.workspaceState.update(
+			ClineProvider.PROJECT_PERMISSION_PROFILE_KEY,
+			this.projectPermissionProfile,
+		)
+	}
+
+	public async approveProjectWorkspaceWrites(): Promise<void> {
+		const profile = this.getProjectPermissionProfile()
+		if (!profile || profile.mode !== "request-approval") {
+			this.log(
+				`[projectPermissions] Ignored workspace write grant; current mode=${profile?.mode ?? "unset"}`,
+				"info",
+				"permissions",
+			)
+			return
+		}
+
+		// workspaceState belongs to the current VS Code workspace. Keep an
+		// in-memory copy as well so the next Task.ask() observes the grant even
+		// before VS Code completes its storage write.
+		this.projectPermissionProfile = { ...profile, approvedWorkspaceWrites: true, updatedAt: Date.now() }
+		this.log(
+			`[projectPermissions] Granting future ordinary workspace writes; updatedAt=${this.projectPermissionProfile.updatedAt}`,
+			"info",
+			"permissions",
+		)
+		await this.context.workspaceState.update(
+			ClineProvider.PROJECT_PERMISSION_PROFILE_KEY,
+			this.projectPermissionProfile,
+		)
+		this.log("[projectPermissions] Future workspace write grant persisted", "info", "permissions")
 	}
 
 	private hasCurrentCostrictAuthentication(apiConfiguration: ProviderSettings): boolean {
@@ -3227,6 +3248,10 @@ export class ClineProvider
 		// Return the same structure as before.
 		return {
 			debug: costrictDebugModeBuildEnabled && (stateValues.debug ?? false),
+			// Task.ask() reads this base state rather than the webview-specific
+			// state builder. Keep project grants here so runtime approval decisions
+			// see the same profile that the UI displays and persists.
+			projectPermissionProfile: this.getProjectPermissionProfile(),
 			autoCleanup: stateValues.autoCleanup ?? DEFAULT_AUTO_CLEANUP_SETTINGS,
 			apiConfiguration,
 			costrictIsAuthenticated: this.hasCurrentCostrictAuthentication(apiConfiguration),
@@ -3264,7 +3289,6 @@ export class ClineProvider
 			terminalShellIntegrationTimeout:
 				stateValues.terminalShellIntegrationTimeout ?? Terminal.defaultShellIntegrationTimeout,
 			terminalShellIntegrationDisabled: stateValues.terminalShellIntegrationDisabled ?? true,
-			terminalSandboxEnabled: stateValues.terminalSandboxEnabled ?? false,
 			terminalCommandDelay: stateValues.terminalCommandDelay ?? 0,
 			terminalPowershellCounter: stateValues.terminalPowershellCounter ?? false,
 			terminalZshClearEolMark: stateValues.terminalZshClearEolMark ?? true,

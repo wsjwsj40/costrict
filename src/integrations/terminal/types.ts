@@ -12,11 +12,7 @@ export interface RooTerminal {
 	process?: RooTerminalProcess
 	getCurrentWorkingDirectory(): string
 	isClosed: () => boolean
-	runCommand: (
-		command: string,
-		callbacks: RooTerminalCallbacks,
-		sandbox?: import("../sandbox").SandboxLaunch,
-	) => RooTerminalProcessResultPromise
+	runCommand: (command: string, callbacks: RooTerminalCallbacks) => RooTerminalProcessResultPromise
 	setActiveStream(stream: AsyncIterable<string> | undefined, pid: Thenable<number | undefined>): void
 	shellExecutionComplete(exitDetails: ExitCodeDetails): void
 	getProcessesWithOutput(): RooTerminalProcess[]

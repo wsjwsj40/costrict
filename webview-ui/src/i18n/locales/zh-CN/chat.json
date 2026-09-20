@@ -224,7 +224,9 @@
 		"wantsToGenerateImage": "需要生成图片",
 		"wantsToGenerateImageOutsideWorkspace": "需要在工作区外生成图片",
 		"wantsToGenerateImageProtected": "需要在受保护位置生成图片",
-		"didGenerateImage": "已生成图片"
+		"didGenerateImage": "已生成图片",
+		"allowProjectWorkspaceWrites": "后续允许",
+		"allowProjectWorkspaceWritesTooltip": "允许后续修改此项目中的普通文件"
 	},
 	"directoryOperations": {
 		"wantsToViewTopLevel": "需要查看目录文件列表",
@@ -250,6 +252,15 @@
 		"backgrounded": "在后台运行",
 		"backgroundedAfter": "{{seconds}} 秒后转入后台",
 		"backgroundedPlanned": "约 {{seconds}} 秒后将自动转入后台运行",
+		"oneTimeDestructive": "此操作可能造成破坏，需要单次授权。",
+		"oneTimeOutsideProject": "此命令需要访问项目目录外的位置，需要单次授权。",
+		"approveWithinProject": "请授权在项目范围内执行此命令。",
+		"withinProject": "在项目目录中执行",
+		"outsideProject": "在项目目录外执行",
+		"review": "此命令可能删除文件或丢弃修改，请确认实际影响后执行。",
+		"allowOnce": "仅本次允许",
+		"allowCommandInProject": "后续允许",
+		"deny": "拒绝",
 		"manageCommands": "管理命令权限",
 		"commandManagementDescription": "管理命令权限：点击 ✓ 允许自动执行，点击 ✗ 拒绝执行。可以打开/关闭模式或从列表中删除。<settingsLink>查看所有设置</settingsLink>",
 		"addToAllowed": "添加到允许列表",

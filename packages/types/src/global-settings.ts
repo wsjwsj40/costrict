@@ -196,7 +196,6 @@ export const globalSettingsSchema = z.object({
 	terminalOutputPreviewSize: z.enum(["small", "medium", "large"]).optional(),
 	terminalShellIntegrationTimeout: z.number().optional(),
 	terminalShellIntegrationDisabled: z.boolean().optional(),
-	terminalSandboxEnabled: z.boolean().optional(),
 	terminalCommandDelay: z.number().optional(),
 	terminalPowershellCounter: z.boolean().optional(),
 	terminalZshClearEolMark: z.boolean().optional(),
@@ -347,11 +346,15 @@ export const isSecretStateKey = (key: string): key is Keys<SecretState> =>
 export type GlobalState = Omit<RooCodeSettings, Keys<SecretState>>
 
 /** Stored in VS Code workspaceState, never in repository settings. */
-export type ProjectPermissionMode = "observe" | "sandbox-development"
+export type ProjectPermissionMode = "request-approval" | "auto-approval"
 
 export interface ProjectPermissionProfile {
 	mode: ProjectPermissionMode
 	updatedAt: number
+	/** Exact, non-destructive commands remembered only for this workspace. */
+	approvedCommands?: string[]
+	/** Ordinary workspace file changes remembered only for this workspace. */
+	approvedWorkspaceWrites?: boolean
 }
 
 export const GLOBAL_STATE_KEYS = [...GLOBAL_SETTINGS_KEYS, ...PROVIDER_SETTINGS_KEYS].filter(

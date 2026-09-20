@@ -7,45 +7,10 @@ import {
 	isNonBlockingAsk,
 } from "@roo-code/types"
 
-import path from "path"
-import os from "os"
-
 import { ClineAskResponse } from "../../shared/WebviewMessage"
 
 import { isWriteToolAction, isReadOnlyToolAction } from "./tools"
 import { isMcpToolAlwaysAllowed } from "./mcp"
-import { getCommandDecision } from "./commands"
-import { resolveEffectiveCapabilities } from "../permissions/effectiveCapabilities"
-
-/**
- * Get all global skill directory prefixes.
- * Files inside these directories are considered safe to read without approval.
- * Includes mode-specific skill directories (skills-review, skills-security-review, etc.)
- */
-function getSkillDirectoryPrefixes(): string[] {
-	const homeDir = os.homedir()
-	const baseDirs = [
-		path.join(homeDir, ".dicode"),
-		path.join(homeDir, ".roo"),
-		path.join(homeDir, ".agents"),
-		path.join(process.env.XDG_CONFIG_HOME || path.join(homeDir, ".config"), "dicode"),
-	]
-	const prefixes: string[] = []
-	for (const base of baseDirs) {
-		prefixes.push(path.join(base, "skills"))
-		prefixes.push(path.join(base, "skills-review"))
-		prefixes.push(path.join(base, "skills-security-review"))
-	}
-	return prefixes
-}
-
-/**
- * Check if a file path is inside any known skill directory.
- */
-function isInsideSkillDirectory(filePath: string): boolean {
-	const normalized = path.resolve(filePath).toLowerCase()
-	return getSkillDirectoryPrefixes().some((prefix) => normalized.startsWith(prefix.toLowerCase()))
-}
 
 // We have auto-approval actions for different categories.
 export type AutoApprovalState =
@@ -86,10 +51,7 @@ export async function checkAutoApproval({
 	isProtected,
 	commandExecution,
 }: {
-	state?: Pick<
-		ExtensionState,
-		AutoApprovalState | AutoApprovalStateOptions | "projectPermissionProfile" | "sessionSandboxCommandsAllowed"
-	> &
+	state?: Pick<ExtensionState, AutoApprovalState | AutoApprovalStateOptions | "projectPermissionProfile"> &
 		Partial<Pick<ExtensionState, "mode" | "costrictCodeMode">>
 	ask: ClineAsk
 	text?: string
@@ -100,7 +62,11 @@ export async function checkAutoApproval({
 		return { decision: "approve" }
 	}
 
-	if (!state || (!state.autoApprovalEnabled && !state.projectPermissionProfile)) {
+	if (!state) {
+		return { decision: "ask" }
+	}
+
+	if (!state.autoApprovalEnabled && !state.projectPermissionProfile) {
 		return { decision: "ask" }
 	}
 
@@ -156,33 +122,15 @@ export async function checkAutoApproval({
 	if (ask === "command") {
 		if (commandExecution) {
 			const profile = state.projectPermissionProfile
-			const capabilities = resolveEffectiveCapabilities({
-				workflow: state.costrictCodeMode,
-				projectPermissionProfile: profile,
-			})
-			// Explicit denials still apply even when the operation is sandboxed.
-			const decision = getCommandDecision(text || "", ["*"], state.deniedCommands || [])
-			if (decision === "auto_deny") return { decision: "deny" }
-			if (commandExecution.sandbox === "outside" || commandExecution.requiresReview) return { decision: "ask" }
-			if (state.sessionSandboxCommandsAllowed) return { decision: "approve" }
-			if (profile) return capabilities.canExecuteWorkspaceCommand ? { decision: "approve" } : { decision: "ask" }
-			return state.alwaysAllowExecute === true ? { decision: "approve" } : { decision: "ask" }
-		}
-		if (!text) {
+			if (commandExecution.scope === "outside" || commandExecution.requiresReview) return { decision: "ask" }
+			if (profile?.mode === "auto-approval" || profile?.approvedCommands?.includes(text || "")) {
+				return { decision: "approve" }
+			}
+			// Global command auto-approval is a retired setting. Its persisted
+			// value is intentionally ignored while project permissions are active.
 			return { decision: "ask" }
 		}
-
-		if (state.alwaysAllowExecute === true) {
-			const decision = getCommandDecision(text, state.allowedCommands || [], state.deniedCommands || [])
-
-			if (decision === "auto_approve") {
-				return { decision: "approve" }
-			} else if (decision === "auto_deny") {
-				return { decision: "deny" }
-			} else {
-				return { decision: "ask" }
-			}
-		}
+		return { decision: "ask" }
 	}
 
 	if (ask === "tool") {
@@ -221,20 +169,8 @@ export async function checkAutoApproval({
 
 		if (isReadOnlyToolAction(tool)) {
 			const profile = state.projectPermissionProfile
-			if (profile && !isOutsideWorkspace) return { decision: "approve" }
-			if (profile) return { decision: "ask" }
-			// Auto-approve reads from skill directories (user-installed instruction files)
-			if (isOutsideWorkspace && tool.content && isInsideSkillDirectory(tool.content)) {
-				return { decision: "approve" }
-			}
-			// Auto-approve batch reads where all files are inside skill directories
-			if (tool.batchFiles && Array.isArray(tool.batchFiles)) {
-				const allInSkillDir = (
-					tool.batchFiles as Array<{ content?: string; isOutsideWorkspace?: boolean }>
-				).every((f) => f.isOutsideWorkspace && f.content && isInsideSkillDirectory(f.content))
-				if (allInSkillDir) {
-					return { decision: "approve" }
-				}
+			if (profile) {
+				return !isOutsideWorkspace ? { decision: "approve" } : { decision: "ask" }
 			}
 			return state.alwaysAllowReadOnly === true &&
 				(!isOutsideWorkspace || state.alwaysAllowReadOnlyOutsideWorkspace === true)
@@ -244,21 +180,17 @@ export async function checkAutoApproval({
 
 		if (isWriteToolAction(tool)) {
 			const profile = state.projectPermissionProfile
-			const capabilities = resolveEffectiveCapabilities({
-				workflow: state.costrictCodeMode,
-				projectPermissionProfile: profile,
-			})
-			// Read-only never inherits the legacy global write setting.
-			if (profile?.mode === "observe") return { decision: "ask" }
-			if (profile && capabilities.canWriteWorkspace && !isOutsideWorkspace && !isProtected) {
+			if (
+				(profile?.mode === "auto-approval" || profile?.approvedWorkspaceWrites === true) &&
+				!isOutsideWorkspace &&
+				!isProtected
+			) {
 				return { decision: "approve" }
 			}
 			if (profile) return { decision: "ask" }
-			return state.alwaysAllowWrite === true &&
-				(!isOutsideWorkspace || state.alwaysAllowWriteOutsideWorkspace === true) &&
-				(!isProtected || state.alwaysAllowWriteProtected === true)
-				? { decision: "approve" }
-				: { decision: "ask" }
+			// Global write auto-approval is a retired setting. Persisted values
+			// must never grant a file write outside the project permission model.
+			return { decision: "ask" }
 		}
 	}
 

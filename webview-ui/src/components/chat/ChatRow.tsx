@@ -2087,7 +2087,7 @@ export const ChatRowContent = ({
 						<CommandExecution
 							executionId={message.ts.toString()}
 							commandExecution={message.commandExecution}
-							approvalPending
+							approvalPending={!message.isAnswered}
 							text={message.text}
 							icon={icon}
 							onCommandStop={onCommandStop}

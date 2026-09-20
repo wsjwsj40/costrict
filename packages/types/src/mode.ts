@@ -103,12 +103,6 @@ export const modeConfigSchema = z.object({
 	overrideSystemPrompt: z.boolean().optional(),
 	source: z.enum(["global", "project"]).optional(),
 	costrictCodeModeGroup: z.string().default("vibe").optional(),
-	/** Role and workflow declarations replace the legacy comma-separated group over time. */
-	agentRole: z.enum(["planner", "executor", "reviewer", "orchestrator"]).optional(),
-	workflowModes: z.array(z.enum(["vibe", "plan", "spec"])).optional(),
-	workflowPhase: z
-		.enum(["analysis", "requirements", "design", "planning", "implementation", "verification", "coordination"])
-		.optional(),
 	apiProvider: z.string().optional(),
 	subagents: z.array(z.string()).default([]).optional(),
 	pure: z.boolean().default(false).optional(),
@@ -176,7 +170,7 @@ export type modelType = ModeConfig & { [key: string]: unknown }
 const WORKFLOW_MODES: readonly modelType[] = [
 	{
 		slug: "spec",
-		name: "⛓ Spec",
+		name: "⛓ Strict",
 		roleDefinition:
 			"You are DiCode, a strict strategic workflow controller who coordinates complex tasks by delegating them to appropriate specialized modes. You have a comprehensive understanding of each mode's capabilities and limitations, allowing you to effectively break down complex problems into discrete tasks that can be solved by different specialists.",
 		whenToUse:
@@ -200,9 +194,6 @@ const WORKFLOW_MODES: readonly modelType[] = [
 		disableSwitchMode: true,
 		source: "project",
 		costrictCodeModeGroup: "spec",
-		agentRole: "orchestrator",
-		workflowModes: ["spec"],
-		workflowPhase: "coordination",
 		apiProvider: "costrict",
 	},
 	{
@@ -220,7 +211,6 @@ const WORKFLOW_MODES: readonly modelType[] = [
 		pure: true,
 		source: "project",
 		costrictCodeModeGroup: "spec",
-		workflowPhase: "requirements",
 		apiProvider: "costrict",
 	},
 	{
@@ -237,7 +227,6 @@ const WORKFLOW_MODES: readonly modelType[] = [
 		pure: true,
 		source: "project",
 		costrictCodeModeGroup: "spec",
-		workflowPhase: "design",
 		apiProvider: "costrict",
 	},
 	{
@@ -255,7 +244,6 @@ const WORKFLOW_MODES: readonly modelType[] = [
 		pure: true,
 		source: "project",
 		costrictCodeModeGroup: "spec",
-		workflowPhase: "planning",
 		apiProvider: "costrict",
 	},
 	{
@@ -271,7 +259,6 @@ const WORKFLOW_MODES: readonly modelType[] = [
 		groups: ["read", "edit", "command", "mcp"],
 		source: "project",
 		costrictCodeModeGroup: "spec",
-		workflowPhase: "verification",
 		apiProvider: "costrict",
 	},
 	{
@@ -282,7 +269,7 @@ const WORKFLOW_MODES: readonly modelType[] = [
 		description: "Analyze and generate a testing plan",
 		groups: ["read", "edit", "command", "mcp"],
 		source: "project",
-		costrictCodeModeGroup: "spec,vibe",
+		costrictCodeModeGroup: "spec,plan,vibe",
 		apiProvider: "costrict",
 	},
 	{
@@ -292,14 +279,23 @@ const WORKFLOW_MODES: readonly modelType[] = [
 			"You are DiCode, a planning specialist who creates detailed, actionable implementation blueprints. You analyze requirements, gather context, and produce structured plans for others to execute.",
 		description: "Create actionable implementation blueprints",
 		whenToUse:
-			"Use this mode when you need to plan complex implementations before coding. It gathers context, asks clarifying questions, and returns an actionable blueprint for the user to review before they explicitly start implementation.",
-		groups: ["read"],
+			"Use this mode when you need to plan complex implementations before coding. Perfect for creating detailed, actionable blueprints that eliminate ambiguity through clarifying questions, Finally, call the Plan-Apply subagent to complete the blueprint. Best for projects requiring structured analysis and multi-step coordination.",
+		groups: [
+			"read",
+			[
+				"edit",
+				{
+					fileRegex: "\\.md$",
+					description: "Markdown files only",
+				},
+			],
+			"command",
+			"modes",
+		],
+		subagents: ["quick-explore", "task-check", "plan-apply"],
 		pure: true,
 		source: "project",
 		costrictCodeModeGroup: "plan",
-		agentRole: "planner",
-		workflowModes: ["plan"],
-		workflowPhase: "planning",
 		apiProvider: "costrict",
 	},
 	{
@@ -314,10 +310,7 @@ const WORKFLOW_MODES: readonly modelType[] = [
 		subagents: ["subcoding"],
 		pure: true,
 		source: "project",
-		costrictCodeModeGroup: "spec",
-		agentRole: "orchestrator",
-		workflowModes: ["spec"],
-		workflowPhase: "implementation",
+		costrictCodeModeGroup: "plan",
 		apiProvider: "costrict",
 	},
 	{
@@ -464,10 +457,7 @@ export const DEFAULT_MODES: readonly modelType[] = [
 			"Use this mode when you need to write, modify, or refactor code. Ideal for implementing features, fixing bugs, creating new files, or making code improvements across any programming language or framework.",
 		description: "Write, modify, and refactor code",
 		groups: ["read", "edit", "command", "mcp"],
-		costrictCodeModeGroup: "spec,vibe",
-		agentRole: "executor",
-		workflowModes: ["vibe", "spec"],
-		workflowPhase: "implementation",
+		costrictCodeModeGroup: "spec,vibe,plan",
 	},
 	{
 		slug: "architect",
@@ -478,9 +468,6 @@ export const DEFAULT_MODES: readonly modelType[] = [
 			"Use this mode when you need to plan, design, or strategize before implementation. Perfect for breaking down complex problems, creating technical specifications, designing system architecture, or brainstorming solutions before coding.",
 		description: "Plan and design before implementation",
 		costrictCodeModeGroup: "vibe",
-		agentRole: "planner",
-		workflowModes: ["vibe"],
-		workflowPhase: "analysis",
 		groups: ["read", ["edit", { fileRegex: "\\.md$", description: "Markdown files only" }], "mcp"],
 		customInstructions:
 			"1. Do some information gathering (using provided tools) to get more context about the task.\n\n2. You should also ask the user clarifying questions to get a better understanding of the task.\n\n3. Once you've gained more context about the user's request, break down the task into clear, actionable steps and create a todo list using the `update_todo_list` tool. Each todo item should be:\n   - Specific and actionable\n   - Listed in logical execution order\n   - Focused on a single, well-defined outcome\n   - Clear enough that another mode could execute it independently\n\n   **Note:** If the `update_todo_list` tool is not available, write the plan to a markdown file (e.g., `plan.md` or `todo.md`) instead.\n\n4. As you gather more information or discover new requirements, update the todo list to reflect the current understanding of what needs to be accomplished.\n\n5. Ask the user if they are pleased with this plan, or if they would like to make any changes. Think of this as a brainstorming session where you can discuss the task and refine the todo list.\n\n6. Include Mermaid diagrams if they help clarify complex workflows or system architecture. Please avoid using double quotes (\"\") and parentheses () inside square brackets ([]) in Mermaid diagrams, as this can cause parsing errors.\n\n7. Use the switch_mode tool to request that the user switch to another mode to implement the solution.\n\n**IMPORTANT: Focus on creating clear, actionable todo lists rather than lengthy markdown documents. Use the todo list as your primary planning tool to track and organize the work that needs to be done.**\n\n**CRITICAL: Never provide level of effort time estimates (e.g., hours, days, weeks) for tasks. Focus solely on breaking down the work into clear, actionable steps without estimating how long they will take.**\n\nUnless told otherwise, if you want to save a plan file, put it in the /plans directory",

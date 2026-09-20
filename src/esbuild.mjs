@@ -119,26 +119,6 @@ async function main() {
 			name: "copyFiles",
 			setup(build) {
 				build.onEnd(async () => {
-					await esbuild.build({
-						entryPoints: [path.join(srcDir, "integrations/sandbox/runner.ts")],
-						outfile: path.join(distDir, "sandbox/runtime/runner.mjs"),
-						bundle: true,
-						platform: "node",
-						format: "esm",
-						target: "node20",
-						banner: {
-							js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);',
-						},
-					})
-					copyDirSync(
-						path.join(srcDir, "node_modules/@anthropic-ai/sandbox-runtime/vendor"),
-						path.join(distDir, "vendor"),
-					)
-					fs.copyFileSync(
-						path.join(srcDir, "node_modules/@anthropic-ai/sandbox-runtime/LICENSE"),
-						path.join(distDir, "vendor/sandbox-runtime-LICENSE"),
-					)
-
 					copyPaths(
 						[
 							["../README.md", "README.md"],

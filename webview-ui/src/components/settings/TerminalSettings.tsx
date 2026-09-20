@@ -1,7 +1,7 @@
 import { HTMLAttributes, useState, useCallback } from "react"
 import { useAppTranslation } from "@/i18n/TranslationContext"
 import { vscode } from "@/utils/vscode"
-import { VSCodeCheckbox, VSCodeLink, VSCodeButton } from "@vscode/webview-ui-toolkit/react"
+import { VSCodeCheckbox, VSCodeLink } from "@vscode/webview-ui-toolkit/react"
 import { Trans } from "react-i18next"
 import { buildDocLink } from "@src/utils/docLinks"
 import { useEvent, useMount } from "react-use"
@@ -17,7 +17,6 @@ import { Section } from "./Section"
 import { SearchableSetting } from "./SearchableSetting"
 
 type TerminalSettingsProps = HTMLAttributes<HTMLDivElement> & {
-	terminalSandboxEnabled?: boolean
 	terminalOutputPreviewSize?: TerminalOutputPreviewSize
 	terminalShellIntegrationTimeout?: number
 	terminalShellIntegrationDisabled?: boolean
@@ -28,7 +27,6 @@ type TerminalSettingsProps = HTMLAttributes<HTMLDivElement> & {
 	terminalZshP10k?: boolean
 	terminalZdotdir?: boolean
 	setCachedStateField: SetCachedStateField<
-		| "terminalSandboxEnabled"
 		| "terminalOutputPreviewSize"
 		| "terminalShellIntegrationTimeout"
 		| "terminalShellIntegrationDisabled"
@@ -42,7 +40,6 @@ type TerminalSettingsProps = HTMLAttributes<HTMLDivElement> & {
 }
 
 export const TerminalSettings = ({
-	terminalSandboxEnabled,
 	terminalOutputPreviewSize,
 	terminalShellIntegrationTimeout,
 	terminalShellIntegrationDisabled,
@@ -58,8 +55,6 @@ export const TerminalSettings = ({
 }: TerminalSettingsProps) => {
 	const { t } = useAppTranslation()
 
-	const [sandboxStatus, setSandboxStatus] = useState<{ available: boolean; detail: string; platform: string }>()
-	const [sandboxChecking, setSandboxChecking] = useState(false)
 	const [inheritEnv, setInheritEnv] = useState<boolean>(true)
 
 	useMount(() => vscode.postMessage({ type: "getVSCodeSetting", setting: "terminal.integrated.inheritEnv" }))
@@ -68,13 +63,6 @@ export const TerminalSettings = ({
 		const message: ExtensionMessage = event.data
 
 		switch (message.type) {
-			case "commandSandboxStatus":
-				try {
-					setSandboxStatus(JSON.parse(message.text || "{}"))
-				} finally {
-					setSandboxChecking(false)
-				}
-				break
 			case "vsCodeSetting":
 				switch (message.setting) {
 					case "terminal.integrated.inheritEnv":
@@ -95,59 +83,6 @@ export const TerminalSettings = ({
 		<div className={cn("flex flex-col", className)} {...props}>
 			<SectionHeader>{t("settings:sections.terminal")}</SectionHeader>
 
-			<Section>
-				<div className="flex flex-col gap-3">
-					<VSCodeCheckbox
-						checked={terminalSandboxEnabled ?? false}
-						onChange={(event: any) => {
-							const enabled = event.target.checked
-							setCachedStateField("terminalSandboxEnabled", enabled)
-							if (enabled) {
-								setSandboxChecking(true)
-								vscode.postMessage({ type: "checkCommandSandbox" })
-							}
-						}}>
-						{t("settings:terminal.sandbox.label")}
-					</VSCodeCheckbox>
-					<p className="text-sm text-vscode-descriptionForeground">
-						{t("settings:terminal.sandbox.description")}
-					</p>
-					<p className="text-sm text-vscode-descriptionForeground">{t("settings:terminal.sandbox.setup")}</p>
-					<div className="flex gap-2">
-						<VSCodeButton
-							appearance="secondary"
-							disabled={sandboxChecking}
-							onClick={() => {
-								setSandboxChecking(true)
-								vscode.postMessage({ type: "checkCommandSandbox" })
-							}}>
-							{t("settings:terminal.sandbox.check")}
-						</VSCodeButton>
-						{sandboxStatus?.platform === "win32" && !sandboxStatus.available && (
-							<VSCodeButton
-								appearance="secondary"
-								disabled={sandboxChecking}
-								onClick={() => {
-									setSandboxChecking(true)
-									vscode.postMessage({ type: "installCommandSandbox" })
-								}}>
-								{t("settings:terminal.sandbox.install")}
-							</VSCodeButton>
-						)}
-					</div>
-					{sandboxChecking && <p role="status">{t("settings:terminal.sandbox.checking")}</p>}
-					{sandboxStatus && !sandboxChecking && (
-						<div role="status" className="text-sm whitespace-pre-wrap break-words">
-							{t(
-								sandboxStatus.available
-									? "settings:terminal.sandbox.available"
-									: "settings:terminal.sandbox.unavailable",
-							)}
-							{sandboxStatus.detail && <p>{sandboxStatus.detail}</p>}
-						</div>
-					)}
-				</div>
-			</Section>
 			<Section>
 				{/* Basic Settings */}
 				<div className="flex flex-col gap-3">

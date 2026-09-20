@@ -173,6 +173,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 		isStreaming = false,
 		alwaysAllowExecute = false,
 		autoApprovalEnabled,
+		projectPermissionProfile,
 	} = useExtensionState()
 
 	// Show a WarningRow when the user sends a message with a retired provider.
@@ -318,8 +319,10 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 		// Include 'command_output' so the Stop button stays active while a command
 		// is actively running and producing output (ask transitions from "command"
 		// to "command_output" once execution begins).
-		() => alwaysAllowExecute && autoApprovalEnabled && (clineAsk === "command" || clineAsk === "command_output"),
-		[alwaysAllowExecute, autoApprovalEnabled, clineAsk],
+		() =>
+			(projectPermissionProfile?.mode === "auto-approval" || (alwaysAllowExecute && autoApprovalEnabled)) &&
+			(clineAsk === "command" || clineAsk === "command_output"),
+		[projectPermissionProfile?.mode, alwaysAllowExecute, autoApprovalEnabled, clineAsk],
 	)
 	// Cancel auto-approval timeout when user starts typing
 	useEffect(() => {
@@ -340,6 +343,23 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 	// hitting button sets enableButtons to false,  and this effect otherwise
 	// would have to true again even if messages didn't change.
 	const lastMessage = useMemo(() => messages.at(-1), [messages])
+	const canApproveProjectWorkspaceWrites = useMemo(() => {
+		// This action changes the request-approval profile. The profile can arrive
+		// after the pending write request, so only hide the action once automatic
+		// mode is explicitly known. An absent profile uses the provider's
+		// restrictive request-approval default.
+		if (projectPermissionProfile?.mode === "auto-approval") return false
+		if (clineAsk !== "tool") return false
+		if (!lastMessage || lastMessage.type !== "ask" || lastMessage.ask !== "tool") return false
+		const tool = safeJsonParse<ClineSayTool>(lastMessage.text, {} as ClineSayTool)
+		if (!tool) return false
+		return (
+			["editedExistingFile", "appliedDiff", "newFileCreated"].includes(tool.tool) &&
+			!tool.batchDiffs &&
+			!tool.isOutsideWorkspace &&
+			!tool.isProtected
+		)
+	}, [clineAsk, lastMessage, projectPermissionProfile?.mode])
 	const secondLastMessage = useMemo(() => messages.at(-2), [messages])
 
 	const volume = typeof soundVolume === "number" ? soundVolume : 0.5
@@ -2108,9 +2128,31 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 											<Button
 												variant="primary"
 												disabled={!enableButtons}
-												className={secondaryButtonText ? "flex-1 mr-[6px]" : "flex-[2] mr-0"}
+												className={
+													secondaryButtonText || canApproveProjectWorkspaceWrites
+														? "flex-1 mr-[6px]"
+														: "flex-[2] mr-0"
+												}
 												onClick={() => handlePrimaryButtonClick(inputValue, selectedImages)}>
 												{primaryButtonText}
+											</Button>
+										</StandardTooltip>
+									)}
+									{canApproveProjectWorkspaceWrites && (
+										<StandardTooltip
+											content={t("chat:fileOperations.allowProjectWorkspaceWritesTooltip")}>
+											<Button
+												variant="secondary"
+												disabled={!enableButtons}
+												className="flex-1 mx-[3px]"
+												data-testid="allow-project-workspace-writes"
+												onClick={() => {
+													setEnableButtons(false)
+													vscode.postMessage({
+														type: "approveProjectWorkspaceWrites",
+													})
+												}}>
+												{t("chat:fileOperations.allowProjectWorkspaceWrites")}
 											</Button>
 										</StandardTooltip>
 									)}
@@ -2119,7 +2161,11 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 											<Button
 												variant="secondary"
 												disabled={!enableButtons}
-												className="flex-1 ml-[6px]"
+												className={
+													canApproveProjectWorkspaceWrites
+														? "flex-1 ml-[3px]"
+														: "flex-1 ml-[6px]"
+												}
 												onClick={() => handleSecondaryButtonClick(inputValue, selectedImages)}>
 												{secondaryButtonText}
 											</Button>

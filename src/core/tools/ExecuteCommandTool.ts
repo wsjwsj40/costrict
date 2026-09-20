@@ -20,11 +20,8 @@ import { Package } from "../../shared/package"
 import { t } from "../../i18n"
 import { getTaskDirectoryPath } from "../../utils/storage"
 import { BaseTool, ToolCallbacks } from "./BaseTool"
-import { createSandboxLaunch, type SandboxLaunch } from "../../integrations/sandbox"
-import { isWithin, needsDestructiveReview } from "../../integrations/sandbox/policy"
-import { getShell } from "../../utils/shell"
+import { getCommandScope, needsDestructiveReview } from "../permissions/operationPolicy"
 import { isJetbrainsPlatform } from "../../utils/platform"
-import { resolveEffectiveCapabilities } from "../permissions/effectiveCapabilities"
 
 class ShellIntegrationError extends Error {}
 
@@ -32,8 +29,6 @@ interface ExecuteCommandParams {
 	command: string
 	cwd?: string
 	timeout?: number | null
-	sandbox_permissions?: "use_default" | "require_escalated" | null
-	justification?: string | null
 }
 
 export function resolveAgentTimeoutMs(timeoutSeconds: number | null | undefined): number {
@@ -74,51 +69,16 @@ export class ExecuteCommandTool extends BaseTool<"execute_command"> {
 
 			const provider = await task.providerRef.deref()
 			const providerState = await provider?.getState()
-			const {
-				terminalShellIntegrationDisabled = true,
-				terminalSandboxEnabled = false,
-				projectPermissionProfile,
-			} = providerState ?? {}
-			const effectiveCapabilities = resolveEffectiveCapabilities({
-				workflow: providerState?.costrictCodeMode,
-				projectPermissionProfile,
-			})
-			const projectSandboxEnabled = effectiveCapabilities.usesSandbox
-			let sandbox: SandboxLaunch | undefined
+			const { terminalShellIntegrationDisabled = true } = providerState ?? {}
 			let executionCwd = customCwd
 			let commandExecution: import("@roo-code/types").ClineMessage["commandExecution"]
-			if (projectSandboxEnabled || terminalSandboxEnabled) {
-				const cwd = await fs.realpath(path.resolve(task.cwd, customCwd || "."))
-				const workspace = await fs.realpath(task.cwd)
-				executionCwd = cwd
-				const outside = params.sandbox_permissions === "require_escalated"
-				if (outside && !params.justification?.trim()) {
-					pushToolResult(
-						"Outside-sandbox execution requires a justification explaining the needed access. No command was run.",
-					)
-					return
-				}
-				if (!outside && !isWithin(workspace, cwd)) {
-					pushToolResult(
-						"The working directory is outside the workspace. Request sandbox_permissions=require_escalated with a justification; do not change the command to bypass this boundary.",
-					)
-					return
-				}
-				commandExecution = {
-					cwd,
-					sandbox: outside ? "outside" : "workspace",
-					requiresReview: needsDestructiveReview(canonicalCommand),
-					reason: outside ? params.justification!.trim() : undefined,
-				}
-				if (!outside) {
-					if (!provider?.context.extensionPath) throw new Error("Sandbox extension resources are unavailable")
-					sandbox = createSandboxLaunch(provider.context.extensionPath, {
-						command: canonicalCommand,
-						cwd,
-						workspace,
-						shell: getShell(),
-					})
-				}
+			const cwd = await fs.realpath(path.resolve(task.cwd, customCwd || "."))
+			const workspace = await fs.realpath(task.cwd)
+			executionCwd = cwd
+			commandExecution = {
+				cwd,
+				scope: getCommandScope(workspace, cwd),
+				requiresReview: needsDestructiveReview(canonicalCommand),
 			}
 			const didApprove = await askApproval("command", canonicalCommand, undefined, undefined, commandExecution)
 			if (!didApprove) return
@@ -149,8 +109,7 @@ export class ExecuteCommandTool extends BaseTool<"execute_command"> {
 				executionId,
 				command: canonicalCommand,
 				customCwd: executionCwd,
-				terminalShellIntegrationDisabled: sandbox ? true : terminalShellIntegrationDisabled,
-				sandbox,
+				terminalShellIntegrationDisabled,
 				commandExecutionTimeout,
 				agentTimeout,
 			}
@@ -171,7 +130,7 @@ export class ExecuteCommandTool extends BaseTool<"execute_command"> {
 				// Invalidate pending ask from first execution to prevent race condition
 				task.supersedePendingAsk()
 
-				if (error instanceof ShellIntegrationError && !sandbox) {
+				if (error instanceof ShellIntegrationError) {
 					const [rejected, result] = await executeCommandInTerminal(task, {
 						...options,
 						terminalShellIntegrationDisabled: true,
@@ -209,7 +168,6 @@ export type ExecuteCommandOptions = {
 	terminalShellIntegrationDisabled?: boolean
 	commandExecutionTimeout?: number
 	agentTimeout?: number
-	sandbox?: SandboxLaunch
 }
 
 export async function executeCommandInTerminal(
@@ -221,7 +179,6 @@ export async function executeCommandInTerminal(
 		terminalShellIntegrationDisabled = true,
 		commandExecutionTimeout = 0,
 		agentTimeout = 0,
-		sandbox,
 	}: ExecuteCommandOptions,
 ): Promise<[boolean, ToolResponse]> {
 	// Convert milliseconds back to seconds for display purposes.
@@ -251,7 +208,7 @@ export async function executeCommandInTerminal(
 	let shellIntegrationError: string | undefined
 	let hasAskedForCommandOutput = false
 
-	const terminalProvider = sandbox || terminalShellIntegrationDisabled ? "execa" : "vscode"
+	const terminalProvider = terminalShellIntegrationDisabled ? "execa" : "vscode"
 	const provider = await task.providerRef.deref()
 
 	// Get global storage path for persisted output artifacts
@@ -446,7 +403,7 @@ export async function executeCommandInTerminal(
 	// Clear old persisted process when starting a new command
 	task.persistedTerminalProcess = undefined
 
-	const process = terminal.runCommand(command, callbacks, sandbox)
+	const process = terminal.runCommand(command, callbacks)
 	task.terminalProcess = process
 	task.persistedTerminalProcess = process // Keep a persistent reference for continue operation
 	task.currentTerminalExecutionId = executionId // Track active executionId for abort validation

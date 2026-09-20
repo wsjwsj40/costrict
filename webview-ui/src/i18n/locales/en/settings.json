@@ -328,6 +328,17 @@
 		"workspaceDisabledMessage": "Indexing is configured but not enabled for this workspace.",
 		"autoEnableDefaultLabel": "Auto-enable indexing for new workspaces"
 	},
+	"projectPermissions": {
+		"title": "Project permissions",
+		"requestApproval": {
+			"label": "Request approval",
+			"description": "Every tool action asks for approval. An ordinary exact command can be remembered for this project."
+		},
+		"autoApproval": {
+			"label": "Auto approval",
+			"description": "Everyday workspace changes and commands are allowed automatically. Deletion, discarded changes, protected paths, and external access always require one-time approval."
+		}
+	},
 	"autoApprove": {
 		"description": "Run these actions without asking for permission. Only enable for actions you fully trust and if you understand the security risks.",
 		"toggleShortcut": "You can configure a keyboard shortcut for this setting <SettingsLink>in your IDE preferences</SettingsLink>.",
@@ -866,19 +877,6 @@
 		"inheritEnv": {
 			"label": "Inherit environment variables",
 			"description": "Turn this on to inherit environment variables from the parent VS Code process."
-		},
-		"sandbox": {
-			"label": "Run commands in a sandbox",
-			"description": "Restrict command writes to the project and temporary directories and protect sensitive configuration. Applies to scripts and child processes. Project files can still be changed or deleted; known destructive commands require confirmation. Disabled by default for existing installations.",
-			"setup": "Linux/WSL: install bubblewrap, socat and ripgrep. macOS: install ripgrep. Windows support is experimental and requires one-time system setup. Missing dependencies block execution; commands never fall back automatically to unrestricted execution.",
-			"inside": "Run inside project sandbox",
-			"outside": "Run outside sandbox — one-time approval required",
-			"review": "This command may delete files or discard changes. Please review before running.",
-			"check": "Check sandbox availability",
-			"install": "Initialize Windows sandbox (administrator approval)",
-			"checking": "Checking sandbox…",
-			"available": "Sandbox dependencies are available. Actual enforcement is checked when a command starts.",
-			"unavailable": "Sandbox unavailable"
 		}
 	},
 	"advancedSettings": {

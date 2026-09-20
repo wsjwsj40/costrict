@@ -281,9 +281,8 @@ export const clineMessageSchema = z.object({
 	commandExecution: z
 		.object({
 			cwd: z.string(),
-			sandbox: z.enum(["workspace", "outside"]),
+			scope: z.enum(["workspace", "outside"]),
 			requiresReview: z.boolean().optional(),
-			reason: z.string().optional(),
 		})
 		.optional(),
 	apiProtocol: z.union([z.literal("openai"), z.literal("anthropic")]).optional(),

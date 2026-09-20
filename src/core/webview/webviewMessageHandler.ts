@@ -1,6 +1,3 @@
-import { checkSandbox, sandboxRunnerPath } from "../../integrations/sandbox"
-import { sandboxEnvironment } from "../../integrations/sandbox/policy"
-import { execFile as sandboxExecFile } from "node:child_process"
 import { safeWriteJson } from "../../utils/safeWriteJson"
 import * as path from "path"
 import * as os from "os"
@@ -835,33 +832,6 @@ export const webviewMessageHandler = async (
 			}
 			break
 
-		case "checkCommandSandbox": {
-			const status = await checkSandbox(provider.context.extensionPath)
-			await provider.postMessageToWebview({
-				type: "commandSandboxStatus",
-				text: JSON.stringify({ ...status, platform: process.platform }),
-			})
-			break
-		}
-		case "installCommandSandbox": {
-			if (process.platform !== "win32") break
-			// Only invoked by the explicit settings button; the runtime presents UAC.
-			const detail = await new Promise<string>((resolve) => {
-				sandboxExecFile(
-					process.execPath,
-					[sandboxRunnerPath(provider.context.extensionPath), "--install-windows"],
-					{ env: { ...sandboxEnvironment(process.env), ELECTRON_RUN_AS_NODE: "1" }, timeout: 180_000 },
-					(error, _stdout, stderr) => resolve(error ? stderr || error.message : ""),
-				)
-			})
-			const status = detail ? { available: false, detail } : await checkSandbox(provider.context.extensionPath)
-			await provider.postMessageToWebview({
-				type: "commandSandboxStatus",
-				text: JSON.stringify({ ...status, platform: process.platform }),
-			})
-			break
-		}
-
 		case "updateSettings":
 			if (message.updatedSettings) {
 				for (const [key, value] of Object.entries(message.updatedSettings)) {
@@ -1026,9 +996,6 @@ export const webviewMessageHandler = async (
 			if (currentTaskId) {
 				provider.exportTaskWithId(currentTaskId)
 			}
-			break
-		case "saveCurrentPlan":
-			await provider.saveCurrentPlan()
 			break
 		case "shareCurrentTask":
 			const shareTaskId = provider.getCurrentTask()?.taskId
@@ -2011,15 +1978,26 @@ export const webviewMessageHandler = async (
 			await provider.postStateToWebview()
 			break
 		case "setProjectPermissionMode": {
-			const mode = message.values?.mode
-			if (mode === "observe" || mode === "sandbox-development") {
+			// Accept the former object payload while installed webviews update, but
+			// use the scalar field for all newly built clients.
+			const mode = message.text ?? (message.values as { mode?: unknown } | undefined)?.mode
+			if (mode === "request-approval" || mode === "auto-approval") {
 				await provider.setProjectPermissionMode(mode)
 				await provider.postStateToWebview()
 			}
 			break
 		}
-		case "approveSandboxCommandsForSession": {
-			provider.allowSandboxCommandsForSession()
+		case "approveProjectCommand": {
+			const command = message.text?.trim()
+			if (command) {
+				await provider.approveProjectCommand(command)
+				provider.getCurrentTask()?.handleWebviewAskResponse("yesButtonClicked")
+				await provider.postStateToWebview()
+			}
+			break
+		}
+		case "approveProjectWorkspaceWrites": {
+			await provider.approveProjectWorkspaceWrites()
 			provider.getCurrentTask()?.handleWebviewAskResponse("yesButtonClicked")
 			await provider.postStateToWebview()
 			break

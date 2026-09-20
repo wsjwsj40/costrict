@@ -132,13 +132,19 @@ export const AutoApproveDropdown = ({ disabled = false, triggerClassName = "" }:
 		({ key }) => !["alwaysAllowReadOnly", "alwaysAllowWrite", "alwaysAllowExecute"].includes(key),
 	)
 	const projectModeLabel =
-		projectPermissionProfile?.mode === "observe"
-			? "Read only"
-			: projectPermissionProfile?.mode === "sandbox-development"
-				? "Sandbox development"
-				: "Project permissions"
-	const setProjectPermissionMode = (mode: "observe" | "sandbox-development") =>
-		vscode.postMessage({ type: "setProjectPermissionMode", values: { mode } })
+		projectPermissionProfile?.mode === "request-approval"
+			? t("settings:projectPermissions.requestApproval.label")
+			: projectPermissionProfile?.mode === "auto-approval"
+				? t("settings:projectPermissions.autoApproval.label")
+				: t("settings:projectPermissions.title")
+	const projectModeDescription =
+		projectPermissionProfile?.mode === "request-approval"
+			? t("settings:projectPermissions.requestApproval.description")
+			: t("settings:projectPermissions.autoApproval.description")
+	const setProjectPermissionMode = (mode: "request-approval" | "auto-approval") =>
+		// `text` is the common scalar WebviewMessage payload and avoids relying
+		// on the overloaded `values` object used by unrelated messages.
+		vscode.postMessage({ type: "setProjectPermissionMode", text: mode })
 
 	const enabledCount = React.useMemo(() => {
 		return Object.values(toggles).filter((value) => !!value).length
@@ -210,19 +216,20 @@ export const AutoApproveDropdown = ({ disabled = false, triggerClassName = "" }:
 				onOpenAutoFocus={(e) => e.preventDefault()}>
 				<div className="flex flex-col w-full">
 					<div className="p-3 border-b border-vscode-dropdown-border">
-						<h4 className="m-0 font-bold text-base text-vscode-foreground">Project permissions</h4>
-						<p className="mt-1 mb-2 text-xs text-vscode-descriptionForeground">
-							{projectModeLabel}. Protected paths, destructive operations, and external directories always
-							ask.
-						</p>
+						<h4 className="m-0 font-bold text-base text-vscode-foreground">
+							{t("settings:projectPermissions.title")}
+						</h4>
+						<p className="mt-1 mb-2 text-xs text-vscode-descriptionForeground">{projectModeDescription}</p>
 						<div className="grid grid-cols-1 gap-1">
-							{(["observe", "sandbox-development"] as const).map((mode) => (
+							{(["request-approval", "auto-approval"] as const).map((mode) => (
 								<Button
 									key={mode}
 									variant={projectPermissionProfile?.mode === mode ? "primary" : "secondary"}
 									size="sm"
 									onClick={() => setProjectPermissionMode(mode)}>
-									{mode === "observe" ? "Read only" : "Sandbox development"}
+									{mode === "request-approval"
+										? t("settings:projectPermissions.requestApproval.label")
+										: t("settings:projectPermissions.autoApproval.label")}
 								</Button>
 							))}
 						</div>

@@ -842,9 +842,6 @@ importers:
       '@ai-sdk/xai':
         specifier: ^3.0.48
         version: 3.0.82(zod@3.25.76)
-      '@anthropic-ai/sandbox-runtime':
-        specifier: 0.0.76
-        version: 0.0.76
       '@anthropic-ai/sdk':
         specifier: ^0.37.0
         version: 0.37.0
@@ -1665,11 +1662,6 @@ packages:
 
   '@antfu/install-pkg@1.1.0':
     resolution: {integrity: sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ==}
-
-  '@anthropic-ai/sandbox-runtime@0.0.76':
-    resolution: {integrity: sha512-wIC++TvCopRPJcX/v/PCp/SjYOWk/cAVq+VF9v6E3WwkriFP9uu2wvPJ2E+wMrNa3i3h3ew9zTpHcmyGLBKo0w==}
-    engines: {node: '>=20.11.0'}
-    hasBin: true
 
   '@anthropic-ai/sdk@0.37.0':
     resolution: {integrity: sha512-tHjX2YbkUBwEgg0JZU3EFSSAQPoK4qQR/NFYa8Vtzd5UAyXzZksCw2In69Rml4R/TyHPBfRYaLK35XiOe33pjw==}
@@ -2979,9 +2971,6 @@ packages:
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
-
-  '@pondwader/socks5-server@1.0.10':
-    resolution: {integrity: sha512-bQY06wzzR8D2+vVCUoBsr5QS2U6UgPUQRmErNwtsuI6vLcyRKkafjkr3KxbtGFf9aBBIV2mcvlsKD1UYaIV+sg==}
 
   '@posthog/core@1.25.1':
     resolution: {integrity: sha512-76enEGwLVtcCTbfAr1wJ6zi4tYzVkGsqJx+H9JiX0K8/VxuKdbOtVShsOJhTD9uvFfTeW3DX+PSCelcqWrRRkw==}
@@ -8234,10 +8223,6 @@ packages:
     resolution: {integrity: sha512-dRB78srN/l6gqWulah9SrxeYnxeddIG30+GOqK/9OlLVyLg3HPnr6SqOWTWOXKRwC2eGYCkZ59NNuSgvSrpgOA==}
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
 
-  node-forge@1.4.0:
-    resolution: {integrity: sha512-LarFH0+6VfriEhqMMcLX2F7SwSXeWwnEAJEsYm5QKWchiVYVvJyV9v7UDvUv+w5HO23ZpQTXDv/GxdDdMyOuoQ==}
-    engines: {node: '>= 6.13.0'}
-
   node-releases@2.0.37:
     resolution: {integrity: sha512-1h5gKZCF+pO/o3Iqt5Jp7wc9rH3eJJ0+nh/CIoiRwjRxde/hAHyLPXYN4V3CqKAbiZPSeJFSWHmJsbkicta0Eg==}
 
@@ -10729,13 +10714,6 @@ snapshots:
       package-manager-detector: 1.6.0
       tinyexec: 1.1.1
 
-  '@anthropic-ai/sandbox-runtime@0.0.76':
-    dependencies:
-      '@pondwader/socks5-server': 1.0.10
-      commander: 12.1.0
-      node-forge: 1.4.0
-      zod: 3.25.76
-
   '@anthropic-ai/sdk@0.37.0':
     dependencies:
       '@types/node': 18.19.130
@@ -12423,8 +12401,6 @@ snapshots:
   '@oxc-project/types@0.124.0': {}
 
   '@polka/url@1.0.0-next.29': {}
-
-  '@pondwader/socks5-server@1.0.10': {}
 
   '@posthog/core@1.25.1': {}
 
@@ -18301,8 +18277,6 @@ snapshots:
       data-uri-to-buffer: 4.0.1
       fetch-blob: 3.2.0
       formdata-polyfill: 4.0.10
-
-  node-forge@1.4.0: {}
 
   node-releases@2.0.37: {}
 

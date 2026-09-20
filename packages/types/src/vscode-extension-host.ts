@@ -85,7 +85,6 @@ export interface ExtensionMessage {
 		| "setHistoryPreviewCollapsed"
 		| "commandExecutionStatus"
 		| "mcpExecutionStatus"
-		| "commandSandboxStatus"
 		| "vsCodeSetting"
 		| "authenticatedUser"
 		| "condenseTaskContextStarted"
@@ -314,7 +313,6 @@ export type ExtensionState = Pick<
 	| "soundVolume"
 	| "terminalOutputPreviewSize"
 	| "terminalShellIntegrationTimeout"
-	| "terminalSandboxEnabled"
 	| "terminalShellIntegrationDisabled"
 	| "terminalCommandDelay"
 	| "terminalPowershellCounter"
@@ -353,7 +351,6 @@ export type ExtensionState = Pick<
 	| "disabledTools"
 > & {
 	projectPermissionProfile?: ProjectPermissionProfile
-	sessionSandboxCommandsAllowed?: boolean
 	lockApiConfigAcrossModes?: boolean
 	version: string
 	clineMessages: ClineMessage[]
@@ -526,7 +523,6 @@ export interface WebviewMessage {
 		| "didShowAnnouncement"
 		| "selectImages"
 		| "exportCurrentTask"
-		| "saveCurrentPlan"
 		| "shareCurrentTask"
 		| "showTaskWithId"
 		| "deleteTaskWithId"
@@ -553,8 +549,6 @@ export interface WebviewMessage {
 		| "cancelTask"
 		| "cancelAutoApproval"
 		| "updateVSCodeSetting"
-		| "checkCommandSandbox"
-		| "installCommandSandbox"
 		| "getVSCodeSetting"
 		| "vsCodeSetting"
 		| "updateCondensingPrompt"
@@ -659,7 +653,8 @@ export interface WebviewMessage {
 		| "openMarkdownPreview"
 		| "updateSettings"
 		| "setProjectPermissionMode"
-		| "approveSandboxCommandsForSession"
+		| "approveProjectCommand"
+		| "approveProjectWorkspaceWrites"
 		| "allowedCommands"
 		| "getTaskWithAggregatedCosts"
 		| "deniedCommands"

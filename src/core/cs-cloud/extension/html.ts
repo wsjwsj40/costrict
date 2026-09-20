@@ -865,7 +865,7 @@ export function getAssistantUIStaticHtml(
                 throw error;
               };
               // Proxy cs-cloud API requests and sangfor.com requests through the
-              // extension host to avoid CORS errors in the webview sandbox.
+              // extension host to avoid CORS errors in the webview environment.
               const isSangforUrl = typeof url === "string" && url.indexOf("sangfor.com") >= 0;
               if (typeof url === "string" && (isSangforUrl || proxyFetchUrl)) {
                 const requestId = "proxy-" + Date.now() + "-" + (++proxyFetchSeq);

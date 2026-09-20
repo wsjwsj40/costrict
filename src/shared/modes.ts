@@ -22,15 +22,6 @@ export function normalizeCostrictCodeMode(mode: unknown): CostrictCodeMode {
 	if (mode === "vibe" || mode === "spec" || mode === "plan" || mode === "raw") return mode
 	return "vibe"
 }
-
-export function isModeAvailableInWorkflow(mode: ModeConfig, workflow: CostrictCodeMode): boolean {
-	if (mode.workflowModes) return mode.workflowModes.includes(workflow as "vibe" | "plan" | "spec")
-	const groups = mode.costrictCodeModeGroup
-		?.split(",")
-		.map((group) => (group.trim() === "strict" ? "spec" : group.trim()))
-	if (workflow === "vibe") return !groups || groups.includes("vibe")
-	return groups?.includes(workflow) ?? false
-}
 export type PromptTag = "systempromptmodified" | "rulesmodified" | "promptcustomized"
 
 // Helper to extract group name regardless of format
@@ -119,7 +110,14 @@ export function filterModesByCostrictCodeMode(
 ): ModeConfig[] {
 	return modes.filter((mode) => {
 		if (apiProvider === "costrict") {
-			return isModeAvailableInWorkflow(mode, normalizeCostrictCodeMode(costrictCodeMode))
+			const modelGroup = mode.costrictCodeModeGroup
+				? mode.costrictCodeModeGroup
+						.split(",")
+						.map((group) => (group.trim() === "strict" ? "spec" : group.trim()))
+				: []
+
+			if (costrictCodeMode === "vibe") return !mode.costrictCodeModeGroup || modelGroup.includes(costrictCodeMode)
+			return modelGroup.includes(costrictCodeMode!)
 		}
 
 		return !mode.apiProvider || mode.apiProvider === apiProvider
