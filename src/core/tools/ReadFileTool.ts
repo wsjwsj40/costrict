@@ -698,6 +698,7 @@ export class ReadFileTool extends BaseTool<"read_file"> {
 
 		// Process each file sequentially (legacy behavior)
 		const results: string[] = []
+		const imageDataUrls: string[] = []
 
 		for (const entry of fileEntries) {
 			const relPath = entry.path
@@ -774,6 +775,7 @@ export class ReadFileTool extends BaseTool<"read_file"> {
 						const imageResult = await processImageFile(fullPath)
 						if (imageResult) {
 							results.push(`File: ${relPath}\n[Image file - content processed for vision model]`)
+							imageDataUrls.push(imageResult.dataUrl)
 						}
 					} else {
 						results.push(`File: ${relPath}\nError: Cannot read binary file`)
@@ -821,7 +823,7 @@ export class ReadFileTool extends BaseTool<"read_file"> {
 		}
 
 		// Push combined results
-		pushToolResult(results.join("\n\n---\n\n"))
+		pushToolResult(formatResponse.toolResult(results.join("\n\n---\n\n"), imageDataUrls))
 	}
 }
 

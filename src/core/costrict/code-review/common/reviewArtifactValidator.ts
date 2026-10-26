@@ -3,6 +3,7 @@ import { copyFile, readFile, stat } from "node:fs/promises"
 
 import type { Mode } from "../../../../shared/modes"
 import { getReviewReportJsonPath, getReviewReportMdPath } from "./reviewArtifactPaths"
+import { parseLocalReviewReport, reportMentionsFindings } from "./localReviewReport"
 
 const MIN_REPORT_BYTES = 2
 
@@ -112,6 +113,18 @@ export async function validateReviewArtifacts(
 		if (error) errors.push(error)
 	}
 
+	if (errors.length === 0) {
+		const jsonPath = getReviewReportJsonPath(input.workspace, input.mode)
+		const markdownPath = getReviewReportMdPath(input.workspace, input.mode)
+		const [json, markdown] = await Promise.all([readFile(jsonPath, "utf-8"), readFile(markdownPath, "utf-8")])
+		const findings = parseLocalReviewReport(json, "validation")
+		if (reportMentionsFindings(markdown) && (!findings || findings.length === 0)) {
+			errors.push(
+				`Markdown 报告声明存在问题，但 JSON 结构化问题列表为空或无法识别：${jsonPath}。请将每个真实问题写入 JSON 的 defects、issues 或 findings 数组。`,
+			)
+		}
+	}
+
 	return { valid: errors.length === 0, errors, recovered }
 }
 
@@ -137,7 +150,7 @@ export function buildReviewArtifactCorrectionMessage(
 		`1. 将结构化报告写入 \`${jsonPath}\`；`,
 		`2. 将用户可读报告写入 \`${markdownPath}\`；`,
 		"3. 使用 read_file 重新读取并验证两个文件；",
-		"4. 确认 JSON 是完整对象后，再次调用 attempt_completion。",
+		"4. 确认 JSON 中的结构化问题数组与 Markdown 的问题详情一致；没有问题时使用空数组，然后再次调用 attempt_completion。",
 		"",
 		"仅在对话或 attempt_completion.result 中输出报告不能替代文件产物。",
 	].join("\n")

@@ -17,6 +17,7 @@
 		"title": "審查歷史",
 		"loading": "載入歷史記錄...",
 		"noData": "沒有找到審查歷史",
+		"noStructuredIssues": "沒有可顯示的結構化問題；請以完整評審報告為準",
 		"done": "完成"
 	},
 	"codebase": {
@@ -29,17 +30,20 @@
 	},
 	"codeReviewContent": {
 		"severity": {
+			"unknown": "未知",
 			"high": "高",
 			"middle": "中",
 			"low": "低"
 		},
 		"severityLabel": "嚴重程度",
 		"issueLabel": "標籤",
+		"localReportIssue": "已從本地報告還原；服務端問題操作暫不可用。",
 		"filterTooltip": "過濾問題"
 	},
 	"taskStatusBar": {
 		"running": "正在進行 Code Review，{{progress}}%",
 		"cancel": "取消執行",
-		"completed": "代碼質量非常高，未檢查出任何問題"
+		"completed": "未傳回可顯示的結構化問題；請查看完整評審報告確認結論",
+		"openReport": "開啟報告"
 	}
 }

@@ -26,6 +26,9 @@ var migrationSQL string
 //go:embed migrations/002_sync_tasks.sql
 var syncMigrationSQL string
 
+//go:embed migrations/003_model_capabilities.sql
+var capabilitiesMigrationSQL string
+
 func main() {
 	configPath := "/app/config.yaml"
 	if len(os.Args) == 3 && os.Args[1] == "-f" {
@@ -49,6 +52,9 @@ func main() {
 	}
 	if err := data.Migrate(ctx, syncMigrationSQL); err != nil {
 		fatal(fmt.Errorf("migrate sync tasks: %w", err))
+	}
+	if err := data.Migrate(ctx, capabilitiesMigrationSQL); err != nil {
+		fatal(fmt.Errorf("migrate model capabilities: %w", err))
 	}
 	if err := data.Bootstrap(ctx, cfg.Models.BootstrapFile); err != nil {
 		fatal(fmt.Errorf("bootstrap models: %w", err))

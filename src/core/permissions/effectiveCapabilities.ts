@@ -25,12 +25,6 @@ export function normalizeProjectPermissionProfile(profile: unknown): ProjectPerm
 	return {
 		mode: value.mode,
 		updatedAt: typeof value.updatedAt === "number" ? value.updatedAt : 0,
-		approvedCommands: Array.isArray((value as { approvedCommands?: unknown }).approvedCommands)
-			? (value as { approvedCommands: unknown[] }).approvedCommands.filter(
-					(command): command is string => typeof command === "string",
-				)
-			: [],
-		approvedWorkspaceWrites: (value as { approvedWorkspaceWrites?: unknown }).approvedWorkspaceWrites === true,
 	}
 }
 
@@ -50,7 +44,7 @@ export function resolveEffectiveCapabilities({
 		workflow: normalizedWorkflow,
 		projectPermission: profile?.mode,
 		canReadWorkspace: true,
-		canWriteWorkspace: automaticApproval || profile?.approvedWorkspaceWrites === true,
+		canWriteWorkspace: automaticApproval,
 		canExecuteWorkspaceCommand: automaticApproval,
 	}
 }

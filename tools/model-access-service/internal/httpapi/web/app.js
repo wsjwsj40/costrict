@@ -191,6 +191,7 @@ function openModel(model = null) {
 		form.elements.contextWindow.value = model.publicInfo.contextWindow || 0
 		form.elements.maxTokens.value = model.publicInfo.maxTokens || 0
 		form.elements.description.value = model.publicInfo.description || ""
+		form.elements.supportsImages.checked = Boolean(model.supportsImages ?? model.publicInfo.supportsImages)
 		form.elements.sortOrder.value = model.sortOrder
 		form.elements.enabled.checked = model.enabled
 	}
@@ -348,7 +349,9 @@ $("#model-form").addEventListener("submit", async (e) => {
 				contextWindow: Number(f.elements.contextWindow.value),
 				maxTokens: Number(f.elements.maxTokens.value),
 				description: f.elements.description.value.trim(),
+				supportsImages: f.elements.supportsImages.checked,
 			},
+			supportsImages: f.elements.supportsImages.checked,
 		}),
 	})
 	f.closest("dialog").close()

@@ -270,6 +270,7 @@ export class ApplyPatchTool extends BaseTool<"apply_patch"> {
 			path: getReadablePath(task.cwd, relPath),
 			diff: `File will be deleted: ${relPath}`,
 			isOutsideWorkspace,
+			operation: "delete",
 		}
 
 		const completeMessage = JSON.stringify({
@@ -372,6 +373,7 @@ export class ApplyPatchTool extends BaseTool<"apply_patch"> {
 			diff: sanitizedDiff,
 			originalContent,
 			isOutsideWorkspace,
+			...(change.movePath ? { operation: "move" as const } : {}),
 		}
 
 		const completeMessage = JSON.stringify({

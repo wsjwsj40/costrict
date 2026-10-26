@@ -52,18 +52,34 @@ it("auto-approves ordinary project commands only in auto approval", async () => 
 	).toEqual({ decision: "ask" })
 })
 
-it("remembers future project writes and exact commands in request approval", async () => {
+it("uses current-task grants for ordinary writes and exact commands", async () => {
 	const state = {
 		...request,
 		projectPermissionProfile: {
 			...request.projectPermissionProfile,
 			approvedWorkspaceWrites: true,
-			approvedCommands: ["pnpm test"],
+			approvedCommandRules: [{ cwd: "/project", command: "python script.py" }],
 		},
 	}
 	expect(
-		await checkAutoApproval({ state, ask: "command", text: "pnpm test", commandExecution: workspaceCommand }),
+		await checkAutoApproval({
+			state,
+			ask: "command",
+			text: "python script.py",
+			commandExecution: workspaceCommand,
+		}),
 	).toEqual({ decision: "approve" })
+	expect(
+		await checkAutoApproval({ state, ask: "command", text: "python other.py", commandExecution: workspaceCommand }),
+	).toEqual({ decision: "ask" })
+	expect(
+		await checkAutoApproval({
+			state,
+			ask: "command",
+			text: "python script.py",
+			commandExecution: { cwd: "/project/subrepo", scope: "workspace" },
+		}),
+	).toEqual({ decision: "ask" })
 	expect(
 		await checkAutoApproval({
 			state,
@@ -71,4 +87,67 @@ it("remembers future project writes and exact commands in request approval", asy
 			text: JSON.stringify({ tool: "newFileCreated", path: "src/example.ts" }),
 		}),
 	).toEqual({ decision: "approve" })
+	for (const operation of ["delete", "move"] as const) {
+		expect(
+			await checkAutoApproval({
+				state,
+				ask: "tool",
+				text: JSON.stringify({ tool: "appliedDiff", path: "src/example.ts", operation }),
+			}),
+		).toEqual({ decision: "ask" })
+	}
+	expect(
+		await checkAutoApproval({
+			state,
+			ask: "tool",
+			text: JSON.stringify({ tool: "generateImage", path: "src/example.png" }),
+		}),
+	).toEqual({ decision: "ask" })
+	expect(
+		await checkAutoApproval({
+			state,
+			ask: "tool",
+			text: JSON.stringify({ tool: "appliedDiff", batchDiffs: [{ path: "src/a.ts" }] }),
+		}),
+	).toEqual({ decision: "ask" })
+	expect(
+		await checkAutoApproval({
+			state,
+			ask: "tool",
+			text: JSON.stringify({ tool: "appliedDiff", path: "src/protected.ts", isProtected: true }),
+		}),
+	).toEqual({ decision: "ask" })
+})
+
+it("requires fresh approval when Git diff revisions or options change", async () => {
+	const state = {
+		...request,
+		projectPermissionProfile: {
+			...request.projectPermissionProfile,
+			approvedCommandRules: [{ cwd: "/project", command: "git diff abcdef1" }],
+		},
+	}
+	expect(
+		await checkAutoApproval({
+			state,
+			ask: "command",
+			text: "git diff abcdef1",
+			commandExecution: workspaceCommand,
+		}),
+	).toEqual({
+		decision: "approve",
+	})
+	for (const command of [
+		"git diff",
+		"git diff 1234567",
+		"git diff abcdef1 1234567",
+		"git diff --stat abcdef1",
+		"git push",
+	]) {
+		expect(
+			await checkAutoApproval({ state, ask: "command", text: command, commandExecution: workspaceCommand }),
+		).toEqual({
+			decision: "ask",
+		})
+	}
 })

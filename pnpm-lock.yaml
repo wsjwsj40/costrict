@@ -872,6 +872,9 @@ importers:
       '@qdrant/js-client-rest':
         specifier: ^1.14.0
         version: 1.17.0(typescript@5.8.3)
+      '@resvg/resvg-wasm':
+        specifier: 2.4.0
+        version: 2.4.0
       '@roo-code/cloud':
         specifier: workspace:^
         version: link:../packages/cloud

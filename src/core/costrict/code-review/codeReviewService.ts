@@ -13,6 +13,7 @@
 
 import * as vscode from "vscode"
 import path from "node:path"
+import { readFile } from "node:fs/promises"
 import type { AxiosRequestConfig } from "axios"
 import { ExtensionMessage, RooCodeEventName } from "@roo-code/types"
 
@@ -47,9 +48,11 @@ import {
 	buildReviewRequestOptions,
 	ensureReviewResultDirectory,
 	getReviewReportJsonPath,
+	getReviewReportMdPath,
 	resolveFromReportFile,
 	resolveFromReportText,
 } from "./common/reviewIssueResolver"
+import { parseLocalReviewReport, reportMentionsFindings } from "./common/localReviewReport"
 /**
  * Code Review Service - Singleton
  *
@@ -75,6 +78,7 @@ export class CodeReviewService {
 	private taskList: Map<string, string> = new Map()
 	private historyTaskId: string | null = null
 	private disposeTaskLifecycle: (() => void) | null = null
+	private currentReviewWorkspace: string | undefined
 	/**
 	 * Private constructor for singleton pattern
 	 */
@@ -106,6 +110,8 @@ export class CodeReviewService {
 		this.sendReviewTaskUpdateMessage(this.getTaskStatusFromState(), {
 			issues: this.getAllCachedIssues(),
 			progress: this.currentTask.progress,
+			message: this.currentTask.message,
+			reportPath: this.currentTask.reportPath,
 			error: this.currentTask.error?.message,
 		})
 	}
@@ -202,6 +208,67 @@ export class CodeReviewService {
 		)
 	}
 
+	private getReviewTitle(target: ReviewTarget): string {
+		if (target.type === ReviewTargetType.COMMIT && target.commit) {
+			return `Code Review · ${target.commit.slice(0, 8)}`
+		}
+		const targets = target.data ?? []
+		if (target.type === ReviewTargetType.CODE && targets[0]?.file_path) {
+			const range = targets[0].line_range
+			return `Code Review · ${targets[0].file_path}${range ? `:${range[0]}-${range[1]}` : ""}`
+		}
+		if (targets.length === 1 && targets[0]?.file_path) {
+			return `Code Review · ${targets[0].file_path}`
+		}
+		return targets.length > 1 ? `Code Review · ${targets.length} files` : "Code Review"
+	}
+
+	private async annotateIssueLocations(
+		issues: ReviewIssue[],
+		workspace: string,
+		target: ReviewTarget,
+	): Promise<ReviewIssue[]> {
+		return Promise.all(
+			issues.map(async (issue) => {
+				const reportedPath = issue.file_path.replace(/\\/g, "/").replace(/^\.\//, "")
+				const workspaceName = path.basename(workspace)
+				const candidates = [reportedPath]
+				if (reportedPath.startsWith(`${workspaceName}/`)) {
+					candidates.push(reportedPath.slice(workspaceName.length + 1))
+				}
+				if (path.isAbsolute(issue.file_path)) {
+					candidates.unshift(issue.file_path)
+				}
+
+				for (const candidate of candidates) {
+					const absolutePath = path.isAbsolute(candidate) ? candidate : path.resolve(workspace, candidate)
+					if (await fileExistsAtPath(absolutePath)) {
+						return {
+							...issue,
+							file_path: path.relative(workspace, absolutePath).replace(/\\/g, "/"),
+							...(issue.source === "local-report" ? { resolved_file_path: absolutePath } : {}),
+							location_status: "current" as const,
+						}
+					}
+				}
+
+				if (target.type === ReviewTargetType.COMMIT) {
+					return {
+						...issue,
+						location_status: "target-version" as const,
+						location_reason: `This file is not available in the current working tree; the issue applies to commit ${target.commit?.slice(0, 8) ?? ""}.`,
+					}
+				}
+				return {
+					...issue,
+					location_status: "unresolved" as const,
+					location_reason:
+						"The reported file path could not be matched to the current workspace. The issue is retained in the review report.",
+				}
+			}),
+		)
+	}
+
 	private async getRequestOptions(): Promise<AxiosRequestConfig> {
 		if (!this.clineProvider) {
 			return {}
@@ -214,6 +281,21 @@ export class CodeReviewService {
 
 	private getRestoreMode(mode: string): Mode {
 		return mode === "review" || mode === "security-review" || mode === "subreview" ? "code" : mode
+	}
+
+	private async reportMentionsFindings(
+		markdownPath: string,
+		conclusion: string,
+		hasMarkdownReport: boolean,
+	): Promise<boolean> {
+		if (reportMentionsFindings(conclusion)) return true
+		if (!hasMarkdownReport) return false
+		try {
+			return reportMentionsFindings(await readFile(markdownPath, "utf-8"))
+		} catch (error) {
+			this.logger.warn(`[CodeReview] Could not inspect Markdown report for result consistency: ${String(error)}`)
+			return false
+		}
 	}
 
 	public async handleAuthError() {
@@ -268,6 +350,8 @@ export class CodeReviewService {
 
 		this.reset()
 		const taskMode = options?.mode ?? "review"
+		const reviewTitle = this.getReviewTitle(targets)
+		this.currentReviewWorkspace = options?.workspacePath ?? String(provider.cwd)
 
 		try {
 			await ensureReviewResultDirectory(options?.workspacePath ?? String(provider.cwd), taskMode)
@@ -382,7 +466,9 @@ export class CodeReviewService {
 				const workspace = options?.workspacePath ?? String(provider.cwd)
 				const requestOptions = await this.getRequestOptions()
 				const jsonPath = getReviewReportJsonPath(workspace, taskMode as Mode)
-				this.logger.debug(`[CodeReview] Reading review report from ${jsonPath}`)
+				const markdownPath = getReviewReportMdPath(workspace, taskMode as Mode)
+				this.logger.info(`[CodeReview] Resolving review result: target=${reviewTitle}, workspace=${workspace}`)
+				this.logger.info(`[CodeReview] Report artifacts: json=${jsonPath}, markdown=${markdownPath}`)
 
 				if (!(await fileExistsAtPath(jsonPath))) {
 					throw new Error(`Review report not found at ${jsonPath}`)
@@ -402,24 +488,61 @@ export class CodeReviewService {
 					throw new Error(t("common:review.tip.get_review_result_failed"))
 				}
 
-				const { issues, review_task_id, title, conclusion } = resolveResult
-				this.logger.debug(`[CodeReview] Resolved ${issues.length} issues from review report`)
-
-				const existsResults = await Promise.all(
-					issues.map((issue) => fileExistsAtPath(path.resolve(workspace, issue.file_path))),
+				const { issues, review_task_id, title, conclusion, count } = resolveResult
+				let localIssues: ReviewIssue[] | null = null
+				try {
+					localIssues = parseLocalReviewReport(await readFile(jsonPath, "utf-8"), review_task_id)
+				} catch (error) {
+					this.logger.warn(`[CodeReview] Could not read local JSON findings: ${String(error)}`)
+				}
+				const useLocalIssues = !!localIssues && localIssues.length > issues.length
+				const annotatedIssues = await this.annotateIssueLocations(
+					useLocalIssues && localIssues ? localIssues : issues,
+					workspace,
+					targets,
 				)
-				const validIssues = issues.filter((_, index) => existsResults[index])
+				const currentIssues = annotatedIssues.filter((issue) => issue.location_status === "current").length
+				const targetVersionIssues = annotatedIssues.filter(
+					(issue) => issue.location_status === "target-version",
+				).length
+				const unresolvedIssues = annotatedIssues.filter(
+					(issue) => issue.location_status === "unresolved",
+				).length
+				this.logger.info(
+					`[CodeReview] Parsed issues: reported=${count}, server=${issues.length}, local=${localIssues?.length ?? "unknown"}, displayed=${annotatedIssues.length}, current=${currentIssues}, target-version=${targetVersionIssues}, unresolved=${unresolvedIssues}`,
+				)
 
-				this.updateCachedIssues(validIssues)
+				this.updateCachedIssues(annotatedIssues)
 				if (review_task_id) {
-					await this.historyManager.addEntry(review_task_id, title, conclusion)
+					await this.historyManager.addEntry(
+						review_task_id,
+						title || reviewTitle,
+						conclusion,
+						useLocalIssues ? annotatedIssues : undefined,
+					)
+				}
+				const hasMarkdownReport = await fileExistsAtPath(markdownPath)
+				const reportHasFindings =
+					annotatedIssues.length === 0 &&
+					(await this.reportMentionsFindings(markdownPath, conclusion, hasMarkdownReport))
+				const completionMessage = useLocalIssues
+					? t("common:review.tip.local_issues_recovered", { count: annotatedIssues.length })
+					: count > annotatedIssues.length || reportHasFindings
+						? t("common:review.tip.structured_issues_missing")
+						: undefined
+				if (completionMessage) {
+					this.logger.warn(
+						`[CodeReview] Report/result mismatch: reported=${count}, server=${issues.length}, displayed=${annotatedIssues.length}, localFallback=${useLocalIssues}, markdownFindings=${reportHasFindings}`,
+					)
 				}
 
 				this.updateTaskState({
 					taskId: review_task_id,
 					isCompleted: true,
 					progress: 1,
-					total: validIssues.length,
+					total: annotatedIssues.length,
+					message: completionMessage,
+					reportPath: hasMarkdownReport ? markdownPath : undefined,
 					error: undefined,
 				})
 			} catch (error) {
@@ -484,6 +607,7 @@ export class CodeReviewService {
 				this.updateTaskState({
 					isCompleted: false,
 					progress: 0.001, // use 0.001 to indicate running
+					message: undefined,
 				})
 			}
 
@@ -497,17 +621,31 @@ export class CodeReviewService {
 				}
 				this.updateTaskState({
 					progress: Math.round(progress * 100) / 100,
+					message: undefined,
 				})
 			}
 
-			const onTaskResumable = async () => {
+			const onTaskResumable = () => {
 				if (completionHandled || delegatedChildTaskId) return
-				await handleTaskFailure(new Error(t("common:review.tip.service_unavailable")))
+				this.logger.info("[CodeReview] Review task is waiting to be resumed in chat")
+				this.updateTaskState({ message: t("common:review.tip.resume_in_chat") })
 			}
 
-			const onTaskIdle = async () => {
+			const onTaskIdle = () => {
 				if (completionHandled || delegatedChildTaskId) return
-				await handleTaskFailure(new Error(t("common:review.tip.service_unavailable")))
+				const askType = taskInstance.taskAsk?.ask
+				if (askType === "completion_result") {
+					void handleCompletion()
+					return
+				}
+				this.logger.info(`[CodeReview] Review task is waiting for user action in chat: ${askType ?? "unknown"}`)
+				this.updateTaskState({
+					message: t(
+						askType === "api_req_failed"
+							? "common:review.tip.retry_in_chat"
+							: "common:review.tip.continue_in_chat",
+					),
+				})
 			}
 
 			const onTaskAborted = () => {
@@ -611,6 +749,8 @@ export class CodeReviewService {
 			isCompleted: false,
 			progress: 0,
 			total: 0,
+			message: undefined,
+			reportPath: undefined,
 			error: undefined,
 			timeoutId: undefined,
 		})
@@ -1002,7 +1142,7 @@ export class CodeReviewService {
 			"costrict",
 			"logo.svg",
 		)
-		const cwd = this.clineProvider!.cwd
+		const cwd = this.currentReviewWorkspace ?? this.clineProvider!.cwd
 		return {
 			issueId: issue.id,
 			fileUri: vscode.Uri.file(path.resolve(cwd, issue.file_path)),
@@ -1048,15 +1188,17 @@ export class CodeReviewService {
 
 	public async getReviewHistoryById(reviewTaskId: string): Promise<{ issues: ReviewIssue[] } | null> {
 		const requestOptions = await this.getRequestOptions()
+		const localIssues = await this.historyManager.getLocalIssues(reviewTaskId)
 		try {
 			const result = await getIssueByTaskId(reviewTaskId, requestOptions)
 			if (result.success && result.data) {
-				return { issues: result.data.issues }
+				const serverIssues = result.data.issues ?? []
+				return { issues: localIssues && localIssues.length > serverIssues.length ? localIssues : serverIssues }
 			}
-			return null
+			return localIssues ? { issues: localIssues } : null
 		} catch (error) {
 			this.logger.error(`Failed to get issues for task ${reviewTaskId}: ${error}`)
-			return null
+			return localIssues ? { issues: localIssues } : null
 		}
 	}
 

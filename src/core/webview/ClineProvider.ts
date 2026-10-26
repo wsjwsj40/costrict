@@ -38,6 +38,7 @@ import {
 	type ToolUsage,
 	type ExtensionMessage,
 	type ExtensionState,
+	type TaskCommandGrant,
 	type MarketplaceInstalledMetadata,
 	RooCodeEventName,
 	requestyDefaultModelId,
@@ -204,6 +205,11 @@ export class ClineProvider
 	private static readonly GLOBAL_STATE_WRITE_THROUGH_DEBOUNCE_MS = 5000 // 5 seconds
 	private static readonly PROJECT_PERMISSION_PROFILE_KEY = "projectPermissionProfile"
 	private projectPermissionProfile?: import("@roo-code/types").ProjectPermissionProfile
+	private taskPermissionGrant?: {
+		taskId: string
+		approvedWorkspaceWrites: boolean
+		approvedCommandRules: TaskCommandGrant[]
+	}
 	private pendingOperations: Map<string, PendingEditOperation> = new Map()
 	private static readonly PENDING_OPERATION_TIMEOUT_MS = 30000 // 30 seconds
 
@@ -3052,28 +3058,30 @@ export class ClineProvider
 		// New projects start in the restrictive mode. Returning a concrete
 		// profile also prevents legacy global write and execution settings from
 		// silently taking effect after this permission model is introduced.
-		return (
-			this.projectPermissionProfile ??
+		const profile = this.projectPermissionProfile ??
 			persisted ?? {
 				mode: "request-approval",
 				updatedAt: 0,
-				approvedCommands: [],
-				approvedWorkspaceWrites: false,
 			}
-		)
+		const currentTaskId = this.getCurrentTask()?.taskId
+		const grant = currentTaskId === this.taskPermissionGrant?.taskId ? this.taskPermissionGrant : undefined
+		return {
+			...profile,
+			approvedCommandRules: grant?.approvedCommandRules ?? [],
+			approvedWorkspaceWrites: grant?.approvedWorkspaceWrites ?? false,
+		}
 	}
 
 	public async setProjectPermissionMode(mode: import("@roo-code/types").ProjectPermissionMode): Promise<void> {
 		const profile = {
 			mode,
 			updatedAt: Date.now(),
-			approvedCommands: this.getProjectPermissionProfile()?.approvedCommands ?? [],
-			approvedWorkspaceWrites: false,
 		}
 		// Make the selected mode observable by the active task immediately. The
 		// VS Code workspaceState write remains the durable value for later
 		// sessions, but must not delay a runtime permission boundary.
 		this.projectPermissionProfile = profile
+		this.taskPermissionGrant = undefined
 		// The old global write/execute switches are not part of project
 		// permissions. Clear any values saved by earlier releases when the user
 		// explicitly chooses a project mode, so they cannot affect this or an
@@ -3087,42 +3095,68 @@ export class ClineProvider
 		])
 	}
 
-	public async approveProjectCommand(command: string): Promise<void> {
+	public approveProjectCommand(command: string): boolean {
 		const profile = this.getProjectPermissionProfile()
-		if (!profile || profile.mode !== "request-approval" || !command.trim()) return
-		const approvedCommands = [...new Set([...(profile.approvedCommands ?? []), command.trim()])]
-		this.projectPermissionProfile = { ...profile, approvedCommands, updatedAt: Date.now() }
-		await this.context.workspaceState.update(
-			ClineProvider.PROJECT_PERMISSION_PROFILE_KEY,
-			this.projectPermissionProfile,
-		)
+		const task = this.getCurrentTask()
+		const pending = task?.clineMessages.at(-1)
+		if (
+			profile?.mode !== "request-approval" ||
+			!task ||
+			pending?.type !== "ask" ||
+			pending.ask !== "command" ||
+			pending.text?.trim() !== command.trim() ||
+			pending.commandExecution?.scope !== "workspace" ||
+			pending.commandExecution.requiresReview
+		) {
+			return false
+		}
+		const rule: TaskCommandGrant = { cwd: pending.commandExecution.cwd, command: command.trim() }
+		const previous = this.taskPermissionGrant?.taskId === task.taskId ? this.taskPermissionGrant : undefined
+		const approvedCommandRules = previous?.approvedCommandRules ?? []
+		if (!approvedCommandRules.some((entry) => entry.cwd === rule.cwd && entry.command === rule.command)) {
+			approvedCommandRules.push(rule)
+		}
+		this.taskPermissionGrant = {
+			taskId: task.taskId,
+			approvedWorkspaceWrites: previous?.approvedWorkspaceWrites ?? false,
+			approvedCommandRules,
+		}
+		return true
 	}
 
-	public async approveProjectWorkspaceWrites(): Promise<void> {
+	public approveProjectWorkspaceWrites(): boolean {
 		const profile = this.getProjectPermissionProfile()
-		if (!profile || profile.mode !== "request-approval") {
-			this.log(
-				`[projectPermissions] Ignored workspace write grant; current mode=${profile?.mode ?? "unset"}`,
-				"info",
-				"permissions",
-			)
-			return
+		const task = this.getCurrentTask()
+		const pending = task?.clineMessages.at(-1)
+		let tool: import("@roo-code/types").ClineSayTool | undefined
+		try {
+			tool = JSON.parse(pending?.text ?? "")
+		} catch {
+			return false
 		}
-
-		// workspaceState belongs to the current VS Code workspace. Keep an
-		// in-memory copy as well so the next Task.ask() observes the grant even
-		// before VS Code completes its storage write.
-		this.projectPermissionProfile = { ...profile, approvedWorkspaceWrites: true, updatedAt: Date.now() }
-		this.log(
-			`[projectPermissions] Granting future ordinary workspace writes; updatedAt=${this.projectPermissionProfile.updatedAt}`,
-			"info",
-			"permissions",
-		)
-		await this.context.workspaceState.update(
-			ClineProvider.PROJECT_PERMISSION_PROFILE_KEY,
-			this.projectPermissionProfile,
-		)
-		this.log("[projectPermissions] Future workspace write grant persisted", "info", "permissions")
+		if (
+			profile?.mode !== "request-approval" ||
+			!task ||
+			pending?.type !== "ask" ||
+			pending.ask !== "tool" ||
+			!tool ||
+			!["editedExistingFile", "appliedDiff", "newFileCreated"].includes(tool.tool) ||
+			tool.batchDiffs ||
+			tool.isOutsideWorkspace ||
+			tool.isProtected ||
+			pending.isProtected ||
+			tool.operation === "delete" ||
+			tool.operation === "move"
+		) {
+			return false
+		}
+		const previous = this.taskPermissionGrant?.taskId === task.taskId ? this.taskPermissionGrant : undefined
+		this.taskPermissionGrant = {
+			taskId: task.taskId,
+			approvedWorkspaceWrites: true,
+			approvedCommandRules: previous?.approvedCommandRules ?? [],
+		}
+		return true
 	}
 
 	private hasCurrentCostrictAuthentication(apiConfiguration: ProviderSettings): boolean {

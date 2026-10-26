@@ -1,4 +1,6 @@
+import { fireEvent } from "@testing-library/react"
 import { render, screen } from "@/utils/test-utils"
+import { vscode } from "@src/utils/vscode"
 
 import MarkdownBlock from "../MarkdownBlock"
 
@@ -15,6 +17,44 @@ vi.mock("@src/context/ExtensionStateContext", () => ({
 }))
 
 describe("MarkdownBlock", () => {
+	beforeEach(() => {
+		vi.mocked(vscode.postMessage).mockClear()
+	})
+
+	it("opens a relative code link in the editor without exposing a webview-relative URL", () => {
+		render(<MarkdownBlock markdown="[source](DRV/MCU/main.c#L42)" />)
+
+		const link = screen.getByRole("link", { name: "source" })
+		expect(link).toHaveAttribute("href", "#")
+		fireEvent.click(link)
+		expect(vscode.postMessage).toHaveBeenCalledWith({
+			type: "openFile",
+			text: "./DRV/MCU/main.c",
+			values: { line: 42 },
+		})
+	})
+
+	it("opens a relative code link on middle click", () => {
+		render(<MarkdownBlock markdown="[source](DRV/MCU/main.c:17)" />)
+
+		fireEvent(
+			screen.getByRole("link", { name: "source" }),
+			new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 }),
+		)
+		expect(vscode.postMessage).toHaveBeenCalledWith({
+			type: "openFile",
+			text: "./DRV/MCU/main.c",
+			values: { line: 17 },
+		})
+	})
+
+	it("preserves external web links", () => {
+		render(<MarkdownBlock markdown="[docs](https://example.com/docs)" />)
+
+		expect(screen.getByRole("link", { name: "docs" })).toHaveAttribute("href", "https://example.com/docs")
+		expect(vscode.postMessage).not.toHaveBeenCalled()
+	})
+
 	it("should correctly handle URLs with trailing punctuation", async () => {
 		const markdown = "Check out this link: https://example.com."
 		const { container } = render(<MarkdownBlock markdown={markdown} />)

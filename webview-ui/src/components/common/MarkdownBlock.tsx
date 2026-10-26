@@ -216,29 +216,30 @@ const MarkdownBlock = memo(({ markdown }: MarkdownBlockProps) => {
 				)
 			},
 			a: ({ href, children, ...props }: any) => {
-				const handleClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
-					// Only process file:// protocol or local file paths
-					const isLocalPath = href?.startsWith("file://") || href?.startsWith("/") || !href?.includes("://")
+				const isLocalPath =
+					typeof href === "string" &&
+					href.length > 0 &&
+					!href.startsWith("#") &&
+					!href.startsWith("//") &&
+					(href.startsWith("file://") || /^[a-z]:[\\/]/i.test(href) || !/^[a-z][a-z\d+.-]*:/i.test(href))
 
-					if (!isLocalPath) {
-						return
-					}
-
+				const openLocalFile = (e: React.MouseEvent<HTMLAnchorElement>) => {
+					if (!isLocalPath) return
 					e.preventDefault()
 
 					// Handle absolute vs project-relative paths
-					let filePath = href.replace("file://", "")
+					let filePath = href.startsWith("file://") ? href.slice("file://".length) : href
 
 					// Extract line number if present
-					const match = filePath.match(/(.*):(\d+)(-\d+)?$/)
+					const match = filePath.match(/^(.*?)(?::(\d+)(?:-\d+)?|#L(\d+)(?:-L?\d+)?)$/i)
 					let values = undefined
 					if (match) {
 						filePath = match[1]
-						values = { line: parseInt(match[2]) }
+						values = { line: parseInt(match[2] || match[3], 10) }
 					}
 
 					// Add ./ prefix if needed
-					if (!filePath.startsWith("/") && !filePath.startsWith("./")) {
+					if (!filePath.startsWith("/") && !filePath.startsWith(".") && !/^[a-z]:[\\/]/i.test(filePath)) {
 						filePath = "./" + filePath
 					}
 
@@ -250,7 +251,13 @@ const MarkdownBlock = memo(({ markdown }: MarkdownBlockProps) => {
 				}
 
 				return (
-					<a {...props} href={href} onClick={handleClick}>
+					<a
+						{...props}
+						href={isLocalPath ? "#" : href}
+						onClick={openLocalFile}
+						onAuxClick={(e) => {
+							if (e.button === 1) openLocalFile(e)
+						}}>
 						{children}
 					</a>
 				)

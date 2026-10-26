@@ -2028,16 +2028,18 @@ export const webviewMessageHandler = async (
 		case "approveProjectCommand": {
 			const command = message.text?.trim()
 			if (command) {
-				await provider.approveProjectCommand(command)
-				provider.getCurrentTask()?.handleWebviewAskResponse("yesButtonClicked")
-				await provider.postStateToWebview()
+				if (provider.approveProjectCommand(command)) {
+					provider.getCurrentTask()?.handleWebviewAskResponse("yesButtonClicked")
+					await provider.postStateToWebview()
+				}
 			}
 			break
 		}
 		case "approveProjectWorkspaceWrites": {
-			await provider.approveProjectWorkspaceWrites()
-			provider.getCurrentTask()?.handleWebviewAskResponse("yesButtonClicked")
-			await provider.postStateToWebview()
+			if (provider.approveProjectWorkspaceWrites()) {
+				provider.getCurrentTask()?.handleWebviewAskResponse("yesButtonClicked")
+				await provider.postStateToWebview()
+			}
 			break
 		}
 		case "enhancePrompt":

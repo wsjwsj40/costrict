@@ -348,12 +348,17 @@ export type GlobalState = Omit<RooCodeSettings, Keys<SecretState>>
 /** Stored in VS Code workspaceState, never in repository settings. */
 export type ProjectPermissionMode = "request-approval" | "auto-approval"
 
+export interface TaskCommandGrant {
+	cwd: string
+	command: string
+}
+
 export interface ProjectPermissionProfile {
 	mode: ProjectPermissionMode
 	updatedAt: number
-	/** Exact, non-destructive commands remembered only for this workspace. */
-	approvedCommands?: string[]
-	/** Ordinary workspace file changes remembered only for this workspace. */
+	/** Runtime-only grants for the active task; never persisted. */
+	approvedCommandRules?: TaskCommandGrant[]
+	/** Runtime-only grant for ordinary file edits in the active task. */
 	approvedWorkspaceWrites?: boolean
 }
 

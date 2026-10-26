@@ -308,23 +308,28 @@ describe("webviewMessageHandler - project workspace write approval", () => {
 		vi.clearAllMocks()
 	})
 
-	it("persists the project write grant before approving the pending file change", async () => {
-		let finishPersist: (() => void) | undefined
-		const approveProjectWorkspaceWrites = vi.fn(() => new Promise<void>((resolve) => (finishPersist = resolve)))
+	it("grants writes for the active task before approving the pending file change", async () => {
+		const approveProjectWorkspaceWrites = vi.fn(() => true)
 		const handleWebviewAskResponse = vi.fn()
 		;(mockClineProvider as any).approveProjectWorkspaceWrites = approveProjectWorkspaceWrites
 		vi.mocked(mockClineProvider.getCurrentTask).mockReturnValue({ handleWebviewAskResponse } as any)
 
 		const handling = webviewMessageHandler(mockClineProvider, { type: "approveProjectWorkspaceWrites" })
-		await Promise.resolve()
-
 		expect(approveProjectWorkspaceWrites).toHaveBeenCalledOnce()
-		expect(handleWebviewAskResponse).not.toHaveBeenCalled()
-		finishPersist?.()
 		await handling
 
 		expect(handleWebviewAskResponse).toHaveBeenCalledWith("yesButtonClicked")
 		expect(mockClineProvider.postStateToWebview).toHaveBeenCalledOnce()
+	})
+
+	it("does not approve a pending operation when the grant is rejected", async () => {
+		const handleWebviewAskResponse = vi.fn()
+		;(mockClineProvider as any).approveProjectWorkspaceWrites = vi.fn(() => false)
+		vi.mocked(mockClineProvider.getCurrentTask).mockReturnValue({ handleWebviewAskResponse } as any)
+
+		await webviewMessageHandler(mockClineProvider, { type: "approveProjectWorkspaceWrites" })
+
+		expect(handleWebviewAskResponse).not.toHaveBeenCalled()
 	})
 })
 

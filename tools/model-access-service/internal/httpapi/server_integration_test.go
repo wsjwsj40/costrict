@@ -42,7 +42,7 @@ func TestModelListUsesEmailPlanAndNeverReturnsAuto(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, model := range []store.Model{
-		{ID: "free-model", Enabled: true, PublicInfo: map[string]any{"name": "Free Model"}},
+		{ID: "free-model", Enabled: true, SupportsImages: true, PublicInfo: map[string]any{"name": "Free Model"}},
 		{ID: "pro-model", Enabled: true, PublicInfo: map[string]any{"name": "Pro Model"}},
 	} {
 		if err := data.UpsertModel(ctx, model); err != nil {
@@ -95,6 +95,9 @@ func TestModelListUsesEmailPlanAndNeverReturnsAuto(t *testing.T) {
 			if got[index] != test.want[index] {
 				t.Fatalf("%s got %v, want %v", test.email, got, test.want)
 			}
+		}
+		if test.email == "new@example.com" && body.Data[0]["supportsImages"] != true {
+			t.Fatalf("expected supportsImages=true, got %#v", body.Data[0]["supportsImages"])
 		}
 	}
 }

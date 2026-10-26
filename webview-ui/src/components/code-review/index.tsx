@@ -25,7 +25,7 @@ const CodeReviewPage: React.FC<CodeReviewPageProps> = ({
 	const { reviewTask } = useExtensionState()
 	const {
 		status,
-		data: { issues, progress, error = "", message = "" },
+		data: { issues, progress, error = "", message = "", reportPath },
 	} = reviewTask
 	const [page, setPage] = useState<Page>(() => {
 		if (status === ReviewTaskStatus.INITIAL && issues.length === 0) {
@@ -62,6 +62,7 @@ const CodeReviewPage: React.FC<CodeReviewPageProps> = ({
 						taskStatus={status}
 						progress={progress} // To be sourced from context
 						message={message}
+						reportPath={reportPath}
 						errorMessage={error}
 						onIssueClick={onIssueClick}
 						onTaskCancel={onTaskCancel}

@@ -34,7 +34,7 @@ describe("CommandExecution", () => {
 		expect(screen.getByTestId("deny-command")).toBeInTheDocument()
 	})
 
-	it("offers an exact project command grant only in request approval", () => {
+	it("offers a current-task command grant only in request approval", () => {
 		renderCommand({ mode: "request-approval" })
 		fireEvent.click(screen.getByTestId("allow-project-command"))
 		expect(vscode.postMessage).toHaveBeenCalledWith({ type: "approveProjectCommand", text: "pnpm test" })

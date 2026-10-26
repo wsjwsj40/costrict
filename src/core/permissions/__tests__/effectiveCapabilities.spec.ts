@@ -15,6 +15,17 @@ describe("effective capabilities", () => {
 		})
 	})
 
+	it("does not revive workspace-wide grants saved by older versions", () => {
+		expect(
+			normalizeProjectPermissionProfile({
+				mode: "request-approval",
+				updatedAt: 1,
+				approvedWorkspaceWrites: true,
+				approvedCommands: ["python script.py"],
+			}),
+		).toEqual({ mode: "request-approval", updatedAt: 1 })
+	})
+
 	it("does not interpret removed permission modes", () => {
 		for (const mode of ["observe", "unsupported", "safe-development", "automatic-development"]) {
 			expect(normalizeProjectPermissionProfile({ mode, updatedAt: 1 })).toBeUndefined()

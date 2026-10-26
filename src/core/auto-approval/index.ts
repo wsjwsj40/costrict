@@ -123,7 +123,15 @@ export async function checkAutoApproval({
 		if (commandExecution) {
 			const profile = state.projectPermissionProfile
 			if (commandExecution.scope === "outside" || commandExecution.requiresReview) return { decision: "ask" }
-			if (profile?.mode === "auto-approval" || profile?.approvedCommands?.includes(text || "")) {
+			if (profile?.mode === "auto-approval") {
+				return { decision: "approve" }
+			}
+			if (
+				profile?.mode === "request-approval" &&
+				profile.approvedCommandRules?.some(
+					(rule) => rule.cwd === commandExecution.cwd && rule.command === text?.trim(),
+				)
+			) {
 				return { decision: "approve" }
 			}
 			// Global command auto-approval is a retired setting. Its persisted
@@ -180,10 +188,15 @@ export async function checkAutoApproval({
 
 		if (isWriteToolAction(tool)) {
 			const profile = state.projectPermissionProfile
+			const isOrdinaryFileWrite = ["editedExistingFile", "appliedDiff", "newFileCreated"].includes(tool.tool)
 			if (
-				(profile?.mode === "auto-approval" || profile?.approvedWorkspaceWrites === true) &&
+				(profile?.mode === "auto-approval" ||
+					(profile?.approvedWorkspaceWrites === true && isOrdinaryFileWrite && !tool.batchDiffs)) &&
 				!isOutsideWorkspace &&
-				!isProtected
+				!isProtected &&
+				!tool.isProtected &&
+				tool.operation !== "delete" &&
+				tool.operation !== "move"
 			) {
 				return { decision: "approve" }
 			}

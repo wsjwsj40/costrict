@@ -87,6 +87,18 @@ describe("reviewArtifactValidator", () => {
 		expect(result.errors.join("\n")).toContain("JSON 评审文件格式无效")
 	})
 
+	it("rejects a positive Markdown summary when JSON contains no structured findings", async () => {
+		const resultDir = path.join(workspace, "code-review_result")
+		await import("node:fs/promises").then(({ mkdir }) => mkdir(resultDir, { recursive: true }))
+		await writeFile(path.join(resultDir, "review-report.json"), JSON.stringify({ defects: [] }))
+		await writeFile(path.join(resultDir, "review-report.md"), "### 评审摘要\n- 安全漏洞：高 1 / 中 2")
+
+		const result = await validateReviewArtifacts({ workspace, mode: "review", startedAt: Date.now() - 1_000 })
+
+		expect(result.valid).toBe(false)
+		expect(result.errors.join("\n")).toContain("结构化问题列表为空")
+	})
+
 	it("rejects artifacts left by an earlier task", async () => {
 		const resultDir = path.join(workspace, "code-review_result")
 		await import("node:fs/promises").then(({ mkdir }) => mkdir(resultDir, { recursive: true }))

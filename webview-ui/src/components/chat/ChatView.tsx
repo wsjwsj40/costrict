@@ -344,7 +344,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 	// would have to true again even if messages didn't change.
 	const lastMessage = useMemo(() => messages.at(-1), [messages])
 	const canApproveProjectWorkspaceWrites = useMemo(() => {
-		// This action changes the request-approval profile. The profile can arrive
+		// This action grants ordinary writes for the current task. The profile can arrive
 		// after the pending write request, so only hide the action once automatic
 		// mode is explicitly known. An absent profile uses the provider's
 		// restrictive request-approval default.
@@ -357,7 +357,9 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 			["editedExistingFile", "appliedDiff", "newFileCreated"].includes(tool.tool) &&
 			!tool.batchDiffs &&
 			!tool.isOutsideWorkspace &&
-			!tool.isProtected
+			!tool.isProtected &&
+			tool.operation !== "delete" &&
+			tool.operation !== "move"
 		)
 	}, [clineAsk, lastMessage, projectPermissionProfile?.mode])
 	const secondLastMessage = useMemo(() => messages.at(-2), [messages])
@@ -2140,6 +2142,7 @@ const ChatViewComponent: React.ForwardRefRenderFunction<ChatViewRef, ChatViewPro
 									)}
 									{canApproveProjectWorkspaceWrites && (
 										<StandardTooltip
+											maxWidth={360}
 											content={t("chat:fileOperations.allowProjectWorkspaceWritesTooltip")}>
 											<Button
 												variant="secondary"

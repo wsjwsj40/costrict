@@ -17,10 +17,11 @@ import (
 type Store struct{ db *pgxpool.Pool }
 
 type Model struct {
-	ID         string         `json:"id"`
-	PublicInfo map[string]any `json:"publicInfo"`
-	Enabled    bool           `json:"enabled"`
-	SortOrder  int            `json:"sortOrder"`
+	ID             string         `json:"id"`
+	PublicInfo     map[string]any `json:"publicInfo"`
+	SupportsImages bool           `json:"supportsImages"`
+	Enabled        bool           `json:"enabled"`
+	SortOrder      int            `json:"sortOrder"`
 }
 
 type Plan struct {
@@ -109,6 +110,9 @@ func (s *Store) Bootstrap(ctx context.Context, path string) error {
 		if strings.EqualFold(model.ID, "auto") {
 			continue
 		}
+		if value, ok := model.PublicInfo["supportsImages"].(bool); ok {
+			model.SupportsImages = value
+		}
 		if err := s.UpsertModel(ctx, model); err != nil {
 			return err
 		}
@@ -118,7 +122,7 @@ func (s *Store) Bootstrap(ctx context.Context, path string) error {
 
 func (s *Store) VisibleModels(ctx context.Context, email string) ([]map[string]any, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT m.id, m.public_info
+		SELECT m.id, m.public_info, m.supports_images
 		FROM model_access_catalog m
 		JOIN model_access_plan_model pm ON pm.model_id = m.id
 		JOIN model_access_plan p ON p.code = pm.plan_code
@@ -137,7 +141,8 @@ func (s *Store) VisibleModels(ctx context.Context, email string) ([]map[string]a
 	for rows.Next() {
 		var id string
 		var raw []byte
-		if err := rows.Scan(&id, &raw); err != nil {
+		var supportsImages bool
+		if err := rows.Scan(&id, &raw, &supportsImages); err != nil {
 			return nil, err
 		}
 		info := map[string]any{}
@@ -145,6 +150,7 @@ func (s *Store) VisibleModels(ctx context.Context, email string) ([]map[string]a
 			return nil, err
 		}
 		info["id"] = id
+		info["supportsImages"] = supportsImages
 		result = append(result, info)
 	}
 	return result, rows.Err()
@@ -174,14 +180,14 @@ func (s *Store) EnsureDefaultUser(ctx context.Context, email string) (string, bo
 
 func (s *Store) AdminState(ctx context.Context) (AdminState, error) {
 	state := AdminState{Models: []Model{}, Plans: []Plan{}, Users: []UserPermission{}, SyncTasks: []SyncTask{}}
-	rows, err := s.db.Query(ctx, "SELECT id, public_info, enabled, sort_order FROM model_access_catalog ORDER BY sort_order, id")
+	rows, err := s.db.Query(ctx, "SELECT id, public_info, supports_images, enabled, sort_order FROM model_access_catalog ORDER BY sort_order, id")
 	if err != nil {
 		return state, err
 	}
 	for rows.Next() {
 		var m Model
 		var raw []byte
-		if err := rows.Scan(&m.ID, &raw, &m.Enabled, &m.SortOrder); err != nil {
+		if err := rows.Scan(&m.ID, &raw, &m.SupportsImages, &m.Enabled, &m.SortOrder); err != nil {
 			rows.Close()
 			return state, err
 		}
@@ -189,6 +195,7 @@ func (s *Store) AdminState(ctx context.Context) (AdminState, error) {
 			rows.Close()
 			return state, err
 		}
+		m.PublicInfo["supportsImages"] = m.SupportsImages
 		state.Models = append(state.Models, m)
 	}
 	rows.Close()
@@ -254,16 +261,18 @@ func (s *Store) UpsertModel(ctx context.Context, model Model) error {
 		model.PublicInfo = map[string]any{}
 	}
 	delete(model.PublicInfo, "id")
+	model.PublicInfo["supportsImages"] = model.SupportsImages
 	raw, err := json.Marshal(model.PublicInfo)
 	if err != nil {
 		return err
 	}
 	_, err = s.db.Exec(ctx, `
-		INSERT INTO model_access_catalog(id, public_info, enabled, sort_order)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO model_access_catalog(id, public_info, supports_images, enabled, sort_order)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT(id) DO UPDATE SET public_info=EXCLUDED.public_info,
-			enabled=EXCLUDED.enabled, sort_order=EXCLUDED.sort_order, updated_at=NOW()`,
-		model.ID, raw, model.Enabled, model.SortOrder)
+			supports_images=EXCLUDED.supports_images, enabled=EXCLUDED.enabled,
+			sort_order=EXCLUDED.sort_order, updated_at=NOW()`,
+		model.ID, raw, model.SupportsImages, model.Enabled, model.SortOrder)
 	return err
 }
 

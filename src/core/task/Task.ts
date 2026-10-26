@@ -1593,7 +1593,7 @@ export class Task extends EventEmitter<TaskEvents> implements TaskLike {
 			provider?.log(
 				`[projectPermissions] Command decision=${approval.decision}; mode=${state.projectPermissionProfile.mode}; ` +
 					`scope=${commandExecution.scope}; destructive=${commandExecution.requiresReview === true}; ` +
-					`remembered=${state.projectPermissionProfile.approvedCommands?.includes(text || "") === true}`,
+					`taskRules=${state.projectPermissionProfile.approvedCommandRules?.length ?? 0}`,
 				"info",
 				"permissions",
 			)

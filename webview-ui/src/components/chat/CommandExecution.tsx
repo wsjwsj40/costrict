@@ -7,7 +7,6 @@ import { type ExtensionMessage, type CommandExecutionStatus, commandExecutionSta
 
 import { safeJsonParse } from "@roo/core"
 import { COMMAND_OUTPUT_STRING } from "@roo/combineCommandSequences"
-import { parseCommand } from "@roo/parse-command"
 
 import { vscode } from "@src/utils/vscode"
 import { useExtensionState } from "@src/context/ExtensionStateContext"
@@ -241,15 +240,19 @@ export const CommandExecution = ({
 							{projectPermissionProfile?.mode === "request-approval" &&
 								commandExecution?.scope === "workspace" &&
 								!commandExecution.requiresReview && (
-									<Button
-										data-testid="allow-project-command"
-										size="sm"
-										variant="secondary"
-										onClick={() =>
-											vscode.postMessage({ type: "approveProjectCommand", text: command })
-										}>
-										{t("chat:commandExecution.allowCommandInProject")}
-									</Button>
+									<StandardTooltip
+										maxWidth={360}
+										content={t("chat:commandExecution.allowCommandInProjectTooltip")}>
+										<Button
+											data-testid="allow-project-command"
+											size="sm"
+											variant="secondary"
+											onClick={() =>
+												vscode.postMessage({ type: "approveProjectCommand", text: command })
+											}>
+											{t("chat:commandExecution.allowCommandInProject")}
+										</Button>
+									</StandardTooltip>
 								)}
 							<Button
 								data-testid="deny-command"

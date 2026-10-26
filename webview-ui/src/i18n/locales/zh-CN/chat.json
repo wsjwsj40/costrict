@@ -226,7 +226,7 @@
 		"wantsToGenerateImageProtected": "需要在受保护位置生成图片",
 		"didGenerateImage": "已生成图片",
 		"allowProjectWorkspaceWrites": "后续允许",
-		"allowProjectWorkspaceWritesTooltip": "允许后续修改此项目中的普通文件"
+		"allowProjectWorkspaceWritesTooltip": "仅当前任务有效：允许后续在工作区新建和编辑普通文件。删除、移动、受保护文件及工作区外操作仍需单独确认。"
 	},
 	"directoryOperations": {
 		"wantsToViewTopLevel": "需要查看目录文件列表",
@@ -260,6 +260,7 @@
 		"review": "此命令可能删除文件或丢弃修改，请确认实际影响后执行。",
 		"allowOnce": "仅本次允许",
 		"allowCommandInProject": "后续允许",
+		"allowCommandInProjectTooltip": "仅当前任务有效：同一工作目录中的完全相同命令可在后续执行。更换参数（包括 git diff 的提交号）需要重新确认；如需更方便，可切换自动授权模式。",
 		"deny": "拒绝",
 		"manageCommands": "管理命令权限",
 		"commandManagementDescription": "管理命令权限：点击 ✓ 允许自动执行，点击 ✗ 拒绝执行。可以打开/关闭模式或从列表中删除。<settingsLink>查看所有设置</settingsLink>",

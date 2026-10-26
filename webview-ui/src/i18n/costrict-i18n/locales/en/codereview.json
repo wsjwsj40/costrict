@@ -17,6 +17,7 @@
 		"title": "Review History",
 		"loading": "Loading history...",
 		"noData": "No review history found",
+		"noStructuredIssues": "No structured issues are available; refer to the full review report",
 		"done": "Done"
 	},
 	"codebase": {
@@ -29,17 +30,20 @@
 	},
 	"codeReviewContent": {
 		"severity": {
+			"unknown": "Unknown",
 			"high": "High",
 			"middle": "Medium",
 			"low": "Low"
 		},
 		"severityLabel": "Severity",
 		"issueLabel": "Label",
+		"localReportIssue": "Recovered from the local report; server-side issue actions are unavailable.",
 		"filterTooltip": "Filter issues"
 	},
 	"taskStatusBar": {
 		"running": "Code Review in progress, {{progress}}%",
 		"cancel": "Cancel",
-		"completed": "Code quality is excellent, no issues found"
+		"completed": "No structured issues were returned; check the full review report before drawing a conclusion",
+		"openReport": "Open report"
 	}
 }

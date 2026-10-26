@@ -1,12 +1,20 @@
 import { EventEmitter } from "node:events"
 import path from "node:path"
+import { readFile } from "node:fs/promises"
 
 import { RooCodeEventName } from "@roo-code/types"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { IssueStatus, ReviewTargetType, ReviewTaskStatus } from "../../../shared/codeReview"
 import { fileExistsAtPath } from "../../../utils/fs"
+import { getIssueByTaskId } from "./api"
+import { parseLocalReviewReport } from "./common/localReviewReport"
 import { CodeReviewService } from "./codeReviewService"
+
+vi.mock("node:fs/promises", async (importOriginal) => ({
+	...(await importOriginal<typeof import("node:fs/promises")>()),
+	readFile: vi.fn().mockResolvedValue("# Review\n\nNo issues found"),
+}))
 
 vi.mock("vscode", () => ({
 	window: {
@@ -46,6 +54,7 @@ vi.mock("vscode", () => ({
 vi.mock("./HistoryManager", () => ({
 	HistoryManager: class {
 		addEntry = vi.fn().mockResolvedValue(undefined)
+		getLocalIssues = vi.fn().mockResolvedValue(null)
 		loadAll = vi.fn().mockResolvedValue([])
 		deleteEntry = vi.fn().mockResolvedValue(undefined)
 		dispose = vi.fn().mockResolvedValue(undefined)
@@ -138,6 +147,7 @@ vi.mock("./common/reviewIssueResolver", () => ({
 	buildReviewRequestOptions: (...args: any[]) => buildReviewRequestOptionsMock(...args),
 	ensureReviewResultDirectory: (...args: any[]) => ensureReviewResultDirectoryMock(...args),
 	getReviewReportJsonPath: vi.fn((cwd: string, _mode: string) => `${cwd}/code-review_result/review-report.json`),
+	getReviewReportMdPath: vi.fn((cwd: string, _mode: string) => `${cwd}/code-review_result/review-report.md`),
 	getFullReportJsonlPath: vi.fn((cwd: string, _mode: string) => `${cwd}/code-review_result/full_report.jsonl`),
 	resolveFromReportFile: (...args: any[]) => resolveFromReportFileMock(...args),
 	resolveFromReportText: (...args: any[]) => resolveFromReportTextMock(...args),
@@ -157,6 +167,7 @@ buildReviewRequestOptionsMock.mockReturnValue({})
 
 class FakeTask extends EventEmitter {
 	public readonly clineMessages: any[] = []
+	public taskAsk?: { ask: string }
 	public readonly updateMode = vi.fn()
 
 	constructor(
@@ -196,6 +207,7 @@ describe("CodeReviewService delegation lifecycle", () => {
 	beforeEach(() => {
 		vi.useFakeTimers()
 		vi.clearAllMocks()
+		vi.mocked(readFile).mockResolvedValue("# Review\n\nNo issues found")
 		;(CodeReviewService as any).instance = null
 		ensureReviewResultDirectoryMock.mockResolvedValue("/workspace/code-review_result")
 	})
@@ -406,6 +418,100 @@ describe("CodeReviewService delegation lifecycle", () => {
 		expect(finalUpdate?.values.data.issues).toHaveLength(1)
 	})
 
+	it("keeps a review running while an API failure waits for retry in chat", async () => {
+		const provider = new FakeProvider()
+		const task = new FakeTask("review-retry", "inst-retry")
+		provider.createTask.mockResolvedValue(task)
+		provider.getCurrentTask.mockReturnValue(task)
+		const service = CodeReviewService.getInstance()
+		service.setProvider(provider as any)
+
+		await service.createReviewTask("review this", { type: ReviewTargetType.COMMIT, commit: "abcdef1234567" })
+		task.taskAsk = { ask: "api_req_failed" }
+		task.emit(RooCodeEventName.TaskIdle)
+
+		let latestUpdate = getReviewUpdates(provider).at(-1)
+		expect(latestUpdate?.values.status).toBe(ReviewTaskStatus.RUNNING)
+		expect(latestUpdate?.values.data.message).toBe("common:review.tip.retry_in_chat")
+		expect(latestUpdate?.values.data.error).toBeUndefined()
+
+		task.taskAsk = undefined
+		task.emit(RooCodeEventName.TaskAskResponded)
+		latestUpdate = getReviewUpdates(provider).at(-1)
+		expect(latestUpdate?.values.data.message).toBeUndefined()
+	})
+
+	it("resolves a completed review when only the idle completion event is observed", async () => {
+		const provider = new FakeProvider()
+		const task = new FakeTask("review-idle-complete", "inst-idle-complete")
+		provider.createTask.mockResolvedValue(task)
+		provider.getCurrentTask.mockReturnValue(task)
+		const service = CodeReviewService.getInstance()
+		service.setProvider(provider as any)
+		;(fileExistsAtPath as any).mockResolvedValue(true)
+		resolveFromReportFileMock.mockResolvedValue({
+			issues: [],
+			review_task_id: "resolved-idle-complete",
+			count: 0,
+			title: "Commit review",
+			conclusion: "No issues found",
+		})
+
+		await service.createReviewTask("review this", { type: ReviewTargetType.COMMIT, commit: "abcdef1234567" })
+		task.taskAsk = { ask: "completion_result" }
+		task.emit(RooCodeEventName.TaskIdle)
+		await vi.runAllTimersAsync()
+
+		const latestUpdate = getReviewUpdates(provider).at(-1)
+		expect(latestUpdate?.values.status).toBe(ReviewTaskStatus.COMPLETED)
+		expect(latestUpdate?.values.data.error).toBeUndefined()
+	})
+
+	it("keeps historical commit issues when their files no longer exist in the working tree", async () => {
+		const provider = new FakeProvider()
+		const task = new FakeTask("review-commit", "inst-commit")
+		provider.createTask.mockResolvedValue(task)
+		provider.getCurrentTask.mockImplementation(() => task)
+
+		const service = CodeReviewService.getInstance()
+		service.setProvider(provider as any)
+		;(fileExistsAtPath as any)
+			.mockResolvedValueOnce(true) // JSON report
+			.mockResolvedValueOnce(false) // issue file
+			.mockResolvedValueOnce(true) // Markdown report
+		resolveFromReportFileMock.mockResolvedValue({
+			issues: [
+				{
+					id: "deleted-file-issue",
+					file_path: "src/removed.ts",
+					start_line: 3,
+					end_line: 3,
+					title: "Historical issue",
+					message: "Found in the reviewed commit",
+					status: IssueStatus.INITIAL,
+				},
+			],
+			review_task_id: "commit-review-task",
+			count: 1,
+			title: "",
+			conclusion: "One issue found",
+		})
+
+		await service.createReviewTask(
+			"@abcdef1",
+			{ type: ReviewTargetType.COMMIT, commit: "abcdef1234567" },
+			{ mode: "review" },
+		)
+		task.clineMessages.push({ type: "say", say: "completion_result", text: "report", partial: false })
+		task.emit(RooCodeEventName.Message, { message: task.clineMessages[0] })
+		await vi.runAllTimersAsync()
+
+		const issues = service.getAllCachedIssues()
+		expect(issues).toHaveLength(1)
+		expect(issues[0].location_status).toBe("target-version")
+		expect(issues[0].location_reason).toContain("abcdef12")
+	})
+
 	it("throws error when review-report.json is not found", async () => {
 		const provider = new FakeProvider()
 		const task = new FakeTask("review-nofile", "inst-nf")
@@ -501,11 +607,117 @@ describe("CodeReviewService delegation lifecycle", () => {
 		expect(finalUpdate?.values.status).toBe(ReviewTaskStatus.COMPLETED)
 		expect(finalUpdate?.values.data.error).toBeUndefined()
 		expect(finalUpdate?.values.data.issues).toEqual([])
+		expect(finalUpdate?.values.data.message).toBeUndefined()
+		expect(finalUpdate?.values.data.reportPath).toBe("/workspace/code-review_result/review-report.md")
 		expect(
 			provider.postMessageToWebview.mock.calls.some(
 				([message]) => message?.type === "action" && message.action === "codeReviewButtonClicked",
 			),
 		).toBe(true)
+	})
+
+	it.each([
+		["summary", "### DiCode评审摘要\n- 安全漏洞：高 1 / 中 5 / 低 2", "# Review\n\nNo issues found"],
+		["Markdown", "", "### DiCode评审摘要\n- 安全漏洞：高 1 / 中 5 / 低 2"],
+	])("warns instead of claiming a clean review when the %s lists findings", async (_source, conclusion, markdown) => {
+		const provider = new FakeProvider()
+		const task = new FakeTask("review-mismatch", "inst-mismatch")
+		provider.createTask.mockResolvedValue(task)
+		provider.getCurrentTask.mockReturnValue(task)
+		const service = CodeReviewService.getInstance()
+		service.setProvider(provider as any)
+		;(fileExistsAtPath as any).mockResolvedValue(true)
+		vi.mocked(readFile).mockResolvedValue(markdown)
+		resolveFromReportFileMock.mockResolvedValue({
+			issues: [],
+			review_task_id: "mismatch-task",
+			count: 0,
+			title: "Commit review",
+			conclusion,
+		})
+
+		await service.createReviewTask("@abcdef1", { type: ReviewTargetType.COMMIT, commit: "abcdef1234567" })
+		task.clineMessages.push({ type: "say", say: "completion_result", text: "report", partial: false })
+		task.emit(RooCodeEventName.Message, { message: task.clineMessages[0] })
+		await vi.runAllTimersAsync()
+
+		const finalUpdate = getReviewUpdates(provider).at(-1)
+		expect(finalUpdate?.values.status).toBe(ReviewTaskStatus.COMPLETED)
+		expect(finalUpdate?.values.data.issues).toEqual([])
+		expect(finalUpdate?.values.data.message).toBe("common:review.tip.structured_issues_missing")
+		expect(finalUpdate?.values.data.reportPath).toBe("/workspace/code-review_result/review-report.md")
+		expect(readFile).toHaveBeenCalledTimes(conclusion ? 1 : 2)
+	})
+
+	it("recovers report findings when the issue API returns an empty list", async () => {
+		const provider = new FakeProvider()
+		const task = new FakeTask("review-local-recovery", "inst-local-recovery")
+		provider.createTask.mockResolvedValue(task)
+		provider.getCurrentTask.mockReturnValue(task)
+		const service = CodeReviewService.getInstance()
+		service.setProvider(provider as any)
+		;(fileExistsAtPath as any).mockResolvedValue(true)
+		vi.mocked(readFile).mockResolvedValue(
+			JSON.stringify({
+				defects: [
+					{
+						file_path: "src/a.ts",
+						line: 4,
+						severity: "high",
+						title: "First defect",
+						description: "First detail",
+					},
+					{
+						file_path: "src/b.ts",
+						line: 8,
+						severity: "medium",
+						title: "Second defect",
+						description: "Second detail",
+					},
+				],
+			}),
+		)
+		resolveFromReportFileMock.mockResolvedValue({
+			issues: [],
+			review_task_id: "local-recovery-id",
+			count: 0,
+			title: "",
+			conclusion: "高 1 / 中 1",
+		})
+
+		await service.createReviewTask("@abcdef1", { type: ReviewTargetType.COMMIT, commit: "abcdef1234567" })
+		task.clineMessages.push({ type: "say", say: "completion_result", text: "report", partial: false })
+		task.emit(RooCodeEventName.Message, { message: task.clineMessages[0] })
+		await vi.runAllTimersAsync()
+
+		const finalUpdate = getReviewUpdates(provider).at(-1)
+		expect(finalUpdate?.values.status).toBe(ReviewTaskStatus.COMPLETED)
+		expect(finalUpdate?.values.data.issues).toHaveLength(2)
+		expect(finalUpdate?.values.data.issues[0]).toMatchObject({
+			source: "local-report",
+			title: "First defect",
+			message: "First detail",
+			location_status: "current",
+		})
+		expect(finalUpdate?.values.data.message).toBe("common:review.tip.local_issues_recovered")
+		expect((service as any).historyManager.addEntry).toHaveBeenCalledWith(
+			"local-recovery-id",
+			"Code Review · abcdef12",
+			"高 1 / 中 1",
+			finalUpdate?.values.data.issues,
+		)
+	})
+
+	it("loads persisted local findings when historical issue lookup returns fewer results", async () => {
+		const service = CodeReviewService.getInstance()
+		const recoveredIssue = parseLocalReviewReport(
+			JSON.stringify({ defects: [{ file_path: "src/a.ts", line: 4, message: "Persisted finding" }] }),
+			"historical-task",
+		)![0]
+		;(service as any).historyManager.getLocalIssues.mockResolvedValue([recoveredIssue])
+		vi.mocked(getIssueByTaskId).mockResolvedValue({ success: true, data: { issues: [] } } as any)
+
+		await expect(service.getReviewHistoryById("historical-task")).resolves.toEqual({ issues: [recoveredIssue] })
 	})
 
 	it("reports an error when resolving the report fails without a review task id", async () => {

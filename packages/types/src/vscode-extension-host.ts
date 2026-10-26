@@ -954,6 +954,8 @@ export interface ClineSayTool {
 	reason?: string
 	isOutsideWorkspace?: boolean
 	isProtected?: boolean
+	/** Destructive patch actions require a fresh approval. */
+	operation?: "delete" | "move"
 	additionalFileCount?: number // Number of additional files in the same read_file request
 	lineNumber?: number
 	startLine?: number // Starting line for read_file operations (for navigation on click)
