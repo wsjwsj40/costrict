@@ -38,7 +38,16 @@ const modelRecordSchema = z.record(z.string(), modelInfoSchema)
 
 // Track in-flight refresh requests to prevent concurrent API calls for the same provider
 // This prevents race conditions where multiple calls might overwrite each other's results
-const inFlightRefresh = new Map<RouterName, Promise<ModelRecord>>()
+const inFlightRefresh = new Map<string, Promise<ModelRecord>>()
+
+export interface RefreshModelsOptions {
+	/**
+	 * Return the previous cache when the provider request fails.
+	 * Permission checks must disable this so stale models are never treated as
+	 * an authoritative access list.
+	 */
+	fallbackToCacheOnError?: boolean
+}
 
 async function writeModels(router: RouterName, data: ModelRecord) {
 	const filename = `${router}_models.json`
@@ -143,7 +152,10 @@ export const getModels = async (options: GetModelsOptions): Promise<ModelRecord>
 	const hadMemoryModels = memoryCache.get<ModelRecord>(provider) != null
 	// let clineProvider = await ClineProvider.getAllInstance()
 
-	let models = getModelsFromCache(provider)
+	let models = provider === "costrict" && !hadMemoryModels ? undefined : getModelsFromCache(provider)
+	// Costrict models are permission-sensitive. Once the five-minute memory
+	// cache expires, the disk cache is only a failure fallback and must not be
+	// promoted back into memory as if it were fresh server data.
 
 	try {
 		if (models) {
@@ -164,7 +176,7 @@ export const getModels = async (options: GetModelsOptions): Promise<ModelRecord>
 
 		// Only cache non-empty results to prevent persisting failed API responses
 		// Empty results could indicate API failure rather than "no models exist"
-		if (modelCount > 0) {
+		if (modelCount > 0 || provider === "costrict") {
 			memoryCache.set(provider, models)
 
 			await writeModels(provider, models).catch((err) =>
@@ -196,13 +208,18 @@ export const getModels = async (options: GetModelsOptions): Promise<ModelRecord>
  * @param options - Provider options for fetching models
  * @returns Fresh models from API, or existing cache if refresh yields worse data
  */
-export const refreshModels = async (options: GetModelsOptions): Promise<ModelRecord> => {
+export const refreshModels = async (
+	options: GetModelsOptions,
+	refreshOptions: RefreshModelsOptions = {},
+): Promise<ModelRecord> => {
 	const { provider } = options
+	const fallbackToCacheOnError = refreshOptions.fallbackToCacheOnError ?? true
+	const requestKey = `${provider}:${fallbackToCacheOnError ? "fallback" : "strict"}`
 
 	// Check if there's already an in-flight refresh for this provider
 	// This prevents race conditions where multiple concurrent refreshes might
 	// overwrite each other's results
-	const existingRequest = inFlightRefresh.get(provider)
+	const existingRequest = inFlightRefresh.get(requestKey)
 	if (existingRequest) {
 		return existingRequest
 	}
@@ -214,7 +231,7 @@ export const refreshModels = async (options: GetModelsOptions): Promise<ModelRec
 			const models = await fetchModelsFromProvider(options)
 			const modelCount = Object.keys(models).length
 
-			if (modelCount === 0) {
+			if (modelCount === 0 && provider !== "costrict") {
 				// Get existing cached data for comparison
 				const existingCache = getModelsFromCache(provider)
 				const existingCount = existingCache ? Object.keys(existingCache).length : 0
@@ -232,7 +249,9 @@ export const refreshModels = async (options: GetModelsOptions): Promise<ModelRec
 				}
 			}
 
-			// Update memory cache first
+			// For Costrict, an empty successful response is authoritative: it can
+			// mean the user has no allowed models and must replace older privileges.
+			// Update memory cache first.
 			memoryCache.set(provider, models)
 
 			// Atomically write to disk (safeWriteJson handles atomic writes)
@@ -242,17 +261,22 @@ export const refreshModels = async (options: GetModelsOptions): Promise<ModelRec
 
 			return models
 		} catch (error) {
-			// Log the error for debugging, then return existing cache if available (graceful degradation)
+			// Permission-sensitive callers must be able to distinguish a failed
+			// refresh from an authoritative response. Returning an old cache there
+			// can preserve access to a model which has already been revoked.
 			console.error(`[refreshModels] Failed to refresh ${provider} models:`, error)
+			if (!fallbackToCacheOnError) {
+				throw error
+			}
 			return getModelsFromCache(provider) || {}
 		} finally {
 			// Always clean up the in-flight tracking
-			inFlightRefresh.delete(provider)
+			inFlightRefresh.delete(requestKey)
 		}
 	})()
 
 	// Track the in-flight request
-	inFlightRefresh.set(provider, refreshPromise)
+	inFlightRefresh.set(requestKey, refreshPromise)
 
 	return refreshPromise
 }

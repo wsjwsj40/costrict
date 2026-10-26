@@ -24,7 +24,7 @@ export const isDockerContainer = () => {
 }
 
 export const resetEvalsRepo = async ({ run, cwd }: { run: Run; cwd: string }) => {
-	await execa({ cwd })`git config user.name "CoStrict"`
+	await execa({ cwd })`git config user.name "DiCode"`
 	await execa({ cwd })`git config user.email "zgsm@sangfor.com.cn"`
 	await execa({ cwd })`git checkout -f`
 	await execa({ cwd })`git clean -fd`
@@ -157,7 +157,7 @@ export async function copyConversationHistory({
 	logger: Logger
 }): Promise<void> {
 	// VS Code extension global storage path within the container
-	const extensionStoragePath = "/roo/.vscode/User/globalStorage/zgsm-ai.zgsm"
+	const extensionStoragePath = "/roo/.vscode/User/globalStorage/atad-apts.zgsm"
 	const taskStoragePath = path.join(extensionStoragePath, "tasks", rooTaskId)
 
 	const filesToCopy = ["api_conversation_history.json", "ui_messages.json"]

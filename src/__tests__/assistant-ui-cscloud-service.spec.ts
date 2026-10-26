@@ -211,7 +211,7 @@ describe("CsCloudService (refactored)", () => {
 		await expect(svc.restartServer()).resolves.toBe("http://127.0.0.1:59249/api/v1")
 
 		expect(mockCrossSpawn).toHaveBeenCalledWith(
-			"/home/testuser/.costrict/bin/cs-cloud",
+			"/home/testuser/.dicode/bin/cs-cloud",
 			["restart"],
 			expect.objectContaining({ env: expect.any(Object), stdio: "pipe" }),
 		)

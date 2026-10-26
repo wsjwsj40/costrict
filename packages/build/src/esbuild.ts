@@ -130,6 +130,12 @@ export function copyWasms(srcDir: string, distDir: string): void {
 
 	console.log(`[copyWasms] Copied tiktoken WASMs to ${distDir}`)
 
+	// SVG rasterization for image uploads and read_file.
+	fs.copyFileSync(
+		path.join(nodeModulesDir, "@resvg", "resvg-wasm", "index_bg.wasm"),
+		path.join(distDir, "resvg.wasm"),
+	)
+
 	// Also copy Tiktoken WASMs to the workers directory.
 	const workersDir = path.join(distDir, "workers")
 	fs.mkdirSync(workersDir, { recursive: true })

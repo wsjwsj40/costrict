@@ -113,7 +113,11 @@ export const globalSettingsSchema = z.object({
 	customCondensingPrompt: z.string().optional(),
 	// costrict
 	useCostrictCustomConfig: z.boolean().optional(),
-	costrictCodeMode: z.union([z.literal("vibe"), z.literal("strict"), z.literal("raw"), z.literal("plan")]).optional(),
+	// `strict` was the previous persisted name for the Spec workflow.
+	costrictCodeMode: z.preprocess(
+		(value) => (value === "strict" ? "spec" : value),
+		z.union([z.literal("vibe"), z.literal("spec"), z.literal("raw"), z.literal("plan")]).optional(),
+	),
 
 	autoApprovalEnabled: z.boolean().optional(),
 	alwaysAllowReadOnly: z.boolean().optional(),
@@ -341,6 +345,23 @@ export const isSecretStateKey = (key: string): key is Keys<SecretState> =>
 
 export type GlobalState = Omit<RooCodeSettings, Keys<SecretState>>
 
+/** Stored in VS Code workspaceState, never in repository settings. */
+export type ProjectPermissionMode = "request-approval" | "auto-approval"
+
+export interface TaskCommandGrant {
+	cwd: string
+	command: string
+}
+
+export interface ProjectPermissionProfile {
+	mode: ProjectPermissionMode
+	updatedAt: number
+	/** Runtime-only grants for the active task; never persisted. */
+	approvedCommandRules?: TaskCommandGrant[]
+	/** Runtime-only grant for ordinary file edits in the active task. */
+	approvedWorkspaceWrites?: boolean
+}
+
 export const GLOBAL_STATE_KEYS = [...GLOBAL_SETTINGS_KEYS, ...PROVIDER_SETTINGS_KEYS].filter(
 	(key: Keys<RooCodeSettings>) => !isSecretStateKey(key),
 ) as Keys<GlobalState>[]
@@ -407,7 +428,7 @@ export const EVALS_SETTINGS: RooCodeSettings = {
 	includeDiagnosticMessages: true,
 	maxDiagnosticMessages: 50,
 
-	language: "en",
+	language: "zh-CN",
 	telemetrySetting: "disabled",
 
 	mcpEnabled: false,

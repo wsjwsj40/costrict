@@ -94,6 +94,10 @@ export interface ReviewTask {
 	progress: number
 	/** Total items to process */
 	total: number
+	/** Informational message for the current task state */
+	message?: string
+	/** Full Markdown report for the current review. */
+	reportPath?: string
 	/** Timeout ID for cleanup */
 	timeoutId?: NodeJS.Timeout
 	/** Error information */

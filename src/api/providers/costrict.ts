@@ -38,7 +38,8 @@ import { getModels } from "./fetchers/modelCache"
 import { getEditorType } from "../../utils/getEditorType"
 import { ChatCompletionChunk } from "openai/resources/index.mjs"
 import { convertToZAiFormat } from "../transform/zai-format"
-import { isDebug } from "../../utils/getDebugState"
+import { isCostrictModelDebugEnabled } from "../../utils/getDebugState"
+import { COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION } from "../../shared/costrictDebugMode"
 import { liteToolContractPrompt } from "../../core/prompts/tools/lite-descriptions"
 import { isJetbrainsPlatform } from "../../utils/platform"
 
@@ -365,7 +366,7 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 		return {
 			"Accept-Language": metadata?.language || "en",
 			...COSTRICT_DEFAULT_HEADERS,
-			...(this.options.useCostrictCustomConfig && isDebug() ? (this.options.openAiHeaders ?? {}) : {}),
+			...(this.isCustomModelConfigEnabled() ? (this.options.openAiHeaders ?? {}) : {}),
 			"User-Agent": `RooCode/3.52.1 ${isJetbrainsPlatform() ? "plugin_intellij" : "plugin_vscode"}/${Package.version}`,
 			"x-quota-identity": chatType || "system",
 			"X-Request-ID": requestId,
@@ -586,43 +587,22 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 		// For MiniMax models, allow matching <think> tags anywhere in the stream
 		// because MiniMax may include newlines before the <think> tag
 		const isMiniMax = modelInfo?.id?.toLowerCase().includes("minimax")
-		const isNotSupportTools = modelInfo?.id?.toLowerCase().includes("qwen-2.5-vl") // Qwen model understands <tool_call> tags
 		let matcher: TagMatcher<{
-			readonly type: "reasoning" | "text" | "fake_tool_call"
+			readonly type: "reasoning" | "text"
 			readonly text: string
 		}>
 
-		if (isNotSupportTools) {
-			matcher = new TagMatcher(
-				"tool_call",
-				(chunk) => {
-					// eslint-disable-next-line @typescript-eslint/no-unused-expressions
-					isDev &&
-						this.logger.info(
-							`[ResponseID ${this.options.costrictModelId} fake tool call]:`,
-							requestId,
-							chunk,
-						)
-					return {
-						type: chunk.matched ? "fake_tool_call" : "text",
-						text: chunk.data,
-					}
-				},
-				Infinity,
-			)
-		} else {
-			matcher = new TagMatcher(
-				"think",
-				(chunk) => {
-					if (chunk.matched) hasReasoning = true
-					return {
-						type: chunk.matched ? "reasoning" : "text",
-						text: chunk.data,
-					} as const
-				},
-				isMiniMax ? Infinity : 0, // Only use Infinity for MiniMax models
-			)
-		}
+		matcher = new TagMatcher(
+			"think",
+			(chunk) => {
+				if (chunk.matched) hasReasoning = true
+				return {
+					type: chunk.matched ? "reasoning" : "text",
+					text: chunk.data,
+				} as const
+			},
+			isMiniMax ? Infinity : 0, // Only use Infinity for MiniMax models
+		)
 
 		let lastUsage
 		const activeToolCallIds = new Set<string>()
@@ -637,6 +617,10 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 		let time = Date.now()
 		let isPrinted = false
 		let hasReasoning = false
+		const toolCallDiagnostics = new Map<
+			number,
+			{ id?: string; name?: string; argumentBytes: number; argumentDeltaCount: number }
+		>()
 
 		// Yield selected LLM info if available (for Auto model mode)
 		if (isAuto) {
@@ -648,13 +632,8 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 			}
 		}
 
-		const lastDeltaInfo = {
-			activeToolCallIds,
-		} as {
-			delta?: ChatCompletionChunk.Choice["delta"]
-			finishReason?: ChatCompletionChunk.Choice["finish_reason"]
-			activeToolCallIds?: Set<string>
-		}
+		let terminalFinishReason: ChatCompletionChunk.Choice["finish_reason"] | undefined
+		let streamIterationCompleted = false
 
 		// Helper function to flush buffer content
 		const flushBuffer = () => {
@@ -687,6 +666,17 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 		) => {
 			if (delta?.tool_calls) {
 				for (const toolCall of delta.tool_calls) {
+					const diagnostic = toolCallDiagnostics.get(toolCall.index) ?? {
+						argumentBytes: 0,
+						argumentDeltaCount: 0,
+					}
+					if (toolCall.id) diagnostic.id = toolCall.id
+					if (toolCall.function?.name) diagnostic.name = toolCall.function.name
+					if (toolCall.function?.arguments !== undefined) {
+						diagnostic.argumentBytes += Buffer.byteLength(toolCall.function.arguments, "utf8")
+						diagnostic.argumentDeltaCount++
+					}
+					toolCallDiagnostics.set(toolCall.index, diagnostic)
 					if (toolCall.id) {
 						activeToolCallIds.add(toolCall.id)
 					}
@@ -701,6 +691,10 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 			}
 
 			if (finishReason === "tool_calls" && activeToolCallIds.size > 0) {
+				console.info(
+					"[ToolCallTrace] provider-normal-finish",
+					JSON.stringify({ requestId, finishReason, calls: [...toolCallDiagnostics.entries()] }),
+				)
 				for (const id of activeToolCallIds) {
 					toolCallBuffer.push({ type: "tool_call_end", id })
 				}
@@ -713,8 +707,9 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 			for await (const chunk of stream) {
 				const delta = chunk.choices?.[0]?.delta ?? {}
 				const finishReason = chunk.choices?.[0]?.finish_reason
-				lastDeltaInfo.finishReason = finishReason
-				lastDeltaInfo.delta = delta
+				// Usage-only chunks commonly have no finish_reason. Preserve the last
+				// actual terminal reason instead of overwriting it with null/undefined.
+				if (finishReason != null) terminalFinishReason = finishReason
 
 				// Cache content for batch processing
 				if (delta.content) {
@@ -810,11 +805,32 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 					break
 				}
 			}
+			streamIterationCompleted = true
 			if (!hasReasoning) {
 				// Add a fake reasoning event to ensure the frontend processes the response
 				yield { type: "fake_reasoning", text: "" }
 			}
 		} finally {
+			if (toolCallDiagnostics.size > 0) {
+				const completedNormally =
+					streamIterationCompleted &&
+					!this.abortController?.signal.aborted &&
+					activeToolCallIds.size === 0 &&
+					terminalFinishReason === "tool_calls"
+				const log = completedNormally ? console.info : console.warn
+				log(
+					"[ToolCallTrace] provider-stream-finally",
+					JSON.stringify({
+						requestId,
+						finishReason: terminalFinishReason ?? null,
+						streamIterationCompleted,
+						completedNormally,
+						aborted: Boolean(this.abortController?.signal.aborted),
+						activeToolCallIds: [...activeToolCallIds],
+						calls: [...toolCallDiagnostics.entries()],
+					}),
+				)
+			}
 			// Always flush remaining content, even on abort
 			// This ensures no content is lost in the buffer
 			if (contentBuffer.length > 0) {
@@ -828,12 +844,8 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 
 			// Always flush remaining tool calls
 			if (isNative) {
-				// First, buffer any remaining tool calls from lastDeltaInfo
-				if (lastDeltaInfo.delta || lastDeltaInfo.finishReason) {
-					bufferToolCalls(lastDeltaInfo.delta, lastDeltaInfo.finishReason)
-				}
-
-				// Then flush all buffered tool calls
+				// Every delta is buffered inside the loop. Replaying the last delta here
+				// duplicates argument bytes when a stream ends prematurely.
 				if (toolCallBuffer.length > 0) {
 					// eslint-disable-next-line @typescript-eslint/no-unused-expressions
 					isDev && this.logger.info(`[Flushing ${toolCallBuffer.length} remaining tool calls]`, requestId)
@@ -948,13 +960,12 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 	override getModel() {
 		const id = this?.options?.costrictModelId ?? costrictDefaultModelId
 		const defaultInfo = this.modelInfo
-		let info =
-			this.options.useCostrictCustomConfig && isDebug()
-				? {
-						...defaultInfo,
-						...(this.options.costrictAiCustomModelInfo ?? {}),
-					}
-				: defaultInfo
+		let info = this.isCustomModelConfigEnabled()
+			? {
+					...defaultInfo,
+					...(this.options.costrictAiCustomModelInfo ?? {}),
+				}
+			: defaultInfo
 		const params = getModelParams({ format: "costrict", modelId: id, model: info, settings: this.options })
 
 		if (info.id !== id) {
@@ -1209,7 +1220,7 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 		const isAutoMode = modelInfo.id === "Auto" || modelInfo.id === "auto"
 
 		// Only add max_completion_tokens if includeMaxTokens is true
-		if (this.options.useCostrictCustomConfig && isDebug()) {
+		if (this.isCustomModelConfigEnabled()) {
 			const maxTokens = this.options.modelMaxTokens || modelInfo.maxTokens
 			// Use user-configured modelMaxTokens if available, otherwise fall back to model's default maxTokens
 			// Using max_completion_tokens as max_tokens is deprecated
@@ -1238,6 +1249,14 @@ export class CostrictAiHandler extends BaseProvider implements SingleCompletionH
 				})
 			}
 		}
+	}
+
+	private isCustomModelConfigEnabled(): boolean {
+		return (
+			isCostrictModelDebugEnabled() &&
+			this.options.useCostrictCustomConfig === true &&
+			this.options.costrictCustomConfigConsentVersion === COSTRICT_CUSTOM_CONFIG_CONSENT_VERSION
+		)
 	}
 
 	setChatType(type: "user" | "system"): void {

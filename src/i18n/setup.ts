@@ -72,7 +72,7 @@ if (!isTestEnv) {
 	}
 }
 
-// Merge CoStrict translations
+// Merge DiCode translations
 const mergedTranslations = mergeLanguageResources(translations, costrictTranslations)
 // console.log(`Merged translations:`, mergedTranslations)
 

@@ -33,6 +33,7 @@ export const PROJECT_WIKI_TEMPLATE: CommandContentFactory = (params: { workspace
 - **模式切换**：必须先切换到\`📋 Orchestrator\`模式
 - **严格顺序**：所有子任务必须按顺序执行，不得跳跃
 - **子任务委托**：每个子任务使用\`new_task\`工具创建子任务，执行模式统一\`💻 Code\`
+- **能力边界**：Orchestrator 不直接调用\`read_file\`、编辑或命令工具；所有文件读取和工作区操作必须委托给\`💻 Code\`子任务
 - **协调管理**：Orchestrator 负责协调和跟踪进度
 - **上下文管理**：通过子任务分解避免上下文累积过长
 - **完成确认**：每个子任务完成后声明"子任务X已完成"
@@ -65,17 +66,15 @@ new_task:
 
 ### 子任务1：📊 项目分类分析
 子任务指令文件路径：\`${subtaskDir}${SUBTASK_FILENAMES.PROJECT_CLASSIFICATION_AGENT}\`
+直接使用\`new_task\`创建\`💻 Code\`子任务，并将上述指令文件路径放入子任务消息；由子任务读取指令文件，Orchestrator 不要自行读取。
 
 ### 子任务2：🗂️ 文档结构生成
 子任务指令文件路径：\`${subtaskDir}${SUBTASK_FILENAMES.THINK_CATALOGUE_AGENT}\`
-
-### 任务3：读取文档结构定义
-1. 使用\`swtich_mode\` 工具切换到\`💻 Code\`模式
-2. 使用\`read_file\`工具读取 \`${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON} 文件，供后续任务使用
-4. 使用\`switch_mode\` 工具再次切换回 \`📋 Orchestrator\`模式
+直接使用\`new_task\`创建\`💻 Code\`子任务，并将上述指令文件路径放入子任务消息；由子任务读取指令文件，Orchestrator 不要自行读取。
+要求该子任务在写入\`${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON}\`后，通过\`attempt_completion.result\`返回用于调度的紧凑清单：\`document_count\`以及每篇文档的\`index/id/title/output_path\`。不要返回完整文档描述正文。
 
 ### 🔄 子任务动态分解
-分析任务3读取到的json格式的文档结构定义，使用\`new_task\`工具创建N（N=文档数量）个文档生成子任务，每个子任务负责一个文档的生成。
+根据子任务2通过\`attempt_completion.result\`返回的紧凑清单，使用\`new_task\`工具创建N（N=文档数量）个文档生成子任务，每个子任务负责一个文档的生成。Orchestrator 不读取\`catalogue.json\`。
 **注意**：
 1. 一个顶层的json object元素对应一个文档，json array 长度就是总文档个数。即：
 \`\`\`json
@@ -89,7 +88,8 @@ new_task:
 ]
 \`\`\`
 2.子任务必须输入的信息：
-  - 文档核心信息：从任务3读到的文档中，提取到的与本子任务相关内容
+  - 文档索引或稳定 ID：来自子任务2返回的紧凑清单
+  - 文档结构文件路径：\`${WIKI_OUTPUT_FILE_PATHS.OUTPUT_CATALOGUE_JSON}\`；由该\`💻 Code\`子任务自行读取并提取对应条目
   - 文档子任务指令模板路径：\`${subtaskDir}${SUBTASK_FILENAMES.DOCUMENT_GENERATION_AGENT}\`
 
 ### 子任务4.1：📋 文档生成-1

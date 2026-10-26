@@ -31,7 +31,7 @@ Object.entries(localeFiles).forEach(([path, module]) => {
 })
 
 // console.log("Dynamically loaded translations:", Object.keys(translations))
-// Merge CoStrict translations
+// Merge DiCode translations
 const mergedTranslations = mergeLanguageResources(translations, costrictTranslations)
 // console.log(`Merged webview-ui translations:`, mergedTranslations)
 

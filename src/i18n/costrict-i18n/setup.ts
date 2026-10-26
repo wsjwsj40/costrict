@@ -6,7 +6,7 @@ import { COSTRICT_LANGUAGES } from "../../shared/language"
 
 // Load translations from directory
 const loadTranslationsFromDir = (dirPath: string): LanguageResources => {
-	console.log(`Loading CoStrict backend translations from ${dirPath}`)
+	console.log(`Loading DiCode backend translations from ${dirPath}`)
 	const result: LanguageResources = {}
 
 	try {
@@ -51,7 +51,7 @@ const loadTranslationsFromDir = (dirPath: string): LanguageResources => {
 
 // Load costrict backend translations
 export const costrictTranslations = loadTranslationsFromDir(path.join(__dirname, "i18n", "costrict-i18n", "locales"))
-console.log(`Loaded CoStrict backend translations for languages: ${Object.keys(costrictTranslations).join(", ")}`)
+console.log(`Loaded DiCode backend translations for languages: ${Object.keys(costrictTranslations).join(", ")}`)
 
 // Initialize i18next
 i18next.init({
@@ -83,7 +83,7 @@ export const mergeLanguageResources = (
 ): LanguageResources => {
 	const mergedTranslations: LanguageResources = {}
 
-	// Merge CoStrict translations
+	// Merge DiCode translations
 	for (const language in costrictTranslations) {
 		if (!mergedTranslations[language]) {
 			mergedTranslations[language] = {}
@@ -97,7 +97,7 @@ export const mergeLanguageResources = (
 		}
 	}
 
-	// Add current translations that don't exist in CoStrict
+	// Add current translations that don't exist in DiCode
 	for (const language in currentTranslations) {
 		if (!mergedTranslations[language]) {
 			mergedTranslations[language] = currentTranslations[language]

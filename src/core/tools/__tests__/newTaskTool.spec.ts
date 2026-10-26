@@ -15,9 +15,9 @@ vi.mock("vscode", () => ({
 vi.mock("../../../shared/package", () => ({
 	Package: {
 		name: "zgsm",
-		publisher: "zgsm-ai",
+		publisher: "atad-apts",
 		version: "1.0.0",
-		outputChannel: "CoStrict",
+		outputChannel: "DiCode",
 		commandIDPrefix: "costrict",
 	},
 }))

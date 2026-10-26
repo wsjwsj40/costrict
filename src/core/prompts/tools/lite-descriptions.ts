@@ -7,8 +7,8 @@ getLiteReadFileDescription.toolname = "read_file"
 
 export function getLiteWriteToFileDescription(): string {
 	return `## write_to_file
-Create or completely overwrite a file. Auto-creates directories. MUST provide COMPLETE content — no placeholders. Prefer edit tools for modifications.
-Params: path (REQUIRED), content (REQUIRED)`
+Create, overwrite, or append to a file. Auto-creates directories. For long generated files, write <=6000-character chunks: overwrite first, then append. Append inserts no newline. No placeholders. Prefer edit tools for modifications.
+Params: path (REQUIRED), content (REQUIRED), operation (optional: overwrite|append, default overwrite)`
 }
 getLiteWriteToFileDescription.toolname = "write_to_file"
 

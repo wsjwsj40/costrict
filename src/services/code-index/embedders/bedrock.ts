@@ -41,7 +41,7 @@ export class BedrockEmbedder implements IEmbedder {
 		const credentials = this.profile ? fromIni({ profile: this.profile }) : fromNodeProviderChain()
 
 		this.bedrockClient = new BedrockRuntimeClient({
-			userAgentAppId: `Costrict#${Package.version}`,
+			userAgentAppId: `DiCode#${Package.version}`,
 			region: this.region,
 			credentials,
 		})

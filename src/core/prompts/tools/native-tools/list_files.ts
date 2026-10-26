@@ -32,6 +32,7 @@ export default {
 				recursive: {
 					type: "boolean",
 					description: RECURSIVE_PARAMETER_DESCRIPTION,
+					default: false,
 				},
 			},
 			required: ["path", "recursive"],

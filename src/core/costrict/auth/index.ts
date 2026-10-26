@@ -13,5 +13,12 @@ export { CostrictAuthCommands } from "./authCommands"
 // Export main authentication service
 export { CostrictAuthService } from "./authService"
 
+export {
+	COSTRICT_AUTH_POLICY_VERSION,
+	enforceCurrentAuthPolicy,
+	hasAcceptedCurrentAuthPolicy,
+	markCurrentAuthPolicyAccepted,
+} from "./authPolicy"
+
 // Export type definitions
 export * from "./types"

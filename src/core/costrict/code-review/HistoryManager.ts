@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as os from "node:os"
 
-import { ReviewHistoryEntry } from "../../../shared/codeReview"
+import { ReviewHistoryEntry, type ReviewIssue } from "../../../shared/codeReview"
 import { createLogger, ILogger } from "../../../utils/logger"
 import { Package } from "../../../shared/package"
 
@@ -14,7 +14,7 @@ export class HistoryManager {
 
 	constructor() {
 		this.logger = createLogger(Package.outputChannel)
-		this.storageDir = path.join(os.homedir(), ".costrict", "review")
+		this.storageDir = path.join(os.homedir(), ".dicode", "review")
 		this.historyFilePath = path.join(this.storageDir, "history.jsonl")
 		this.ensureStorageDir().catch((error) => {
 			this.logger.error(`[HistoryManager] Failed to create storage directory: ${error}`)
@@ -30,12 +30,18 @@ export class HistoryManager {
 		}
 	}
 
-	public async addEntry(reviewTaskId: string, title: string, conclusion?: string): Promise<void> {
+	public async addEntry(
+		reviewTaskId: string,
+		title: string,
+		conclusion?: string,
+		localIssues?: ReviewIssue[],
+	): Promise<void> {
 		const entry: ReviewHistoryEntry = {
 			review_task_id: reviewTaskId,
-			title,
+			title: title.trim() || `Code Review · ${reviewTaskId.slice(0, 8)}`,
 			timestamp: new Date().toISOString(),
 			conclusion,
+			...(localIssues?.length ? { localIssues } : {}),
 		}
 		this.entries.push(entry)
 
@@ -45,6 +51,30 @@ export class HistoryManager {
 		} catch (error) {
 			this.logger.error(`[HistoryManager] Failed to write entry to file: ${error}`)
 		}
+	}
+
+	public async getLocalIssues(reviewTaskId: string): Promise<ReviewIssue[] | null> {
+		let entry = this.entries.findLast((item) => item.review_task_id === reviewTaskId)
+		if (!entry) {
+			entry = (await this.loadAll()).findLast((item) => item.review_task_id === reviewTaskId)
+		}
+		if (!entry?.localIssues?.length) return null
+		return Promise.all(
+			entry.localIssues.map(async (issue) => {
+				if (issue.location_status !== "current" || !issue.resolved_file_path) return issue
+				try {
+					await fs.access(issue.resolved_file_path)
+					return issue
+				} catch {
+					return {
+						...issue,
+						location_status: "target-version" as const,
+						location_reason:
+							"This file is no longer available in the current working tree; the finding remains in the review report.",
+					}
+				}
+			}),
+		)
 	}
 
 	public async loadAll(): Promise<ReviewHistoryEntry[]> {
@@ -59,7 +89,8 @@ export class HistoryManager {
 				try {
 					const entry = JSON.parse(line) as ReviewHistoryEntry
 
-					if (entry.review_task_id && entry.title && entry.timestamp) {
+					if (entry.review_task_id && entry.timestamp) {
+						entry.title = entry.title?.trim() || `Code Review · ${entry.review_task_id.slice(0, 8)}`
 						loadedEntries.push(entry)
 						this.entries.push(entry)
 					} else {

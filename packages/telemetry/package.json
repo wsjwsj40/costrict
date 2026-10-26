@@ -1,6 +1,6 @@
 {
 	"name": "@roo-code/telemetry",
-	"description": "CoStrict telemetry service and clients.",
+	"description": "DiCode telemetry service and clients.",
 	"version": "0.0.1",
 	"type": "module",
 	"exports": {

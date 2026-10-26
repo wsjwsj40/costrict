@@ -85,7 +85,7 @@ describe("generateErrorDiagnostics", () => {
 		// taskId.slice(0, 8) = "test-tas" from "test-task-id"
 		expect(String(writtenPath)).toContain("costrict-diagnostics-test-tas")
 		expect(String(writtenContent)).toContain(
-			"// Please share this file with Costrict Support (zgsm@sangfor.com.cn) to diagnose the issue faster",
+			"// Please share this file with your DiCode administrator to diagnose the issue faster",
 		)
 		expect(String(writtenContent)).toContain('"error":')
 		expect(String(writtenContent)).toContain('"history":')

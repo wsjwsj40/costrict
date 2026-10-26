@@ -8,6 +8,8 @@
  * ```
  */
 export enum SeverityLevel {
+	/** Severity was not specified in a locally recovered report finding. */
+	UNKNOWN = 0,
 	/** Low severity - advisory issues */
 	LOW = 1,
 	/** Medium severity - issues that need attention */
@@ -59,6 +61,10 @@ export enum IssueStatus {
  * ```
  */
 export interface ReviewIssue {
+	/** Recovered from the local JSON report when the issue service returned incomplete results. */
+	source?: "local-report"
+	/** Absolute path used only to open an existing locally recovered finding. */
+	resolved_file_path?: string
 	/** Unique issue identifier */
 	id: string
 	/** File path where the issue is located */
@@ -88,6 +94,10 @@ export interface ReviewIssue {
 	/** Update time (ISO 8601 format) */
 	updated_at: string
 	fix_code: string
+	/** Whether this issue can be opened in the current working tree. */
+	location_status?: "current" | "target-version" | "unresolved"
+	/** Explanation shown when the reported location cannot be opened directly. */
+	location_reason?: string
 }
 
 export enum ReviewTaskStatus {
@@ -102,6 +112,8 @@ export interface ReviewTaskData {
 	progress: number | null
 	error?: string
 	message?: string
+	/** Full Markdown report for this review, when available. */
+	reportPath?: string
 }
 
 export interface ReviewTaskPayload {
@@ -167,4 +179,6 @@ export interface ReviewHistoryEntry {
 	title: string
 	timestamp: string
 	conclusion?: string
+	/** Read-only local findings retained when the issue service missed report entries. */
+	localIssues?: ReviewIssue[]
 }

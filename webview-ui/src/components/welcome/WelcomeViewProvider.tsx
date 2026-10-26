@@ -21,6 +21,9 @@ import { ApiErrorMessage } from "../settings/ApiErrorMessage"
 
 type ProviderOption = "costrict" | "custom"
 
+// 修改“使用手册”链接时，只需调整这里。
+const DICODE_USER_MANUAL_URL = "https://dicode.byd.com:30092"
+
 const WelcomeViewProvider = () => {
 	const {
 		apiConfiguration,
@@ -33,7 +36,9 @@ const WelcomeViewProvider = () => {
 	const { t } = useAppTranslation()
 	const [errorMessage, setErrorMessage] = useState<string | undefined>(undefined)
 	const [selectedProvider, setSelectedProvider] = useState<ProviderOption>("costrict")
-	const [costrictBaseurl, setCostrictBaseurl] = useState("")
+	const [costrictBaseurl, setCostrictBaseurl] = useState(
+		() => apiConfiguration?.costrictBaseUrl?.trim() || (window as any).COSTRICT_BASE_URL,
+	)
 
 	// Memoize the setApiConfigurationField function to pass to ApiOptions
 	const setApiConfigurationFieldForApiOptions = useCallback(
@@ -134,7 +139,7 @@ const WelcomeViewProvider = () => {
 							<div className="flex-1 space-y-1 cursor-pointer">
 								<p className="text-lg font-semibold block -mt-1">
 									{t("welcome:providerSignup.rooCloudProvider")}&nbsp;
-									<VSCodeLink href="https://costrict.ai" className="cursor-pointer">
+									<VSCodeLink href={DICODE_USER_MANUAL_URL} className="cursor-pointer">
 										{t("welcome:providerSignup.learnMore")}
 									</VSCodeLink>
 								</p>

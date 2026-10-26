@@ -398,7 +398,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					// Handle command selection.
 					setSelectedMenuIndex(-1)
 					setShowContextMenu(false)
-	
+
 					// Insert the command mention into the textarea. Only replace the slash-command
 					// query (from the "/" up to the cursor) with the selected command, preserving
 					// any content that already existed after the cursor (e.g. when "/" was typed
@@ -413,7 +413,7 @@ export const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					const newCommandCursorPosition = beforeSlash.length + commandMention.length + 1
 					setCursorPosition(newCommandCursorPosition)
 					setIntendedCursorPosition(newCommandCursorPosition)
-	
+
 					// Focus the textarea
 					setTimeout(() => {
 						if (textAreaRef.current) {

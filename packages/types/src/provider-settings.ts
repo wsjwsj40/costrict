@@ -216,6 +216,7 @@ const costrictSchema = apiModelIdProviderModelSchema.extend({
 	costrictApiKeyUpdatedAt: z.string().optional(),
 	costrictApiKeyExpiredAt: z.string().optional(),
 	useCostrictCustomConfig: z.boolean().optional(),
+	costrictCustomConfigConsentVersion: z.number().int().nonnegative().optional(),
 	costrictAiCustomModelInfo: modelInfoSchema.nullish(),
 })
 
@@ -507,6 +508,12 @@ export interface QuotaInfo {
 	is_star?: string
 }
 
+export interface ModelQuotaInfo {
+	remainQuotaMoney: number
+	usedQuotaMoney: number
+	unlimitedQuota: boolean
+}
+
 export interface InviteCodeInfo {
 	invite_code?: string
 }
@@ -636,7 +643,7 @@ export const MODELS_BY_PROVIDER: Record<
 > = {
 	costrict: {
 		id: "costrict",
-		label: "CoStrict",
+		label: "DiCode",
 		models: [],
 	},
 	anthropic: {

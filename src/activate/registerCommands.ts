@@ -42,7 +42,7 @@ interface ProcessedResource {
 export function getVisibleProviderOrLog(outputChannel: vscode.OutputChannel): ClineProvider | undefined {
 	const visibleProvider = ClineProvider.getVisibleInstance()
 	if (!visibleProvider) {
-		outputChannel.appendLine("Cannot find any visible CoStrict instances.")
+		outputChannel.appendLine("Cannot find any visible DiCode instances.")
 		return undefined
 	}
 	return visibleProvider
@@ -84,7 +84,7 @@ export type RegisterCommandOptions = {
 }
 
 /**
- * 检查用户是否已登录 CoStrict。
+ * 检查用户是否已登录 DiCode。
  * 先通过 CostrictAuthService 查询 token，再回退到 ~/.costrict/share/auth.json。
  */
 async function isCostrictLoggedIn(): Promise<boolean> {
@@ -201,7 +201,7 @@ export const getCommandsMap = ({
 				detail: item.value === currentMode ? "Current mode" : undefined,
 			})),
 			{
-				title: "Switch CoStrict UI Mode",
+				title: "Switch DiCode UI Mode",
 				placeHolder: "Choose which UI mode to switch to",
 				ignoreFocusOut: true,
 			},
@@ -216,7 +216,7 @@ export const getCommandsMap = ({
 			const loggedIn = await isCostrictLoggedIn()
 			if (!loggedIn) {
 				const action = await vscode.window.showWarningMessage(
-					"Please log in to CoStrict first before switching to Cloud mode.",
+					"Please log in to DiCode first before switching to Cloud mode.",
 					"Login",
 				)
 				if (action === "Login") {
@@ -247,7 +247,7 @@ export const getCommandsMap = ({
 			const loggedIn = await isCostrictLoggedIn()
 			if (!loggedIn) {
 				const action = await vscode.window.showWarningMessage(
-					"Please log in to CoStrict first before switching to Cloud mode.",
+					"Please log in to DiCode first before switching to Cloud mode.",
 					"Login",
 				)
 				if (action === "Login") {
@@ -623,7 +623,7 @@ export const openClineInNewTab = async ({
 
 	const newPanel = vscode.window.createWebviewPanel(
 		ClineProvider.tabPanelId,
-		taskId ? `Task-${taskId}` : "CoStrict",
+		taskId ? `Task-${taskId}` : "DiCode",
 		targetCol,
 		{
 			enableScripts: true,

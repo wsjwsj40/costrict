@@ -42,7 +42,10 @@ ${allModes
 		)
 			return true
 		if (mode.costrictCodeModeGroup)
-			return mode.costrictCodeModeGroup.split(",").includes(costrictCodeMode ?? "vibe")
+			return mode.costrictCodeModeGroup
+				.split(",")
+				.map((group) => (group === "strict" ? "spec" : group))
+				.includes(costrictCodeMode === "strict" ? "spec" : (costrictCodeMode ?? "vibe"))
 		return true
 	})
 	.map((mode: ModeConfig) => {

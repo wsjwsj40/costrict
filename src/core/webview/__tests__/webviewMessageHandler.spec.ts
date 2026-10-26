@@ -111,7 +111,7 @@ vi.mock("vscode", async (importOriginal) => ({
 			extensionUri: { fsPath: "/mock/extension/path", path: "/mock/extension/path", scheme: "file" },
 			packageJSON: {
 				name: "costrict",
-				publisher: "zgsm-ai",
+				publisher: "atad-apts",
 				version: "2.0.27",
 			},
 		}),
@@ -300,6 +300,36 @@ describe("webviewMessageHandler - image mentions", () => {
 			"system",
 			false,
 		)
+	})
+})
+
+describe("webviewMessageHandler - project workspace write approval", () => {
+	beforeEach(() => {
+		vi.clearAllMocks()
+	})
+
+	it("grants writes for the active task before approving the pending file change", async () => {
+		const approveProjectWorkspaceWrites = vi.fn(() => true)
+		const handleWebviewAskResponse = vi.fn()
+		;(mockClineProvider as any).approveProjectWorkspaceWrites = approveProjectWorkspaceWrites
+		vi.mocked(mockClineProvider.getCurrentTask).mockReturnValue({ handleWebviewAskResponse } as any)
+
+		const handling = webviewMessageHandler(mockClineProvider, { type: "approveProjectWorkspaceWrites" })
+		expect(approveProjectWorkspaceWrites).toHaveBeenCalledOnce()
+		await handling
+
+		expect(handleWebviewAskResponse).toHaveBeenCalledWith("yesButtonClicked")
+		expect(mockClineProvider.postStateToWebview).toHaveBeenCalledOnce()
+	})
+
+	it("does not approve a pending operation when the grant is rejected", async () => {
+		const handleWebviewAskResponse = vi.fn()
+		;(mockClineProvider as any).approveProjectWorkspaceWrites = vi.fn(() => false)
+		vi.mocked(mockClineProvider.getCurrentTask).mockReturnValue({ handleWebviewAskResponse } as any)
+
+		await webviewMessageHandler(mockClineProvider, { type: "approveProjectWorkspaceWrites" })
+
+		expect(handleWebviewAskResponse).not.toHaveBeenCalled()
 	})
 })
 

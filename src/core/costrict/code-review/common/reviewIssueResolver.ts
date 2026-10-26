@@ -11,7 +11,7 @@
  */
 
 import path from "node:path"
-import { readFile } from "node:fs/promises"
+import { mkdir, readFile, readdir, rename } from "node:fs/promises"
 import type { AxiosRequestConfig } from "axios"
 import { v7 as uuidv7 } from "uuid"
 
@@ -20,40 +20,47 @@ import type { Mode } from "../../../../shared/modes"
 import { COSTRICT_DEFAULT_HEADERS } from "../../../../shared/headers"
 import { getClientId } from "../../../../utils/getClientId"
 import { reportIssue } from "../api"
+import { getReviewResultDir } from "./reviewArtifactPaths"
+
+export {
+	CODE_REVIEW_RESULT_DIR,
+	SECURITY_REVIEW_RESULT_DIR,
+	REVIEW_REPORT_JSON,
+	REVIEW_REPORT_MD,
+	SECURITY_REPORT_MD,
+	FULL_REPORT_JSONL,
+	getReviewReportJsonPath,
+	getReviewReportMdPath,
+	getFullReportJsonlPath,
+	getReviewReportJsonRelativePath,
+	getReviewReportMdRelativePath,
+} from "./reviewArtifactPaths"
 
 // ── Report paths ───────────────────────────────────────────────────────
 
-export const CODE_REVIEW_RESULT_DIR = "code-review_result"
-export const SECURITY_REVIEW_RESULT_DIR = "security-review_result"
-export const REVIEW_REPORT_JSON = "review-report.json"
-export const REVIEW_REPORT_MD = "review-report.md"
-export const SECURITY_REPORT_MD = "task_summary.md"
-export const FULL_REPORT_JSONL = "full_report.jsonl"
+/**
+ * Prepare a clean report directory before a review task starts.
+ *
+ * Existing reports, aliases, and drafts are preserved under history/<run-id>
+ * so a new model run cannot accidentally consume stale artifacts. The history
+ * directory itself is never nested into a later archive.
+ */
+export async function ensureReviewResultDirectory(cwd: string, mode: Mode): Promise<string> {
+	const resultDir = path.resolve(cwd, getReviewResultDir(mode))
+	await mkdir(resultDir, { recursive: true })
 
-function getResultDir(mode: Mode): string {
-	return mode === "security-review" ? SECURITY_REVIEW_RESULT_DIR : CODE_REVIEW_RESULT_DIR
-}
+	const entries = (await readdir(resultDir)).filter((entry) => entry !== "history")
+	if (entries.length === 0) return resultDir
 
-export function getReviewReportJsonPath(cwd: string, mode: Mode): string {
-	return path.resolve(cwd, getResultDir(mode), REVIEW_REPORT_JSON)
-}
+	const archiveId = `${new Date().toISOString().replace(/[:.]/g, "-")}-${uuidv7()}`
+	const archiveDir = path.join(resultDir, "history", archiveId)
+	await mkdir(archiveDir, { recursive: true })
 
-export function getReviewReportMdPath(cwd: string, mode: Mode): string {
-	const fileName = mode === "security-review" ? SECURITY_REPORT_MD : REVIEW_REPORT_MD
-	return path.resolve(cwd, getResultDir(mode), fileName)
-}
+	for (const entry of entries) {
+		await rename(path.join(resultDir, entry), path.join(archiveDir, entry))
+	}
 
-export function getFullReportJsonlPath(cwd: string, mode: Mode): string {
-	return path.resolve(cwd, getResultDir(mode), FULL_REPORT_JSONL)
-}
-
-export function getReviewReportJsonRelativePath(mode: Mode): string {
-	return `${getResultDir(mode)}/${REVIEW_REPORT_JSON}`
-}
-
-export function getReviewReportMdRelativePath(mode: Mode): string {
-	const fileName = mode === "security-review" ? SECURITY_REPORT_MD : REVIEW_REPORT_MD
-	return `${getResultDir(mode)}/${fileName}`
+	return resultDir
 }
 
 // ── Request options ────────────────────────────────────────────────────

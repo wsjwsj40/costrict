@@ -74,10 +74,10 @@ const RooTips = () => {
 		{
 			click: (e: any) => {
 				e.preventDefault()
-				if (!apiProviderCheck("strict")) {
+				if (!apiProviderCheck("spec")) {
 					return
 				}
-				switchMode("strict", "testguide")
+				switchMode("spec", "testguide")
 				delay(() => {
 					vscode.postMessage({
 						type: "newTask",
@@ -150,14 +150,14 @@ const RooTips = () => {
 		},
 		{
 			name: "Spec",
-			slug: "strict",
-			description: tWelcome("strict.description"),
+			slug: "spec",
+			description: tWelcome("spec.description"),
 			switchMode: (e: React.MouseEvent<HTMLElement, MouseEvent>) => {
 				e.stopPropagation()
-				if (!apiProviderCheck("strict")) {
+				if (!apiProviderCheck("spec")) {
 					return
 				}
-				switchMode("strict")
+				switchMode("spec")
 			},
 			layout: "half",
 		},

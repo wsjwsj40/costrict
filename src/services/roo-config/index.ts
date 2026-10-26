@@ -30,12 +30,12 @@ export function getGlobalRooDirectory(): string {
 
 export function getGlobalCostrictDirectory(): string {
 	const homeDir = os.homedir()
-	return path.join(homeDir, ".costrict")
+	return path.join(homeDir, ".dicode")
 }
 
 export function getGlobalCostrictCLIDirectory(): string {
 	const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
-	return path.join(configHome, "costrict")
+	return path.join(configHome, "dicode")
 }
 
 /**

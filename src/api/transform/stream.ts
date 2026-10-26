@@ -13,7 +13,6 @@ export type ApiStreamChunk =
 	| ApiStreamToolCallDeltaChunk
 	| ApiStreamToolCallEndChunk
 	| ApiStreamToolCallPartialChunk
-	| FakeToolCall
 	| ApiStreamError
 
 export interface ApiStreamError {
@@ -33,11 +32,6 @@ export interface ApiStreamAutoModelChunk {
 	isAuto?: boolean
 	originModelId?: string
 	selectedLLM?: string
-}
-
-export interface FakeToolCall {
-	type: "fake_tool_call"
-	text: string
 }
 
 /**

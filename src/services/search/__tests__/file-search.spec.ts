@@ -5,9 +5,9 @@ import * as vscode from "vscode"
 vi.mock("../../../shared/package", () => ({
 	Package: {
 		name: "costrict",
-		publisher: "zgsm-ai",
+		publisher: "atad-apts",
 		version: "1.0.0",
-		outputChannel: "CoStrict",
+		outputChannel: "DiCode",
 	},
 }))
 

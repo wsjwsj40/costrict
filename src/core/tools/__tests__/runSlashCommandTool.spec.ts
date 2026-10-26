@@ -138,6 +138,9 @@ describe("runSlashCommandTool", () => {
 Description: Skill-generated command
 Provided arguments: target flow
 Source: project
+Skill file: /mock/.roo/skills/skill-only/SKILL.md
+Skill root: /mock/.roo/skills/skill-only
+Relative resource rule: Resolve every relative file or directory referenced by these instructions against Skill root, not the workspace. Read required referenced resources before proceeding.
 
 --- Skill Instructions ---
 

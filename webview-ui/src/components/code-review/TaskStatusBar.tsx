@@ -1,12 +1,14 @@
 import React from "react"
 import { ReviewIssue, ReviewTaskStatus } from "@roo/codeReview"
-import { CheckIcon, InfoCircledIcon } from "@radix-ui/react-icons"
+import { InfoCircledIcon } from "@radix-ui/react-icons"
 import { useAppTranslation } from "@/i18n/TranslationContext"
+import { vscode } from "@src/utils/vscode"
 
 interface TaskStatusBarProps {
 	taskStatus: ReviewTaskStatus
 	progress: number | null
 	message: string
+	reportPath?: string
 	errorMessage: string
 	issues: ReviewIssue[]
 	onTaskCancel: () => void
@@ -17,6 +19,7 @@ const TaskStatusBar: React.FC<TaskStatusBarProps> = ({
 	progress,
 	issues,
 	message,
+	reportPath,
 	errorMessage,
 	onTaskCancel,
 }) => {
@@ -50,8 +53,30 @@ const TaskStatusBar: React.FC<TaskStatusBarProps> = ({
 			)}
 			{taskStatus === ReviewTaskStatus.COMPLETED && issues.length === 0 && (
 				<div className="flex items-center mb-4">
-					<CheckIcon color="#50B371" width={20} height={20} />
-					<span className="ml-2">{t("codereview:taskStatusBar.completed")}</span>
+					<InfoCircledIcon color="#D19A00" width={20} height={20} />
+					<span className="ml-2">{message || t("codereview:taskStatusBar.completed")}</span>
+					{reportPath && (
+						<button
+							type="button"
+							className="ml-2 text-[#1876F2] cursor-pointer"
+							onClick={() => vscode.postMessage({ type: "openFile", text: reportPath })}>
+							{t("codereview:taskStatusBar.openReport")}
+						</button>
+					)}
+				</div>
+			)}
+			{taskStatus === ReviewTaskStatus.COMPLETED && issues.length > 0 && message && (
+				<div className="flex items-center mb-4 text-vscode-descriptionForeground">
+					<InfoCircledIcon color="#D19A00" width={20} height={20} />
+					<span className="ml-2">{message}</span>
+					{reportPath && (
+						<button
+							type="button"
+							className="ml-2 text-[#1876F2] cursor-pointer"
+							onClick={() => vscode.postMessage({ type: "openFile", text: reportPath })}>
+							{t("codereview:taskStatusBar.openReport")}
+						</button>
+					)}
 				</div>
 			)}
 			{taskStatus === ReviewTaskStatus.ERROR && (

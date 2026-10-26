@@ -1,0 +1,17 @@
+{
+	"models": [
+		{
+			"id": "Qwen3.5",
+			"enabled": true,
+			"sortOrder": 10,
+			"publicInfo": {
+				"name": "Qwen 3.5",
+				"description": "General-purpose coding model",
+				"contextWindow": 200000,
+				"maxTokens": 32000,
+				"supportsImages": true,
+				"supportsPromptCache": false
+			}
+		}
+	]
+}

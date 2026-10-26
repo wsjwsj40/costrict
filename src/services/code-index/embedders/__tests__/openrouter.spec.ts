@@ -90,8 +90,8 @@ describe("OpenRouterEmbedder", () => {
 				baseURL: "https://openrouter.ai/api/v1",
 				apiKey: mockApiKey,
 				defaultHeaders: {
-					"HTTP-Referer": "https://github.com/zgsm-ai/costrict.git",
-					"X-Title": "CoStrict",
+					"HTTP-Referer": "https://github.com/atad-apts/costrict.git",
+					"X-Title": "DiCode",
 				},
 			})
 		})

@@ -22,6 +22,7 @@ import { ContextWindowProgress } from "./ContextWindowProgress"
 import { Mention } from "./Mention"
 import { TodoListDisplay } from "./TodoListDisplay"
 import { LucideIconButton } from "./LucideIconButton"
+import { ModelQuotaDisplay } from "./ModelQuotaDisplay"
 
 export interface TaskHeaderProps {
 	task: ClineMessage
@@ -334,6 +335,7 @@ const TaskHeader = ({
 									</StandardTooltip>
 								</>
 							)}
+							<ModelQuotaDisplay compact />
 							{condenseButton}
 						</div>
 					</div>
@@ -466,6 +468,8 @@ const TaskHeader = ({
 											</td>
 										</tr>
 									)}
+
+									<ModelQuotaDisplay tableRow />
 
 									{/* Size display */}
 									{!!currentTaskItem?.size && currentTaskItem.size > 0 && (

@@ -10,6 +10,7 @@
  */
 
 import * as fs from "fs/promises"
+import * as os from "os"
 import * as path from "path"
 import { fileURLToPath } from "url"
 import { spawnSync } from "child_process"
@@ -23,7 +24,27 @@ const indexFilePath = path.join(bundledSkillsDir, "index.json")
 
 const REPO = "zgsm-ai/costrict-review"
 const BRANCH = "main"
-const CLONE_URL = `git@github.com:${REPO}.git`
+const CLONE_URL = process.env.REVIEW_SKILLS_REPOSITORY || `https://github.com/${REPO}.git`
+const OFFLINE_BUILD = process.env.REVIEW_SKILLS_OFFLINE === "true"
+const LOCAL_SKILLS_SOURCE = process.env.DICODE_REVIEW_SKILLS_PATH
+
+async function findInstalledSkillsRoot() {
+	if (LOCAL_SKILLS_SOURCE) return path.resolve(LOCAL_SKILLS_SOURCE)
+	if (!OFFLINE_BUILD) return undefined
+
+	for (const candidate of [path.join(os.homedir(), ".dicode"), path.join(os.homedir(), ".costrict")]) {
+		const hasReview = await fs
+			.stat(path.join(candidate, "skills-review", "review", "SKILL.md"))
+			.then((stat) => stat.isFile())
+			.catch(() => false)
+		const hasSecurityReview = await fs
+			.stat(path.join(candidate, "skills-security-review", "security-review", "SKILL.md"))
+			.then((stat) => stat.isFile())
+			.catch(() => false)
+		if (hasReview || hasSecurityReview) return candidate
+	}
+	return undefined
+}
 
 function git(...args) {
 	const result = spawnSync("git", args, { encoding: "utf-8" })
@@ -79,10 +100,7 @@ function collectLocales(index) {
 	return [...localeSet].sort()
 }
 
-const EXCLUDED_BUNDLED_SKILL_FILES = new Set([
-	"php_deserialization.md",
-	"java_practical.md",
-])
+const EXCLUDED_BUNDLED_SKILL_FILES = new Set(["php_deserialization.md", "java_practical.md"])
 
 async function removeExcludedBundledSkillFiles(dir = bundledSkillsDir) {
 	for (const entry of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
@@ -105,6 +123,60 @@ async function getExtensionVersion() {
 	} catch {
 		return "0.0.0"
 	}
+}
+
+async function importLocalInstalledSkills(sourceRoot) {
+	const definitions = [
+		{ name: "review", candidates: ["skills-review/review", "review"] },
+		{ name: "security-review", candidates: ["skills-security-review/security-review", "security-review"] },
+	]
+	const imported = []
+	for (const entry of await fs.readdir(bundledSkillsDir, { withFileTypes: true }).catch(() => [])) {
+		if (entry.isDirectory() && !entry.name.startsWith(".")) {
+			await fs.rm(path.join(bundledSkillsDir, entry.name), { recursive: true, force: true })
+		}
+	}
+
+	for (const definition of definitions) {
+		let sourceDir
+		for (const candidate of definition.candidates) {
+			const candidatePath = path.join(sourceRoot, candidate)
+			if (
+				await fs
+					.stat(candidatePath)
+					.then((stat) => stat.isDirectory())
+					.catch(() => false)
+			) {
+				sourceDir = candidatePath
+				break
+			}
+		}
+		if (!sourceDir) {
+			console.warn(`   ⚠ Local skill not found: ${definition.name}`)
+			continue
+		}
+
+		const skillFile = path.join(sourceDir, "SKILL.md")
+		await fs.access(skillFile).catch(() => {
+			throw new Error(`Local skill is missing SKILL.md: ${sourceDir}`)
+		})
+		const version = await fs.readFile(path.join(sourceDir, ".version"), "utf-8").catch(() => "")
+		const [commitSha = "", locale = "zh-CN"] = version.trim().split(":")
+		const targetDir = path.join(bundledSkillsDir, locale || "zh-CN", definition.name)
+		await fs.rm(targetDir, { recursive: true, force: true })
+		await fs.mkdir(path.dirname(targetDir), { recursive: true })
+		await fs.cp(sourceDir, targetDir, { recursive: true })
+		await fs.rm(path.join(targetDir, ".version"), { force: true })
+		await removeExcludedBundledSkillFiles(targetDir)
+		imported.push({ name: definition.name, commitSha, locale: locale || "zh-CN" })
+		console.log(`   ✓ Imported ${definition.name} (${locale || "zh-CN"}) from ${sourceDir}`)
+	}
+
+	if (imported.length === 0) throw new Error(`No installed review skills found under ${sourceRoot}`)
+	const commitShas = [...new Set(imported.map((item) => item.commitSha).filter(Boolean))]
+	const commitSha = commitShas.length === 1 ? commitShas[0] : `local-${await getExtensionVersion()}`
+	await generateIndexJson(commitSha)
+	return imported
 }
 
 /**
@@ -201,15 +273,34 @@ async function main() {
 	console.log("\n🚀 CoStrict - Downloading Builtin Review Skills\n")
 
 	await fs.mkdir(bundledSkillsDir, { recursive: true })
+	const installedSkillsRoot = await findInstalledSkillsRoot()
+	if (installedSkillsRoot) {
+		console.log(`Importing locally installed review skills from ${installedSkillsRoot}`)
+		await importLocalInstalledSkills(installedSkillsRoot)
+		return
+	}
+	const cachedSha = await readCachedSha()
+	const hasCachedFiles = (await walk(bundledSkillsDir)).some((file) => file !== "index.json")
+
+	if (OFFLINE_BUILD) {
+		if (!cachedSha || !hasCachedFiles) {
+			console.warn(
+				"⚠ Offline build: bundled review skills are unavailable; packaging without optional review skills",
+			)
+			await generateIndexJson("")
+			return
+		}
+		console.log(`✓ Offline build: using bundled review skills (${cachedSha.slice(0, 7)})`)
+		await removeExcludedBundledSkillFiles()
+		await generateIndexJson(cachedSha)
+		return
+	}
 
 	const remoteSha = lsRemoteSha()
 	if (!remoteSha) {
 		throw new Error(`git ls-remote failed for ${CLONE_URL} (branch: ${BRANCH})`)
 	}
 	console.log(`Remote commit: ${remoteSha.slice(0, 7)}`)
-
-	const cachedSha = await readCachedSha()
-	const hasCachedFiles = (await walk(bundledSkillsDir)).length > 0
 
 	let commitSha = remoteSha
 
@@ -239,7 +330,7 @@ async function main() {
 			console.warn("  ⚠ Using cached resources")
 			commitSha = cachedSha ?? remoteSha
 		} finally {
-			await fs.rm(path.join(bundledSkillsDir, ".clone"), { recursive: true, force: true }).catch(() => { })
+			await fs.rm(path.join(bundledSkillsDir, ".clone"), { recursive: true, force: true }).catch(() => {})
 		}
 	}
 

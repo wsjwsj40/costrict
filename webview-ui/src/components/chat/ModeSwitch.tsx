@@ -15,14 +15,14 @@ interface ModeSwitchProps {
 const mapDisplayToOriginal = (displayMode: "vibe" | "plan" | "spec"): string => {
 	if (displayMode === "vibe") return "vibe"
 	if (displayMode === "plan") return "plan"
-	if (displayMode === "spec") return "strict"
+	if (displayMode === "spec") return "spec"
 	return displayMode
 }
 
 const mapModeToDisplay = (mode: ExtensionState["costrictCodeMode"]): "vibe" | "plan" | "spec" => {
 	if (mode === "vibe") return "vibe"
 	if (mode === "plan") return "plan"
-	if (mode === "strict") return "spec"
+	if (mode === "spec") return "spec"
 	return mode as "vibe" | "plan" | "spec"
 }
 
@@ -96,7 +96,7 @@ export const ModeSwitch = ({ isStreaming = false }: ModeSwitchProps) => {
 
 		vscode.postMessage({
 			type: "mode",
-			text: forceMode || (originalMode === "vibe" ? "code" : "strict"),
+			text: forceMode || (originalMode === "vibe" ? "code" : "spec"),
 		})
 	}
 
@@ -104,7 +104,7 @@ export const ModeSwitch = ({ isStreaming = false }: ModeSwitchProps) => {
 		if (mode === "vibe") {
 			return t("vibe.description")
 		} else if (mode === "spec") {
-			return t("strict.description")
+			return t("spec.description")
 		} else if (mode === "plan") {
 			return t("plan.description")
 		}

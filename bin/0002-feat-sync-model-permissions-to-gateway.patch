@@ -1,0 +1,121 @@
+From dd32124c7772fa9f19876c53a85a9967fc3e9a25 Mon Sep 17 00:00:00 2001
+From: wsjwsj40 <1309342119@qq.com>
+Date: Mon, 3 Aug 2026 01:18:44 +0000
+Subject: [PATCH] feat: sync model permissions to gateway
+
+---
+ MODEL_ACCESS_CHANGES.md    | 7 ++++++-
+ configure.sh               | 6 ++++++
+ costrict.sh                | 4 ++++
+ docker-compose.yml.tpl     | 4 ++++
+ k8s/costrict.yaml.tpl      | 8 ++++++++
+ scripts/newest-images.list | 2 +-
+ 6 files changed, 29 insertions(+), 2 deletions(-)
+
+diff --git a/MODEL_ACCESS_CHANGES.md b/MODEL_ACCESS_CHANGES.md
+index 821a20e..865f99d 100644
+--- a/MODEL_ACCESS_CHANGES.md
++++ b/MODEL_ACCESS_CHANGES.md
+@@ -12,7 +12,7 @@
+    - 新增管理页面令牌 `MODEL_ACCESS_ADMIN_TOKEN`。
+ 
+ 3. `scripts/newest-images.list`
+-   - 将 `IMAGE_MODEL_PROXY` 更新为 `costrict-model-proxy-access:v0.1.0`。
++   - 将 `IMAGE_MODEL_PROXY` 更新为 `costrict-model-proxy-access:v0.2.0`。
+ 
+ 4. `k8s/costrict.yaml.tpl`
+    - 给 `model-proxy` 注入 PostgreSQL、JWT 和管理令牌环境变量。
+@@ -27,6 +27,11 @@
+ 7. `costrict.sh`
+    - 在 `check` 阶段检查新增的模型权限配置。
+ 
++8. 网关权限同步
++   - 用户单个或批量升级、降级、删除套餐配置时，同步调用网关权限接口。
++   - `MODEL_GATEWAY_COMPLETION_MODEL` 固定加入每个用户的网关模型列表。
++   - 网关同步失败时拒绝写入新的用户套餐，避免权限状态不一致。
++
+ ## 现有 K8s 集群升级
+ 
+ 确认数据库是否存在：
+diff --git a/configure.sh b/configure.sh
+index b4c6db0..eb5328f 100755
+--- a/configure.sh
++++ b/configure.sh
+@@ -147,6 +147,12 @@ MODEL_ACCESS_JWKS_URL="${OIDC_CASDOOR_ADDR}/.well-known/jwks"
+ MODEL_ACCESS_JWT_EMAIL_FIELD="email"
+ # 管理页面使用的令牌。生产部署前必须替换为随机高强度字符串。
+ MODEL_ACCESS_ADMIN_TOKEN="change-this-model-access-admin-token"
++# 用户套餐变更时同步网关模型权限。URL 留空表示禁用同步。
++MODEL_GATEWAY_PERMISSION_URL="https://yice.byd.com/ai-gate/api/opentoken/key/condition"
++MODEL_GATEWAY_TOKEN="change-this-new-open-token"
++# 代码补全固定使用的模型，会在同步时自动追加且去重。
++MODEL_GATEWAY_COMPLETION_MODEL="DeepSeek-Coder-V2-Lite-Base"
++MODEL_GATEWAY_TIMEOUT_SECONDS="10"
+ 
+ #-------------------------------------------------------------------------------
+ #   以下设置请根据部署环境信息进行修改
+diff --git a/costrict.sh b/costrict.sh
+index 3bf0def..b169e7a 100755
+--- a/costrict.sh
++++ b/costrict.sh
+@@ -246,6 +246,10 @@ cmd_check() {
+     "MODEL_ACCESS_DATABASE"
+     "MODEL_ACCESS_JWKS_URL"
+     "MODEL_ACCESS_JWT_EMAIL_FIELD"
++	"MODEL_GATEWAY_PERMISSION_URL"
++	"MODEL_GATEWAY_TOKEN"
++	"MODEL_GATEWAY_COMPLETION_MODEL"
++	"MODEL_GATEWAY_TIMEOUT_SECONDS"
+     "MODEL_ACCESS_ADMIN_TOKEN"
+   )
+   for v in "${env_vars[@]}"; do
+diff --git a/docker-compose.yml.tpl b/docker-compose.yml.tpl
+index 43adc3f..699e0a5 100644
+--- a/docker-compose.yml.tpl
++++ b/docker-compose.yml.tpl
+@@ -104,6 +104,10 @@ services:
+       JWT_JWKS_URL: "{{MODEL_ACCESS_JWKS_URL}}"
+       JWT_EMAIL_FIELD: "{{MODEL_ACCESS_JWT_EMAIL_FIELD}}"
+       ADMIN_TOKEN: "{{MODEL_ACCESS_ADMIN_TOKEN}}"
++      MODEL_GATEWAY_PERMISSION_URL: "{{MODEL_GATEWAY_PERMISSION_URL}}"
++      MODEL_GATEWAY_TOKEN: "{{MODEL_GATEWAY_TOKEN}}"
++      MODEL_GATEWAY_COMPLETION_MODEL: "{{MODEL_GATEWAY_COMPLETION_MODEL}}"
++      MODEL_GATEWAY_TIMEOUT_SECONDS: "{{MODEL_GATEWAY_TIMEOUT_SECONDS}}"
+     volumes:
+       - ./config/model-proxy/config.yaml:/app/config.yaml:ro
+     depends_on:
+diff --git a/k8s/costrict.yaml.tpl b/k8s/costrict.yaml.tpl
+index 3749990..3db18b9 100644
+--- a/k8s/costrict.yaml.tpl
++++ b/k8s/costrict.yaml.tpl
+@@ -619,6 +619,14 @@ spec:
+               value: "{{MODEL_ACCESS_JWT_EMAIL_FIELD}}"
+             - name: ADMIN_TOKEN
+               value: "{{MODEL_ACCESS_ADMIN_TOKEN}}"
++            - name: MODEL_GATEWAY_PERMISSION_URL
++              value: "{{MODEL_GATEWAY_PERMISSION_URL}}"
++            - name: MODEL_GATEWAY_TOKEN
++              value: "{{MODEL_GATEWAY_TOKEN}}"
++            - name: MODEL_GATEWAY_COMPLETION_MODEL
++              value: "{{MODEL_GATEWAY_COMPLETION_MODEL}}"
++            - name: MODEL_GATEWAY_TIMEOUT_SECONDS
++              value: "{{MODEL_GATEWAY_TIMEOUT_SECONDS}}"
+           ports:
+             - name: http
+               containerPort: 8080
+diff --git a/scripts/newest-images.list b/scripts/newest-images.list
+index 85873d4..c9979f5 100644
+--- a/scripts/newest-images.list
++++ b/scripts/newest-images.list
+@@ -5,7 +5,7 @@ IMAGE_POSTGRES=postgres:15-alpine
+ IMAGE_NGINX=nginx:1.27.1
+ IMAGE_GRAFANA=grafana/grafana:11.2.0
+ IMAGE_PROMETHEUS=quay.io/prometheus/prometheus:v2.54.0
+-IMAGE_MODEL_PROXY=costrict-model-proxy-access:v0.1.0
++IMAGE_MODEL_PROXY=costrict-model-proxy-access:v0.2.0
+ IMAGE_CASDOOR=zgsm/casdoor:v2.1.3
+ IMAGE_CHATRAG=zgsm/chat-rag:v1.5.22
+ IMAGE_CODE_COMPLETION=zgsm/code-completion:v1.7.105
+-- 
+2.53.0
+

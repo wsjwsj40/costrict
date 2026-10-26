@@ -1,7 +1,47 @@
 import path from "path"
 import * as fs from "fs/promises"
+import { existsSync } from "fs"
+import { Resvg, initWasm } from "@resvg/resvg-wasm"
 import { t } from "../../../i18n"
 import prettyBytes from "pretty-bytes"
+
+const MAX_SVG_DIMENSION = 2048
+let resvgInitialization: Promise<void> | undefined
+
+async function renderSvgAsPng(svg: Buffer): Promise<Buffer> {
+	resvgInitialization ??= (async () => {
+		const bundledWasm = path.join(__dirname, "resvg.wasm")
+		const wasmPath = existsSync(bundledWasm)
+			? bundledWasm
+			: path.join(__dirname, "../../../node_modules/@resvg/resvg-wasm/index_bg.wasm")
+		await initWasm(new Uint8Array(await fs.readFile(wasmPath)))
+	})().catch((error) => {
+		resvgInitialization = undefined
+		throw error
+	})
+	await resvgInitialization
+
+	const original = new Resvg(svg)
+	const { width, height } = original
+	original.free()
+	const fitTo =
+		Math.max(width, height) > MAX_SVG_DIMENSION
+			? width >= height
+				? { mode: "width" as const, value: MAX_SVG_DIMENSION }
+				: { mode: "height" as const, value: MAX_SVG_DIMENSION }
+			: { mode: "original" as const }
+	const renderer = new Resvg(svg, { fitTo })
+	try {
+		const rendered = renderer.render()
+		try {
+			return Buffer.from(rendered.asPng())
+		} finally {
+			rendered.free()
+		}
+	} finally {
+		renderer.free()
+	}
+}
 
 /**
  * Default maximum allowed image file size in bytes (5MB)
@@ -40,7 +80,6 @@ export const IMAGE_MIME_TYPES: Record<string, string> = {
 	".jpeg": "image/jpeg",
 	".gif": "image/gif",
 	".webp": "image/webp",
-	".svg": "image/svg+xml",
 	".bmp": "image/bmp",
 	".ico": "image/x-icon",
 	".tiff": "image/tiff",
@@ -73,14 +112,15 @@ export interface ImageProcessingResult {
  * Reads an image file and returns both the data URL and buffer
  */
 export async function readImageAsDataUrlWithBuffer(filePath: string): Promise<{ dataUrl: string; buffer: Buffer }> {
-	const fileBuffer = await fs.readFile(filePath)
-	const base64 = fileBuffer.toString("base64")
 	const ext = path.extname(filePath).toLowerCase()
+	const fileBuffer = await fs.readFile(filePath)
+	const buffer = ext === ".svg" ? await renderSvgAsPng(fileBuffer) : fileBuffer
+	const base64 = buffer.toString("base64")
 
 	const mimeType = IMAGE_MIME_TYPES[ext] || "image/png"
 	const dataUrl = `data:${mimeType};base64,${base64}`
 
-	return { dataUrl, buffer: fileBuffer }
+	return { dataUrl, buffer }
 }
 
 /**
@@ -148,10 +188,9 @@ export async function validateImageForProcessing(
  * Processes an image file and returns the result
  */
 export async function processImageFile(fullPath: string): Promise<ImageProcessingResult> {
-	const imageStats = await fs.stat(fullPath)
 	const { dataUrl, buffer } = await readImageAsDataUrlWithBuffer(fullPath)
-	const imageSizeInKB = Math.round(imageStats.size / 1024)
-	const imageSizeInMB = imageStats.size / (1024 * 1024)
+	const imageSizeInKB = Math.round(buffer.length / 1024)
+	const imageSizeInMB = buffer.length / (1024 * 1024)
 	const noticeText = t("tools:readFile.imageWithSize", { size: imageSizeInKB })
 
 	return {

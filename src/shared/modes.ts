@@ -15,7 +15,13 @@ import { addCustomInstructions } from "../core/prompts/sections/custom-instructi
 import { TOOL_GROUPS, ALWAYS_AVAILABLE_TOOLS } from "./tools"
 
 export type Mode = string
-export type CostrictCodeMode = "vibe" | "strict" | "plan" | "raw"
+export type CostrictCodeMode = "vibe" | "spec" | "plan" | "raw"
+
+export function normalizeCostrictCodeMode(mode: unknown): CostrictCodeMode {
+	if (mode === "strict") return "spec"
+	if (mode === "vibe" || mode === "spec" || mode === "plan" || mode === "raw") return mode
+	return "vibe"
+}
 export type PromptTag = "systempromptmodified" | "rulesmodified" | "promptcustomized"
 
 // Helper to extract group name regardless of format
@@ -52,6 +58,9 @@ export const defaultModeSlug = modes[0].slug
 
 // Helper functions
 export function getModeBySlug(slug: string, customModes?: ModeConfig[]): ModeConfig | undefined {
+	// Keep historical tasks, slash commands and saved settings usable after the
+	// Strict workflow was renamed to Spec.
+	if (slug === "strict") slug = "spec"
 	// Check custom modes first
 	const customMode = customModes?.find((mode) => mode.slug === slug)
 	if (customMode) {
@@ -101,7 +110,11 @@ export function filterModesByCostrictCodeMode(
 ): ModeConfig[] {
 	return modes.filter((mode) => {
 		if (apiProvider === "costrict") {
-			const modelGroup = mode.costrictCodeModeGroup ? mode.costrictCodeModeGroup?.split(",") : []
+			const modelGroup = mode.costrictCodeModeGroup
+				? mode.costrictCodeModeGroup
+						.split(",")
+						.map((group) => (group.trim() === "strict" ? "spec" : group.trim()))
+				: []
 
 			if (costrictCodeMode === "vibe") return !mode.costrictCodeModeGroup || modelGroup.includes(costrictCodeMode)
 			return modelGroup.includes(costrictCodeMode!)
@@ -120,15 +133,15 @@ export function resolveCostrictCodeModeForMode(
 		return "plan"
 	}
 
-	if (mode === "strict") {
-		return "strict"
+	if (mode === "strict" || mode === "spec") {
+		return "spec"
 	}
 
 	const targetMode = getModeBySlug(mode, customModes)
 	const modeGroups = targetMode?.costrictCodeModeGroup
 		?.split(",")
-		.map((group) => group.trim())
-		.filter((group): group is CostrictCodeMode => ["vibe", "plan", "strict", "raw"].includes(group))
+		.map((group) => (group.trim() === "strict" ? "spec" : group.trim()))
+		.filter((group): group is CostrictCodeMode => ["vibe", "plan", "spec", "raw"].includes(group))
 
 	if (modeGroups?.length === 1) {
 		return modeGroups[0]
@@ -141,7 +154,7 @@ export function isProviderAllowedForCostrictCodeMode(
 	costrictCodeMode: CostrictCodeMode | undefined,
 	apiProvider: string | undefined,
 ): boolean {
-	if (costrictCodeMode === "plan" || costrictCodeMode === "strict") {
+	if (costrictCodeMode === "plan" || costrictCodeMode === "spec") {
 		return apiProvider === "costrict"
 	}
 

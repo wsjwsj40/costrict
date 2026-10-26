@@ -203,6 +203,37 @@ Just some text
 			expect(result[2].content).toBe("Task 3")
 			expect(result[2].status).toBe("in_progress")
 		})
+
+		it("should recover literal escaped newlines between checklist items", () => {
+			const md = "[-] Create index.html\\n[ ] Create style.css\\n- [ ] Create game.js\\r\\n[x] Test the game"
+			const result = parseMarkdownChecklist(md)
+
+			expect(result).toHaveLength(4)
+			expect(result.map(({ content }) => content)).toEqual([
+				"Create index.html",
+				"Create style.css",
+				"Create game.js",
+				"Test the game",
+			])
+			expect(result.map(({ status }) => status)).toEqual(["in_progress", "pending", "pending", "completed"])
+		})
+
+		it("should discard double-escaped nested bullet details instead of displaying literal newline text", () => {
+			const md =
+				"[-] 第一阶段：目标筛选\\n- 扫描文件：`src/services/emcPipeline.ts`\\n- 项目环境：TypeScript | 完成\n[x] 第三阶段：验证"
+			const result = parseMarkdownChecklist(md)
+
+			expect(result).toHaveLength(2)
+			expect(result.map(({ content }) => content)).toEqual(["第一阶段：目标筛选", "第三阶段：验证"])
+			expect(result.every(({ content }) => !content.includes("\\n"))).toBe(true)
+		})
+
+		it("should preserve literal escaped newlines inside normal todo content", () => {
+			const result = parseMarkdownChecklist("[ ] Document the literal \\n escape sequence")
+
+			expect(result).toHaveLength(1)
+			expect(result[0].content).toBe("Document the literal \\n escape sequence")
+		})
 	})
 
 	describe("ID generation", () => {

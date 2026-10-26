@@ -10,12 +10,13 @@ interface FileChangeItem {
 interface FileListPreviewProps {
 	files: FileChangeItem[]
 	isLoading: boolean
+	repositoryPath?: string
 }
 
 /**
  * Component to display a list of files with their Git statuses
  */
-const FileListPreview = ({ files, isLoading }: FileListPreviewProps) => {
+const FileListPreview = ({ files, isLoading, repositoryPath }: FileListPreviewProps) => {
 	const { t } = useAppTranslation()
 
 	if (isLoading) {
@@ -53,6 +54,7 @@ const FileListPreview = ({ files, isLoading }: FileListPreviewProps) => {
 						path={file.path}
 						status={file.status}
 						oldPath={file.oldPath}
+						repositoryPath={repositoryPath}
 					/>
 				))}
 			</div>

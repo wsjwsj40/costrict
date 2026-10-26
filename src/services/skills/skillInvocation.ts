@@ -1,3 +1,4 @@
+import path from "path"
 import type { SkillContent } from "../../shared/skills"
 
 export interface SkillLookup {
@@ -16,7 +17,7 @@ export async function resolveSkillContentForMode(
 	return skillsManager.getSkillContent(skillName, currentMode)
 }
 
-type SkillContentForFormatting = Pick<SkillContent, "source" | "description" | "instructions">
+type SkillContentForFormatting = Pick<SkillContent, "source" | "description" | "instructions" | "path">
 
 export function buildSkillApprovalMessage(
 	skillName: string,
@@ -48,6 +49,10 @@ export function buildSkillResult(
 	}
 
 	result += `\nSource: ${skillContent.source}`
+	result += `\nSkill file: ${skillContent.path}`
+	result += `\nSkill root: ${path.dirname(skillContent.path)}`
+	result +=
+		"\nRelative resource rule: Resolve every relative file or directory referenced by these instructions against Skill root, not the workspace. Read required referenced resources before proceeding."
 	result += `\n\n--- Skill Instructions ---\n\n${skillContent.instructions}`
 
 	return result

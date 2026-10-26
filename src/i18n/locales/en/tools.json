@@ -6,8 +6,8 @@
 		"imageTooLarge": "Image file is too large ({{size}} MB). The maximum allowed size is {{max}} MB.",
 		"imageWithSize": "Image file ({{size}} KB)"
 	},
-	"toolRepetitionLimitReached": "CoStrict appears to be stuck in a loop, attempting the same action ({{toolName}}) repeatedly. This might indicate a problem with its current strategy. Consider rephrasing the task, providing more specific instructions, or guiding it towards a different approach.",
-	"unknownToolError": "CoStrict tried to use an unknown tool: \"{{toolName}}\". Retrying...",
+	"toolRepetitionLimitReached": "DiCode appears to be stuck in a loop, attempting the same action ({{toolName}}) repeatedly. This might indicate a problem with its current strategy. Consider rephrasing the task, providing more specific instructions, or guiding it towards a different approach.",
+	"unknownToolError": "DiCode tried to use an unknown tool: \"{{toolName}}\". Retrying...",
 	"codebaseSearch": {
 		"approval": "Searching for '{{query}}' in codebase..."
 	},
@@ -25,7 +25,7 @@
 		"invalidImageFormat": "Invalid image format received",
 		"unknownError": "Unknown error occurred",
 		"roo": {
-			"authRequired": "CoStrict Cloud authentication is required for image generation. Please sign in to CoStrict Cloud."
+			"authRequired": "DiCode Cloud authentication is required for image generation. Please sign in to DiCode Cloud."
 		}
 	}
 }

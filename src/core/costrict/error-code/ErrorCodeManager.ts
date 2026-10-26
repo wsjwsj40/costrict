@@ -210,7 +210,7 @@ export class ErrorCodeManager {
 				solution = await this.handleStarRequiredError(apiConfiguration)
 			}
 			TelemetryService.instance.captureError(`ApiError_${code}`)
-			this.provider.log(`[CoStrict#apiErrors] task ${taskId}.${instanceId} Raw Error: ${rawError}`)
+			this.provider.log(`[DiCode#apiErrors] task ${taskId}.${instanceId} Raw Error: ${rawError}`)
 			return `${t("apiErrors:request.error_details")}\n\n${message}\n\n${requestId ? `RequestID: ${requestId}\n\n` : ""}${t("apiErrors:request.solution")}\n${solution}`
 		}
 		const { message, solution } = defaultError[status] || this.unknownError
@@ -221,7 +221,7 @@ export class ErrorCodeManager {
 		} else {
 			TelemetryService.instance.captureError(`ApiError_unknown`)
 		}
-		this.provider.log(`[CoStrict#apiErrors] task ${taskId}.${instanceId} Raw Error: ${rawError}`)
+		this.provider.log(`[DiCode#apiErrors] task ${taskId}.${instanceId} Raw Error: ${rawError}`)
 		return `${t("apiErrors:request.error_details")}\n\n${message}\n\n${requestId ? `RequestID: ${requestId}\n\n` : ""}${t("apiErrors:request.solution")}\n${solution}`
 	}
 

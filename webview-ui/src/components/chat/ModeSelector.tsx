@@ -68,7 +68,7 @@ export const ModeSelector = ({
 	// Keep the full mode list separate from the provider-filtered list.
 	// During costrict mode switches, `costrictCodeMode` and `mode` can update in separate ticks.
 	// Treating a temporarily filtered-out mode as "invalid" causes ModeSwitch transitions
-	// like plan <-> strict to be forced back to the default code mode.
+	// like plan <-> spec to be forced back to the default code mode.
 	const allModes = React.useMemo(() => {
 		return getAllModes(customModes).map((mode) => ({
 			...mode,

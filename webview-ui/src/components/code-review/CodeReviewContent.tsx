@@ -89,6 +89,9 @@ const CodeReviewContent: React.FC<CodeReviewContentProps> = ({ issues, taskStatu
 	const activeColor = severityColor()
 	const severity = useMemo(
 		() => ({
+			[SeverityLevel.UNKNOWN]: {
+				label: t("codereview:codeReviewContent.severity.unknown"),
+			},
 			[SeverityLevel.HIGH]: {
 				label: t("codereview:codeReviewContent.severity.high"),
 			},

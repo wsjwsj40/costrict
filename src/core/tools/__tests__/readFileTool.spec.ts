@@ -344,7 +344,42 @@ describe("ReadFileTool", () => {
 
 			expect(mockedValidateImageForProcessing).toHaveBeenCalled()
 			expect(mockedProcessImageFile).toHaveBeenCalled()
-			expect(callbacks.pushToolResult).toHaveBeenCalled()
+			expect(callbacks.pushToolResult).toHaveBeenCalledWith(
+				expect.arrayContaining([
+					expect.objectContaining({
+						type: "image",
+						source: { type: "base64", media_type: "image/png", data: "abc123" },
+					}),
+				]),
+			)
+		})
+
+		it("returns image content for legacy read_file calls", async () => {
+			const mockTask = createMockTask({ supportsImages: true })
+			const callbacks = createMockCallbacks()
+			mockedValidateImageForProcessing.mockResolvedValue({ isValid: true, sizeInMB: 0.1 })
+			mockedProcessImageFile.mockResolvedValue({
+				dataUrl: "data:image/png;base64,abc123",
+				buffer: Buffer.from("png"),
+				sizeInKB: 1,
+				sizeInMB: 0.1,
+				notice: "Image processed successfully",
+			})
+
+			await readFileTool.execute(
+				{ files: [{ path: "diagram.svg" }], _legacyFormat: true },
+				mockTask as any,
+				callbacks,
+			)
+
+			expect(callbacks.pushToolResult).toHaveBeenCalledWith(
+				expect.arrayContaining([
+					expect.objectContaining({
+						type: "image",
+						source: { type: "base64", media_type: "image/png", data: "abc123" },
+					}),
+				]),
+			)
 		})
 
 		it("should skip image when model does not support images", async () => {

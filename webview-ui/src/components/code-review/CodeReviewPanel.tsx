@@ -8,6 +8,7 @@ interface CodeReviewPanelProps {
 	progress: number | null
 	errorMessage: string
 	message: string
+	reportPath?: string
 	onIssueClick: (issueId: string) => void
 	onTaskCancel: () => void
 }
@@ -16,6 +17,7 @@ const CodeReviewPanel: React.FC<CodeReviewPanelProps> = ({
 	taskStatus,
 	progress,
 	message,
+	reportPath,
 	errorMessage,
 	onIssueClick,
 	onTaskCancel,
@@ -28,6 +30,7 @@ const CodeReviewPanel: React.FC<CodeReviewPanelProps> = ({
 					progress={progress}
 					issues={issues}
 					message={message}
+					reportPath={reportPath}
 					errorMessage={errorMessage}
 					onTaskCancel={onTaskCancel}
 				/>

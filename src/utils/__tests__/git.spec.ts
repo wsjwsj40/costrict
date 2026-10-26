@@ -499,7 +499,7 @@ describe("getGitRepositoryInfo", () => {
  ignorecase = true
  precomposeunicode = true
 [remote "origin"]
- url = https://github.com/zgsm-ai/costrict.git
+ url = https://github.com/atad-apts/costrict.git
  fetch = +refs/heads/*:refs/remotes/origin/*
 [branch "main"]
  remote = origin
@@ -521,8 +521,8 @@ describe("getGitRepositoryInfo", () => {
 		const result = await getGitRepositoryInfo(workspaceRoot)
 
 		expect(result).toEqual({
-			repositoryUrl: "https://github.com/zgsm-ai/costrict.git",
-			repositoryName: "zgsm-ai/costrict",
+			repositoryUrl: "https://github.com/atad-apts/costrict.git",
+			repositoryName: "atad-apts/costrict",
 			defaultBranch: "main",
 		})
 
@@ -612,7 +612,7 @@ describe("getGitRepositoryInfo", () => {
 			if (path === configPath) {
 				return Promise.resolve(`
 [remote "origin"]
- url = https://github.com/zgsm-ai/costrict.git
+ url = https://github.com/atad-apts/costrict.git
 `)
 			} else if (path === headPath) {
 				return Promise.reject(new Error("Failed to read HEAD"))
@@ -623,8 +623,8 @@ describe("getGitRepositoryInfo", () => {
 		const result = await getGitRepositoryInfo(workspaceRoot)
 
 		expect(result).toEqual({
-			repositoryUrl: "https://github.com/zgsm-ai/costrict.git",
-			repositoryName: "zgsm-ai/costrict",
+			repositoryUrl: "https://github.com/atad-apts/costrict.git",
+			repositoryName: "atad-apts/costrict",
 		})
 	})
 
@@ -645,7 +645,7 @@ describe("getGitRepositoryInfo", () => {
 	filemode = true
 	bare = false
 [remote "origin"]
-	url = git@github.com:zgsm-ai/costrict.git
+	url = git@github.com:atad-apts/costrict.git
 	fetch = +refs/heads/*:refs/remotes/origin/*
 [branch "main"]
 	remote = origin
@@ -668,8 +668,8 @@ describe("getGitRepositoryInfo", () => {
 
 		// Verify that the SSH URL was converted to HTTPS
 		expect(result).toEqual({
-			repositoryUrl: "https://github.com/zgsm-ai/costrict.git",
-			repositoryName: "zgsm-ai/costrict",
+			repositoryUrl: "https://github.com/atad-apts/costrict.git",
+			repositoryName: "atad-apts/costrict",
 			defaultBranch: "main",
 		})
 	})
@@ -677,31 +677,31 @@ describe("getGitRepositoryInfo", () => {
 
 describe("convertGitUrlToHttps", () => {
 	it("should leave HTTPS URLs unchanged", () => {
-		const url = "https://github.com/zgsm-ai/costrict.git"
+		const url = "https://github.com/atad-apts/costrict.git"
 		const converted = convertGitUrlToHttps(url)
 
-		expect(converted).toBe("https://github.com/zgsm-ai/costrict.git")
+		expect(converted).toBe("https://github.com/atad-apts/costrict.git")
 	})
 
 	it("should convert SSH URLs to HTTPS format", () => {
-		const url = "git@github.com:zgsm-ai/costrict.git"
+		const url = "git@github.com:atad-apts/costrict.git"
 		const converted = convertGitUrlToHttps(url)
 
-		expect(converted).toBe("https://github.com/zgsm-ai/costrict.git")
+		expect(converted).toBe("https://github.com/atad-apts/costrict.git")
 	})
 
 	it("should convert SSH URLs with ssh:// prefix to HTTPS format", () => {
-		const url = "ssh://git@github.com/zgsm-ai/costrict.git"
+		const url = "ssh://git@github.com/atad-apts/costrict.git"
 		const converted = convertGitUrlToHttps(url)
 
-		expect(converted).toBe("https://github.com/zgsm-ai/costrict.git")
+		expect(converted).toBe("https://github.com/atad-apts/costrict.git")
 	})
 
 	it("should handle URLs without git@ prefix", () => {
-		const url = "ssh://github.com/zgsm-ai/costrict.git"
+		const url = "ssh://github.com/atad-apts/costrict.git"
 		const converted = convertGitUrlToHttps(url)
 
-		expect(converted).toBe("https://github.com/zgsm-ai/costrict.git")
+		expect(converted).toBe("https://github.com/atad-apts/costrict.git")
 	})
 
 	it("should handle invalid URLs gracefully", () => {
@@ -714,31 +714,31 @@ describe("convertGitUrlToHttps", () => {
 
 describe("sanitizeGitUrl", () => {
 	it("should sanitize HTTPS URLs with credentials", () => {
-		const url = "https://username:password@github.com/zgsm-ai/costrict.git"
+		const url = "https://username:password@github.com/atad-apts/costrict.git"
 		const sanitized = sanitizeGitUrl(url)
 
-		expect(sanitized).toBe("https://github.com/zgsm-ai/costrict.git")
+		expect(sanitized).toBe("https://github.com/atad-apts/costrict.git")
 	})
 
 	it("should leave SSH URLs unchanged", () => {
-		const url = "git@github.com:zgsm-ai/costrict.git"
+		const url = "git@github.com:atad-apts/costrict.git"
 		const sanitized = sanitizeGitUrl(url)
 
-		expect(sanitized).toBe("git@github.com:zgsm-ai/costrict.git")
+		expect(sanitized).toBe("git@github.com:atad-apts/costrict.git")
 	})
 
 	it("should leave SSH URLs with ssh:// prefix unchanged", () => {
-		const url = "ssh://git@github.com/zgsm-ai/costrict.git"
+		const url = "ssh://git@github.com/atad-apts/costrict.git"
 		const sanitized = sanitizeGitUrl(url)
 
-		expect(sanitized).toBe("ssh://git@github.com/zgsm-ai/costrict.git")
+		expect(sanitized).toBe("ssh://git@github.com/atad-apts/costrict.git")
 	})
 
 	it("should remove tokens from other URL formats", () => {
-		const url = "https://oauth2:ghp_abcdef1234567890abcdef1234567890abcdef@github.com/zgsm-ai/costrict.git"
+		const url = "https://oauth2:ghp_abcdef1234567890abcdef1234567890abcdef@github.com/atad-apts/costrict.git"
 		const sanitized = sanitizeGitUrl(url)
 
-		expect(sanitized).toBe("https://github.com/zgsm-ai/costrict.git")
+		expect(sanitized).toBe("https://github.com/atad-apts/costrict.git")
 	})
 
 	it("should handle invalid URLs gracefully", () => {
@@ -751,31 +751,31 @@ describe("sanitizeGitUrl", () => {
 
 describe("extractRepositoryName", () => {
 	it("should extract repository name from HTTPS URL", () => {
-		const url = "https://github.com/zgsm-ai/costrict.git"
+		const url = "https://github.com/atad-apts/costrict.git"
 		const repoName = extractRepositoryName(url)
 
-		expect(repoName).toBe("zgsm-ai/costrict")
+		expect(repoName).toBe("atad-apts/costrict")
 	})
 
 	it("should extract repository name from HTTPS URL without .git suffix", () => {
-		const url = "https://github.com/zgsm-ai/costrict"
+		const url = "https://github.com/atad-apts/costrict"
 		const repoName = extractRepositoryName(url)
 
-		expect(repoName).toBe("zgsm-ai/costrict")
+		expect(repoName).toBe("atad-apts/costrict")
 	})
 
 	it("should extract repository name from SSH URL", () => {
-		const url = "git@github.com:zgsm-ai/costrict.git"
+		const url = "git@github.com:atad-apts/costrict.git"
 		const repoName = extractRepositoryName(url)
 
-		expect(repoName).toBe("zgsm-ai/costrict")
+		expect(repoName).toBe("atad-apts/costrict")
 	})
 
 	it("should extract repository name from SSH URL with ssh:// prefix", () => {
-		const url = "ssh://git@github.com/zgsm-ai/costrict.git"
+		const url = "ssh://git@github.com/atad-apts/costrict.git"
 		const repoName = extractRepositoryName(url)
 
-		expect(repoName).toBe("zgsm-ai/costrict")
+		expect(repoName).toBe("atad-apts/costrict")
 	})
 
 	it("should return empty string for unrecognized URL formats", () => {
@@ -786,10 +786,10 @@ describe("extractRepositoryName", () => {
 	})
 
 	it("should handle URLs with credentials", () => {
-		const url = "https://username:password@github.com/zgsm-ai/costrict.git"
+		const url = "https://username:password@github.com/atad-apts/costrict.git"
 		const repoName = extractRepositoryName(url)
 
-		expect(repoName).toBe("zgsm-ai/costrict")
+		expect(repoName).toBe("atad-apts/costrict")
 	})
 })
 
@@ -826,7 +826,7 @@ describe("getWorkspaceGitInfo", () => {
 		// Mock git config file content
 		const mockConfig = `
 [remote "origin"]
- url = https://github.com/zgsm-ai/costrict.git
+ url = https://github.com/atad-apts/costrict.git
 [branch "main"]
  remote = origin
  merge = refs/heads/main
@@ -843,8 +843,8 @@ describe("getWorkspaceGitInfo", () => {
 		const result = await getWorkspaceGitInfo()
 
 		expect(result).toEqual({
-			repositoryUrl: "https://github.com/zgsm-ai/costrict.git",
-			repositoryName: "zgsm-ai/costrict",
+			repositoryUrl: "https://github.com/atad-apts/costrict.git",
+			repositoryName: "atad-apts/costrict",
 			defaultBranch: "main",
 		})
 

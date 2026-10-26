@@ -266,7 +266,7 @@ export class WebAuthService extends EventEmitter<AuthServiceEvents> implements A
 			const state = crypto.randomBytes(16).toString("hex")
 			await this.context.globalState.update(AUTH_STATE_KEY, state)
 			const packageJSON = this.context.extension?.packageJSON
-			const publisher = packageJSON?.publisher ?? "zgsm-ai"
+			const publisher = packageJSON?.publisher ?? "atad-apts"
 			const name = packageJSON?.name ?? "zgsm"
 			const params = new URLSearchParams({
 				state,

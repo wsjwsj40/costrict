@@ -47,9 +47,9 @@ vi.mock("../../../i18n", () => ({
 vi.mock("../../shared/package", () => ({
 	Package: {
 		name: "zgsm",
-		publisher: "zgsm-ai",
+		publisher: "atad-apts",
 		version: "1.0.0",
-		outputChannel: "CoStrict",
+		outputChannel: "DiCode",
 		commandIDPrefix: "costrict",
 	},
 }))
@@ -163,7 +163,7 @@ vi.mock("vscode", async (importOriginal) => ({
 			extensionUri: { fsPath: "/mock/extension/path", path: "/mock/extension/path", scheme: "file" },
 			packageJSON: {
 				name: "costrict",
-				publisher: "zgsm-ai",
+				publisher: "atad-apts",
 				version: "2.0.27",
 			},
 		}),
@@ -602,6 +602,7 @@ describe("ClineProvider", () => {
 			apiConfiguration: {
 				apiProvider: "openrouter",
 			},
+			costrictIsAuthenticated: false,
 			customInstructions: undefined,
 			alwaysAllowReadOnly: false,
 			alwaysAllowReadOnlyOutsideWorkspace: false,
@@ -1103,6 +1104,95 @@ describe("ClineProvider", () => {
 		expect(first.customModes).toHaveLength(1)
 		expect(second.customModes).toHaveLength(1)
 		expect(customModesManager.getCustomModes).toHaveBeenCalledTimes(1)
+	})
+
+	test("getState ignores legacy persisted grants outside the active task", async () => {
+		vi.mocked(mockContext.workspaceState.get).mockImplementation((key: string) =>
+			key === "projectPermissionProfile"
+				? { mode: "request-approval", updatedAt: 1, approvedWorkspaceWrites: true }
+				: undefined,
+		)
+
+		await expect(provider.getState()).resolves.toMatchObject({
+			projectPermissionProfile: {
+				mode: "request-approval",
+				approvedWorkspaceWrites: false,
+			},
+		})
+	})
+
+	test("limits command grants to the current task and the command working directory", () => {
+		const task = {
+			taskId: "task-a",
+			clineMessages: [
+				{
+					type: "ask",
+					ask: "command",
+					text: "git diff abcdef1",
+					commandExecution: { cwd: "/project", scope: "workspace" },
+				},
+			],
+		}
+		vi.spyOn(provider, "getCurrentTask").mockReturnValue(task as any)
+
+		expect(provider.approveProjectCommand("git diff abcdef1")).toBe(true)
+		expect(provider.getProjectPermissionProfile()?.approvedCommandRules).toEqual([
+			{ cwd: "/project", command: "git diff abcdef1" },
+		])
+		task.clineMessages[0].text = "git diff 1234567"
+		expect(provider.approveProjectCommand("git diff 1234567")).toBe(true)
+		expect(provider.getProjectPermissionProfile()?.approvedCommandRules).toEqual([
+			{ cwd: "/project", command: "git diff abcdef1" },
+			{ cwd: "/project", command: "git diff 1234567" },
+		])
+		expect(mockContext.workspaceState.update).not.toHaveBeenCalledWith(
+			"projectPermissionProfile",
+			expect.objectContaining({ approvedCommandRules: expect.anything() }),
+		)
+
+		task.taskId = "task-b"
+		expect(provider.getProjectPermissionProfile()?.approvedCommandRules).toEqual([])
+		expect(provider.getProjectPermissionProfile()?.approvedWorkspaceWrites).toBe(false)
+	})
+
+	test("grants ordinary workspace writes only for the active task", () => {
+		const task = {
+			taskId: "task-a",
+			clineMessages: [
+				{
+					type: "ask",
+					ask: "tool",
+					text: JSON.stringify({ tool: "appliedDiff", path: "src/example.ts" }),
+				},
+			],
+		}
+		vi.spyOn(provider, "getCurrentTask").mockReturnValue(task as any)
+
+		expect(provider.approveProjectWorkspaceWrites()).toBe(true)
+		expect(provider.getProjectPermissionProfile()?.approvedWorkspaceWrites).toBe(true)
+
+		task.clineMessages[0].text = JSON.stringify({
+			tool: "appliedDiff",
+			path: "src/example.ts",
+			operation: "delete",
+		})
+		expect(provider.approveProjectWorkspaceWrites()).toBe(false)
+
+		task.taskId = "task-b"
+		expect(provider.getProjectPermissionProfile()?.approvedWorkspaceWrites).toBe(false)
+	})
+
+	test("ignores an unsupported persisted permission mode", async () => {
+		vi.mocked(mockContext.workspaceState.get).mockImplementation((key: string) =>
+			key === "projectPermissionProfile" ? { mode: "unsupported", updatedAt: 1 } : undefined,
+		)
+
+		await expect(provider.getState()).resolves.toMatchObject({
+			projectPermissionProfile: {
+				mode: "request-approval",
+				approvedWorkspaceWrites: false,
+			},
+		})
 	})
 
 	test("createTask refreshes cached custom modes when configuration provides custom modes", async () => {

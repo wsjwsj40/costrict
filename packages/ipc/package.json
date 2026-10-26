@@ -1,6 +1,6 @@
 {
 	"name": "@roo-code/ipc",
-	"description": "IPC server and client for remote CoStrict access.",
+	"description": "IPC server and client for remote DiCode access.",
 	"version": "0.0.1",
 	"type": "module",
 	"exports": "./src/index.ts",

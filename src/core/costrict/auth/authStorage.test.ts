@@ -12,6 +12,7 @@ vi.mock("./ipc/client", () => ({
 }))
 
 vi.mock("../runtime-config", () => ({
+	clearCostrictRuntimeAuth: vi.fn().mockResolvedValue(undefined),
 	ensureCompletionRuntimeReady: vi.fn().mockResolvedValue(undefined),
 	writeCostrictRuntimeAuth: vi.fn().mockResolvedValue(undefined),
 	ensureCostrictRuntimeInstalled: vi.fn().mockResolvedValue("noUpdate"),
@@ -100,7 +101,7 @@ describe("CostrictAuthStorage.saveTokens", () => {
 		expect(ensureCompletionRuntimeReady).toHaveBeenCalledTimes(1)
 	})
 
-	it("is a no-op when both access and refresh tokens match the stored values", async () => {
+	it("recreates shared runtime auth when tokens already match the in-memory state", async () => {
 		const sameTokens = {
 			access_token: "old-access-token",
 			refresh_token: "old-refresh-token",
@@ -109,7 +110,49 @@ describe("CostrictAuthStorage.saveTokens", () => {
 
 		await CostrictAuthStorage.getInstance().saveTokens(sameTokens as any)
 
-		expect(writeCostrictRuntimeAuth).not.toHaveBeenCalled()
+		expect(writeCostrictRuntimeAuth).toHaveBeenCalledWith(sameTokens.access_token, sameTokens.refresh_token)
 		expect(ensureCompletionRuntimeReady).not.toHaveBeenCalled()
+	})
+
+	it("persists login state when tokens match but the OAuth state is missing", async () => {
+		mockProvider.getState.mockResolvedValue({
+			...buildState(),
+			apiConfiguration: {
+				...buildState().apiConfiguration,
+				costrictState: "",
+			},
+		})
+		const sameTokensWithState = {
+			access_token: "old-access-token",
+			refresh_token: "old-refresh-token",
+			state: "restored-state",
+		}
+
+		await CostrictAuthStorage.getInstance().saveTokens(sameTokensWithState as any)
+
+		expect(mockProvider.setValue).toHaveBeenCalledWith("costrictState", "restored-state")
+		expect(mockProvider.upsertProviderProfile).toHaveBeenCalled()
+	})
+
+	it("never overwrites the active OpenAI Compatible profile while synchronizing login tokens", async () => {
+		mockProvider.getState.mockResolvedValue({
+			currentApiConfigName: "openai-compatible",
+			apiConfiguration: {
+				apiProvider: "openai",
+				openAiBaseUrl: "https://example.test/v1",
+				openAiModelId: "custom-model",
+				costrictAccessToken: "",
+				costrictRefreshToken: "",
+				costrictState: "",
+			},
+		})
+
+		await CostrictAuthStorage.getInstance().saveTokens(newTokens as any)
+
+		expect(mockProvider.upsertProviderProfile).not.toHaveBeenCalled()
+		const authPatch = mockProvider.providerSettingsManager.saveMergeConfig.mock.calls[0][0]
+		expect(authPatch).not.toHaveProperty("apiProvider")
+		expect(authPatch).not.toHaveProperty("openAiBaseUrl")
+		expect(authPatch).not.toHaveProperty("openAiModelId")
 	})
 })

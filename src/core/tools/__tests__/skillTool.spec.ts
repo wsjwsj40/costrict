@@ -113,6 +113,7 @@ describe("skillTool", () => {
 		const mockSkillContent = {
 			name: "create-mcp-server",
 			description: "Instructions for creating MCP servers",
+			path: "/home/test/.roo/skills/create-mcp-server/SKILL.md",
 			source: "global",
 			instructions: "Step 1: Create the server...",
 		}
@@ -136,6 +137,9 @@ describe("skillTool", () => {
 			`Skill: create-mcp-server
 Description: Instructions for creating MCP servers
 Source: global
+Skill file: /home/test/.roo/skills/create-mcp-server/SKILL.md
+Skill root: /home/test/.roo/skills/create-mcp-server
+Relative resource rule: Resolve every relative file or directory referenced by these instructions against Skill root, not the workspace. Read required referenced resources before proceeding.
 
 --- Skill Instructions ---
 
@@ -158,6 +162,7 @@ Step 1: Create the server...`,
 		const mockSkillContent = {
 			name: "create-mcp-server",
 			description: "Instructions for creating MCP servers",
+			path: "/home/test/.roo/skills/create-mcp-server/SKILL.md",
 			source: "global",
 			instructions: "Step 1: Create the server...",
 		}
@@ -171,6 +176,9 @@ Step 1: Create the server...`,
 Description: Instructions for creating MCP servers
 Provided arguments: weather API server
 Source: global
+Skill file: /home/test/.roo/skills/create-mcp-server/SKILL.md
+Skill root: /home/test/.roo/skills/create-mcp-server
+Relative resource rule: Resolve every relative file or directory referenced by these instructions against Skill root, not the workspace. Read required referenced resources before proceeding.
 
 --- Skill Instructions ---
 
@@ -264,6 +272,7 @@ Step 1: Create the server...`,
 		const mockSkillContent = {
 			name: "create-mcp-server",
 			description: "Test",
+			path: "/home/test/.roo/skills/create-mcp-server/SKILL.md",
 			source: "global",
 			instructions: "Test instructions",
 		}
@@ -313,6 +322,7 @@ Step 1: Create the server...`,
 		const mockSkillContent = {
 			name: "my-project-skill",
 			description: "A custom project skill",
+			path: "/workspace/.roo/skills/my-project-skill/SKILL.md",
 			source: "project",
 			instructions: "Follow these project-specific instructions...",
 		}
@@ -336,6 +346,9 @@ Step 1: Create the server...`,
 			`Skill: my-project-skill
 Description: A custom project skill
 Source: project
+Skill file: /workspace/.roo/skills/my-project-skill/SKILL.md
+Skill root: /workspace/.roo/skills/my-project-skill
+Relative resource rule: Resolve every relative file or directory referenced by these instructions against Skill root, not the workspace. Read required referenced resources before proceeding.
 
 --- Skill Instructions ---
 

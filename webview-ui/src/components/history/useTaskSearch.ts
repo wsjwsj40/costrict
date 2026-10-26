@@ -3,6 +3,7 @@ import { Fzf } from "fzf"
 
 import { highlightFzfMatch } from "@/utils/highlight"
 import { useExtensionState } from "@/context/ExtensionStateContext"
+import { workspacePathsEqual } from "@/utils/workspacePath"
 
 type SortOption = "newest" | "oldest" | "mostExpensive" | "mostTokens" | "largestSize" | "mostRelevant"
 
@@ -26,7 +27,7 @@ export const useTaskSearch = () => {
 	const presentableTasks = useMemo(() => {
 		let tasks = taskHistory.filter((item) => item.ts && item.task)
 		if (!showAllWorkspaces) {
-			tasks = tasks.filter((item) => item.workspace === cwd)
+			tasks = tasks.filter((item) => workspacePathsEqual(item.workspace, cwd))
 		}
 		return tasks
 	}, [taskHistory, showAllWorkspaces, cwd])

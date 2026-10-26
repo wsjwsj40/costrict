@@ -27,12 +27,12 @@ let clientIdCache: string | null = null
 
 // Gets the path to client ID file
 const getClientIdFilePath = (): string => {
-	return path.join(os.homedir(), ".costrict", ".clientId")
+	return path.join(os.homedir(), ".dicode", ".clientId")
 }
 
-// Gets .costrict directory path
+// Gets .dicode directory path
 const getCostrictDirPath = (): string => {
-	return path.join(os.homedir(), ".costrict")
+	return path.join(os.homedir(), ".dicode")
 }
 
 // Generates new client ID
@@ -82,7 +82,7 @@ export const getClientId = (): string => {
 		const newClientId = generateNewClientId()
 		const costrictDir = getCostrictDirPath()
 
-		// Create .costrict directory if not exists
+		// Create .dicode directory if not exists
 		if (!existsSync(costrictDir)) {
 			mkdirSync(costrictDir, { recursive: true })
 		}

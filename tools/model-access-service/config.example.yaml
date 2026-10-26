@@ -1,0 +1,41 @@
+server:
+    host: "0.0.0.0"
+    port: 8080
+
+database:
+    host: "postgres"
+    port: 5432
+    user: "zgsm"
+    password: "change-me"
+    database: "model_access"
+    sslMode: "disable"
+
+jwtSettings:
+    enable: true
+    # Casdoor deployment default. The service verifies the signature before reading email.
+    jwksUrl: "http://casdoor:8000/.well-known/jwks"
+    emailField: ["email"]
+    issuer: ""
+    audience: ""
+
+admin:
+    # Change before deployment. Used only by the embedded management page.
+    token: "change-this-admin-token"
+
+models:
+    # Optional bootstrap file, imported only when model_catalog is empty.
+    bootstrapFile: "/app/models.json"
+
+gateway:
+    # Optional. When set, changing a user's plan also updates the models allowed
+    # by the inference gateway.
+  # Service root. Production example: https://gateway.example.com/ai-gate
+  # Direct-service example: http://10.0.0.10:3002
+  baseUrl: "https://gateway.example.com/ai-gate"
+    token: "change-this-new-open-token"
+    # Always granted in addition to the models selected for the user's plan.
+    completionModel: "DeepSeek-Coder-V2-Lite-Base"
+    timeoutSeconds: 10
+    batchSize: 20
+    pollSeconds: 2
+    maxAttempts: 3

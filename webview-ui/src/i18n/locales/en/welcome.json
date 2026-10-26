@@ -9,44 +9,44 @@
 		},
 		"roo": {
 			"description": "The best free models to get started",
-			"incentive": "Try CoStrict out for free"
+			"incentive": "Try DiCode out for free"
 		}
 	},
 	"landing": {
-		"greeting": "Welcome to CoStrict!",
-		"introduction": "With a range of built-in and extensible Modes, CoStrict lets you plan, architect, code, debug and boost your productivity like never before.",
-		"accountMention": "To get started, create your CoStrict Cloud account. Get powerful models, web control, analytics, support and more.",
-		"getStarted": "Create CoStrict Account",
+		"greeting": "Welcome to DiCode!",
+		"introduction": "With a range of built-in and extensible Modes, DiCode lets you plan, architect, code, debug and boost your productivity like never before.",
+		"accountMention": "To get started, create your DiCode Cloud account. Get powerful models, web control, analytics, support and more.",
+		"getStarted": "Create DiCode Account",
 		"noAccount": "or use without an account"
 	},
 	"providerSignup": {
 		"heading": "Choose your provider",
-		"chooseProvider": "CoStrict needs an LLM provider to work. Choose one to get started, you can add more later.",
-		"rooCloudProvider": "CoStrict Router",
-		"rooCloudDescription": "The easiest way to start is with the CoStrict Router: a curated mix of free and paid models at a low cost.",
+		"chooseProvider": "DiCode needs an LLM provider to work. Choose one to get started, you can add more later.",
+		"rooCloudProvider": "DiCode Router",
+		"rooCloudDescription": "The easiest way to start is with the DiCode Router: a curated mix of free and paid models at a low cost.",
 		"learnMore": "Learn more",
 		"useAnotherProvider": "3rd-party Provider",
 		"useAnotherProviderDescription": "Enter an API key and get going.",
 		"noApiKeys": "Don't want to deal with API keys and separate accounts?",
-		"backToRoo": "Go with the CoStrict Router.",
+		"backToRoo": "Go with the DiCode Router.",
 		"goBack": "Back",
 		"finish": "Finish"
 	},
 	"waitingForCloud": {
-		"heading": "Logging into CoStrict Cloud...",
-		"description": "We'll take you to your browser to sign up for CoStrict Cloud. We'll then bring you back here to finish.",
+		"heading": "Logging into DiCode Cloud...",
+		"description": "We'll take you to your browser to sign up for DiCode Cloud. We'll then bring you back here to finish.",
 		"noPrompt": "If you don't get prompted to open a URL, <clickHere>click here</clickHere>.",
 		"havingTrouble": "If you've completed sign up but are having trouble, <clickHere>click here</clickHere>.",
 		"pasteUrl": "Paste the callback URL shown in your browser:",
 		"docsLink": "Not working? <DocsLink>Check the docs</DocsLink>.",
-		"invalidURL": "That doesn't look like a valid callback URL. Please copy what CoStrict Cloud is showing in your browser.",
+		"invalidURL": "That doesn't look like a valid callback URL. Please copy what DiCode Cloud is showing in your browser.",
 		"goBack": "Go back"
 	},
 	"startRouter": "We recommend using an LLM Router:",
 	"startCustom": "Or you can bring your provider API key:",
 	"telemetry": {
-		"helpImprove": "Help Improve CoStrict",
-		"helpImproveMessage": "CoStrict collects error and usage data to help us fix bugs and improve the extension. This telemetry does not collect code, prompts or personal information. You can turn this off in <settingsLink>settings</settingsLink>."
+		"helpImprove": "Help Improve DiCode",
+		"helpImproveMessage": "DiCode collects error and usage data to help us fix bugs and improve the extension. This telemetry does not collect code, prompts or personal information. You can turn this off in <settingsLink>settings</settingsLink>."
 	},
 	"importSettings": "Import Settings"
 }

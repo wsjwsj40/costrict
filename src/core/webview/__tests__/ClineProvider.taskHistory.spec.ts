@@ -1,6 +1,8 @@
 // pnpm --filter zgsm test core/webview/__tests__/ClineProvider.taskHistory.spec.ts
 
 import * as vscode from "vscode"
+import os from "os"
+import * as path from "path"
 import type { HistoryItem, ExtensionMessage } from "@roo-code/types"
 import { TelemetryService } from "@roo-code/telemetry"
 
@@ -634,6 +636,10 @@ describe("ClineProvider Task History Synchronization", () => {
 	})
 
 	describe("task history includes all workspaces", () => {
+		it("uses the same Desktop fallback as Task when no workspace is open", () => {
+			expect(provider.cwd).toBe(path.join(os.homedir(), "Desktop"))
+		})
+
 		it("reads taskHistory from taskHistoryStore and filters invalid items", async () => {
 			await provider.resolveWebviewView(mockWebviewView)
 

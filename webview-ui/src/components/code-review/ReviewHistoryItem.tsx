@@ -5,6 +5,7 @@ import IssueItem from "./IssueItem"
 import { vscode } from "@src/utils/vscode"
 import { useReviewIssuesLoader } from "@/hooks/useReviewIssuesLoader"
 import MarkdownBlock from "../common/MarkdownBlock"
+import { useAppTranslation } from "@/i18n/TranslationContext"
 
 interface ReviewHistoryItemProps {
 	reviewTaskId: string
@@ -45,6 +46,7 @@ const ReviewHistoryItem: React.FC<ReviewHistoryItemProps> = ({
 	conclusion,
 	onDelete,
 }) => {
+	const { t } = useAppTranslation()
 	const [isExpanded, setIsExpanded] = useState(false)
 	const [issues, setIssues] = useState<ReviewIssue[] | undefined>(undefined)
 	const [isLoading, setIsLoading] = useState(false)
@@ -167,7 +169,9 @@ const ReviewHistoryItem: React.FC<ReviewHistoryItemProps> = ({
 									/>
 								))
 							) : (
-								<div className="text-vscode-descriptionForeground text-sm py-2 px-4">No issues</div>
+								<div className="text-vscode-descriptionForeground text-sm py-2 px-4">
+									{t("codereview:history.noStructuredIssues")}
+								</div>
 							)}
 						</div>
 					)}

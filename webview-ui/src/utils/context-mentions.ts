@@ -179,7 +179,13 @@ export function getContextMenuOptions(
 		const _modes = (modes ?? []).filter((v) => {
 			if (v.costrictCodeModeGroup) {
 				if (v.costrictCodeModeGroup === "hide") return false
-				if (!v.costrictCodeModeGroup?.split(",").includes(costrictCodeMode!)) return false
+				if (
+					!v.costrictCodeModeGroup
+						.split(",")
+						.map((group) => (group.trim() === "strict" ? "spec" : group.trim()))
+						.includes(costrictCodeMode!)
+				)
+					return false
 			}
 
 			return true

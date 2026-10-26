@@ -16,6 +16,7 @@ import { getRawTaskReporter } from "../costrict/telemetry"
 
 import { BaseTool, ToolCallbacks } from "./BaseTool"
 import { readFileWithEncodingDetection } from "../../utils/encoding"
+import { formatPathRecoveryError, resolveWorkspacePath } from "./path/WorkspacePathResolver"
 
 interface EditFileParams {
 	file_path: string
@@ -269,7 +270,12 @@ export class EditFileTool extends BaseTool<"edit_file"> {
 					// Trying to replace in non-existent file
 					task.consecutiveMistakeCount++
 					task.didToolFailInCurrentTurn = true
-					const formattedError = `File does not exist at path: ${absolutePath}\n\n<error_details>\nThe specified file could not be found, so the replacement could not be performed.\n\nRecovery suggestions:\n1. Verify the file path is correct\n2. If you intended to create a new file, set old_string to an empty string\n3. Use list_files or read_file to confirm the correct path\n</error_details>`
+					const resolution = await resolveWorkspacePath(
+						task.cwd,
+						relPath,
+						(candidate) => task.rooIgnoreController?.validateAccess(candidate) !== false,
+					)
+					const formattedError = formatPathRecoveryError("edit_file", "file_path", resolution)
 					// Match apply_diff behavior: surface missing file via the generic error channel.
 					await finalizePartialToolAskIfNeeded(relPath)
 					await task.say("error", formattedError)

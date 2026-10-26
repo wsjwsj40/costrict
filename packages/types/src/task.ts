@@ -102,6 +102,8 @@ export interface CreateTaskOptions {
 	/** Whether to start the task loop immediately (default: true).
 	 *  When false, the caller must invoke `task.start()` manually. */
 	startTask?: boolean
+	/** Workspace used by this task. Defaults to the extension workspace. */
+	workspacePath?: string
 }
 
 export enum TaskStatus {

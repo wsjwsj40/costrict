@@ -1,6 +1,3 @@
-import * as osLocale from "os-locale"
-import * as vscode from "vscode"
-
 /**
  * Language cache variable to store the obtained language result.
  * Type is Promise<string> | null, initially null indicates not fetched yet.
@@ -15,21 +12,12 @@ export const resetLanguageCache = (): void => {
 }
 
 /**
- * Get the default language for the application.
- * First checks VS Code's configured language, uses it if not English.
- * Otherwise falls back to the operating system's locale.
+ * Get the default language for a fresh installation.
+ * Users can still change and persist their language from Settings.
  * @returns Promise with the determined language string
  */
 async function getDefaultLanguage(): Promise<string> {
-	const vscodeLanguage = vscode.env.language
-	if (vscodeLanguage && !vscodeLanguage.toLowerCase().startsWith("en")) {
-		console.log(`[language] Using VS Code language: ${vscodeLanguage}`)
-		return vscodeLanguage
-	}
-
-	const osLang = await osLocale.osLocale()
-	console.log(`[language] VS Code language is English or not set, determined OS locale: ${osLang}`)
-	return osLang
+	return process.env.DICODE_DEFAULT_LANGUAGE || "zh-CN"
 }
 
 /**

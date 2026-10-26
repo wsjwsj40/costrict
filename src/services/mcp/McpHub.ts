@@ -698,7 +698,7 @@ export class McpHub {
 		try {
 			const client = new Client(
 				{
-					name: "CoStrict",
+					name: "DiCode",
 					version: this.providerRef.deref()?.context.extension?.packageJSON?.version ?? "1.0.0",
 				},
 				{

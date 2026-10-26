@@ -107,16 +107,7 @@ const StarStatusCard = memo(
 
 // Optimized quota information display component
 const QuotaInfoDisplay = memo(
-	({
-		quotaInfo,
-		showQuotaInfo,
-		t,
-	}: {
-		quotaInfo: QuotaInfo
-		showQuotaInfo: boolean
-		t: (key: string) => string
-		handleGetMoreQuota: () => void
-	}) => {
+	({ quotaInfo, showQuotaInfo, t }: { quotaInfo: QuotaInfo; showQuotaInfo: boolean; t: (key: string) => string }) => {
 		// Cache calculation results
 		const quotaCalculations = useMemo(() => {
 			const hasQuota = quotaInfo.total_quota || quotaInfo.used_quota
@@ -243,7 +234,7 @@ const CostrictAccountViewComponent = ({ apiConfiguration, onDone }: AccountViewP
 	const [quotaInfo, setQuotaInfo] = useState<QuotaInfo>()
 	const [showQuotaInfo, setShowQuotaInfo] = useState(false)
 	const [isLoadingQuota, setIsLoadingQuota] = useState(false)
-	const { userInfo, logoPic, hash } = useCostrictUserInfo(apiConfiguration?.costrictAccessToken)
+	const { userInfo, logoPic } = useCostrictUserInfo(apiConfiguration?.costrictAccessToken)
 
 	// Cache static resource URI
 	const coLogoUri = useMemo(() => (window as any).COSTRICT_BASE_URI + "/logo.svg", [])
@@ -262,26 +253,9 @@ const CostrictAccountViewComponent = ({ apiConfiguration, onDone }: AccountViewP
 		vscode.postMessage({ type: "costrictLogout" })
 	}, [])
 
-	const handleVisitCloudWebsite = useCallback(() => {
-		// Send telemetry for cloud website visit
-		telemetryClient.capture(TelemetryEventName.ACCOUNT_CONNECT_CLICKED)
-		const cloudUrl = `${apiConfiguration?.costrictBaseUrl?.trim() || (window as any).COSTRICT_BASE_URL}/credit/manager?state=${hash}&tab=usage`
-		vscode.postMessage({ type: "openExternal", url: cloudUrl })
-	}, [apiConfiguration?.costrictBaseUrl, hash])
-
-	const handleGetMoreQuota = useCallback(() => {
-		const cloudUrl = "https://costrict.ai/operation"
-		vscode.postMessage({ type: "openExternal", url: cloudUrl })
-	}, [])
-
 	const handleStarRepository = useCallback(() => {
-		vscode.postMessage({ type: "openExternal", url: "https://github.com/zgsm-ai/costrict" })
+		vscode.postMessage({ type: "openExternal", url: "https://dicode.byd.com:30092" })
 	}, [])
-
-	const handlePurchaseQuota = useCallback(() => {
-		const cloudUrl = `${apiConfiguration?.costrictBaseUrl?.trim() || (window as any).COSTRICT_BASE_URL}/credit/manager?state=${hash}&tab=subscription`
-		vscode.postMessage({ type: "openExternal", url: cloudUrl })
-	}, [apiConfiguration?.costrictBaseUrl, hash])
 
 	const onMessage = useCallback(
 		(event: MessageEvent) => {
@@ -378,7 +352,7 @@ const CostrictAccountViewComponent = ({ apiConfiguration, onDone }: AccountViewP
 									/>
 								) : (
 									<div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-vscode-button-background to-vscode-button-hoverBackground text-vscode-button-foreground text-lg font-medium">
-										{userInfo?.name?.charAt(0) || userInfo?.email?.charAt(0) || "CoStrict"}
+										{userInfo?.name?.charAt(0) || userInfo?.email?.charAt(0) || "DiCode"}
 									</div>
 								)}
 							</div>
@@ -405,18 +379,6 @@ const CostrictAccountViewComponent = ({ apiConfiguration, onDone }: AccountViewP
 									</StandardTooltip>
 								</h2>
 							)}
-							<div className="w-full flex gap-2 mt-4 justify-center">
-								<span
-									className="text-[10px] font-medium bg-gradient-to-br border border-[var(--vscode-editorWidget-border)] bg-[var(--vscode-editorWidget-background)] text-[var(--vscode-editor-foreground)] px-2 py-1 rounded-full cursor-pointer select-none flex items-center gap-1"
-									onClick={handlePurchaseQuota}>
-									{t("account:purchaseQuota")}
-								</span>
-								<span
-									className="text-[10px] font-medium bg-gradient-to-br border border-[var(--vscode-editorWidget-border)] bg-[var(--vscode-editorWidget-background)] text-[var(--vscode-editor-foreground)] px-2 py-1 rounded-full cursor-pointer select-none flex items-center gap-1"
-									onClick={handleGetMoreQuota}>
-									{t("account:joinActivityForQuota")}
-								</span>
-							</div>
 							{/* Star status card */}
 							{quotaInfo?.is_star != null && (
 								<StarStatusCard quotaInfo={quotaInfo} onStarRepository={handleStarRepository} _t={t} />
@@ -424,20 +386,12 @@ const CostrictAccountViewComponent = ({ apiConfiguration, onDone }: AccountViewP
 							{/* Quota information display area */}
 							{isLoadingQuota && !quotaInfo && <QuotaSkeleton />}
 							{quotaInfo && (
-								<QuotaInfoDisplay
-									quotaInfo={quotaInfo}
-									showQuotaInfo={showQuotaInfo}
-									t={t}
-									handleGetMoreQuota={handleGetMoreQuota}
-								/>
+								<QuotaInfoDisplay quotaInfo={quotaInfo} showQuotaInfo={showQuotaInfo} t={t} />
 							)}
 						</div>
 					)}
-					<div className="flex flex-col gap-2 mt-4">
-						<Button variant="primary" onClick={handleVisitCloudWebsite} className="w-full">
-							{t("account:visitCloudWebsite")}
-						</Button>
-						<div className="flex gap-2 mt-4">
+					<div className="flex flex-col gap-2 mt-3">
+						<div className="flex gap-2">
 							<Button variant="secondary" onClick={handleLogoutClick} className="w-[50%]">
 								{t("cloud:logOut")}
 							</Button>
@@ -461,7 +415,7 @@ const CostrictAccountViewComponent = ({ apiConfiguration, onDone }: AccountViewP
 									maskRepeat: "no-repeat",
 									maskSize: "contain",
 								}}>
-								<img src={coLogoUri} alt="CoStrict logo" className="w-10 h-10 opacity-0" />
+								<img src={coLogoUri} alt="DiCode logo" className="w-10 h-10 opacity-0" />
 							</div>
 						</div>
 						<h2 className="text-lg font-semibold text-vscode-foreground mb-1">{t("account:signIn")}</h2>

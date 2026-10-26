@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import type { GlobalSettings, RooCodeSettings } from "./global-settings.js"
+import type { GlobalSettings, RooCodeSettings, ProjectPermissionProfile } from "./global-settings.js"
 import type { ProviderSettings, ProviderSettingsEntry } from "./provider-settings.js"
 import type { HistoryItem } from "./history.js"
 import type { ModeConfig, PromptComponent } from "./mode.js"
@@ -26,7 +26,7 @@ import type { ICostrictModelResponseData, ModelRecord, RouterModels } from "./mo
 import type { OpenAiCodexRateLimitInfo } from "./providers/openai-codex-rate-limits.js"
 import type { SkillMetadata } from "./skills.js"
 import type { WorktreeIncludeStatus } from "./worktree.js"
-export type CostrictCodeMode = "vibe" | "strict" | "raw" | "plan"
+export type CostrictCodeMode = "vibe" | "spec" | "raw" | "plan"
 /**
  * ExtensionMessage
  * Extension -> Webview | CLI
@@ -53,6 +53,7 @@ export interface ExtensionMessage {
 		| "costrictLogined"
 		| "showReauthConfirmationDialog"
 		| "costrictQuotaInfo"
+		| "modelQuotaInfo"
 		| "costrictInviteCode"
 		| "costrictNotices"
 		| "settingsUpdated"
@@ -114,6 +115,9 @@ export interface ExtensionMessage {
 		| "interactionRequired"
 		| "claudeCodeRateLimits"
 		| "reviewFilesResponse"
+		| "reviewCommitsResponse"
+		| "commitReviewFilesResponse"
+		| "reviewRepositoriesResponse"
 		| "customToolsResult"
 		| "modes"
 		| "taskWithAggregatedCosts"
@@ -349,6 +353,7 @@ export type ExtensionState = Pick<
 	| "showWorktreesInHomeScreen"
 	| "disabledTools"
 > & {
+	projectPermissionProfile?: ProjectPermissionProfile
 	lockApiConfigAcrossModes?: boolean
 	version: string
 	clineMessages: ClineMessage[]
@@ -356,6 +361,7 @@ export type ExtensionState = Pick<
 	currentTaskItem?: HistoryItem
 	currentTaskTodos?: TodoItem[] // Initial todos for the current task
 	apiConfiguration: ProviderSettings
+	costrictIsAuthenticated?: boolean
 	uriScheme?: string
 	shouldShowAnnouncement: boolean
 
@@ -479,15 +485,20 @@ export interface WebviewMessage {
 		| "costrictCodeMode"
 		| "useCostrictCustomConfig"
 		| "fetchCostrictQuotaInfo"
+		| "fetchModelQuota"
 		| "costrictProviderTip"
 		| "costrictTelemetry"
 		| "switchUiMode"
 		| "fetchCostrictInviteCode"
 		| "fixHistory"
+		| "checkForUpdates"
 		| "checkReviewSuggestion"
 		| "cancelReviewTask"
 		| "startCodereview"
 		| "getReviewFiles"
+		| "getReviewCommits"
+		| "getCommitReviewFiles"
+		| "getReviewRepositories"
 		| "createReviewTask"
 		| "setCodeReviewWelcomeTips"
 		| "showFileDiff"
@@ -647,6 +658,9 @@ export interface WebviewMessage {
 		| "getDismissedUpsells"
 		| "openMarkdownPreview"
 		| "updateSettings"
+		| "setProjectPermissionMode"
+		| "approveProjectCommand"
+		| "approveProjectWorkspaceWrites"
 		| "allowedCommands"
 		| "getTaskWithAggregatedCosts"
 		| "deniedCommands"
@@ -855,6 +869,10 @@ export interface ReviewFilesPayload {
 export interface CreateReviewTaskPayload {
 	files?: Array<{ path: string; status: string }>
 	mode?: string
+	/** Full hash of the historical commit to review. */
+	commit?: string
+	/** Absolute root path of the Git repository being reviewed. */
+	repositoryPath?: string
 }
 
 export interface CodeReviewWelcomeTipsPayload {
@@ -936,6 +954,8 @@ export interface ClineSayTool {
 	reason?: string
 	isOutsideWorkspace?: boolean
 	isProtected?: boolean
+	/** Destructive patch actions require a fresh approval. */
+	operation?: "delete" | "move"
 	additionalFileCount?: number // Number of additional files in the same read_file request
 	lineNumber?: number
 	startLine?: number // Starting line for read_file operations (for navigation on click)

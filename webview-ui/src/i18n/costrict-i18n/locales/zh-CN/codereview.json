@@ -1,16 +1,23 @@
 {
 	"welcomePage": {
-		"title": "CoStrict",
-		"tips": "你也可以选中函数/代码块/多文件，右键 > CoStrict > Code Review ",
+		"title": "DiCode",
+		"tips": "你也可以选中函数/代码块/多文件，右键 > DiCode > Code Review ",
 		"dismiss": "不再提示",
 		"reviewCurrentChanges": "代码扫描",
 		"securityScan": "安全扫描",
-		"noFiles": "没有需要审查的文件"
+		"noFiles": "没有需要审查的文件",
+		"reviewScope": "审查范围",
+		"uncommittedChanges": "当前未提交改动",
+		"specificCommit": "选择某次提交",
+		"searchCommits": "按提交信息或哈希搜索",
+		"selectCommit": "选择一次提交",
+		"repository": "Git 仓库"
 	},
 	"history": {
 		"title": "审查历史",
 		"loading": "加载历史记录...",
 		"noData": "没有找到审查历史",
+		"noStructuredIssues": "没有可展示的结构化问题；请以完整评审报告为准",
 		"done": "完成"
 	},
 	"codebase": {
@@ -23,17 +30,20 @@
 	},
 	"codeReviewContent": {
 		"severity": {
+			"unknown": "未知",
 			"high": "高",
 			"middle": "中",
 			"low": "低"
 		},
 		"severityLabel": "严重程度",
 		"issueLabel": "标签",
+		"localReportIssue": "已从本地报告恢复；服务端问题操作暂不可用。",
 		"filterTooltip": "过滤问题"
 	},
 	"taskStatusBar": {
 		"running": "正在进行 Code Review，{{progress}}%",
 		"cancel": "取消执行",
-		"completed": "代码质量非常高，未检查出任何问题"
+		"completed": "未返回可展示的结构化问题；请查看完整评审报告确认结论",
+		"openReport": "打开报告"
 	}
 }

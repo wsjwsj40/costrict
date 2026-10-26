@@ -1,5 +1,5 @@
 import React from "react"
-import { ListChecks, LayoutList, CheckCheck, X } from "lucide-react"
+import { ListChecks, LayoutList, CheckCheck, X, Shield } from "lucide-react"
 
 import { vscode } from "@/utils/vscode"
 
@@ -30,6 +30,7 @@ export const AutoApproveDropdown = ({ disabled = false, triggerClassName = "" }:
 	const { t } = useAppTranslation()
 
 	const {
+		projectPermissionProfile,
 		autoApprovalEnabled,
 		setAutoApprovalEnabled,
 		setAlwaysAllowReadOnly,
@@ -92,9 +93,11 @@ export const AutoApproveDropdown = ({ disabled = false, triggerClassName = "" }:
 
 	const handleSelectAll = React.useCallback(() => {
 		// Enable all options
-		Object.keys(autoApproveSettingsConfig).forEach((key) => {
-			onAutoApproveToggle(key as AutoApproveSetting, true)
-		})
+		Object.values(autoApproveSettingsConfig)
+			.filter(({ key }) => !["alwaysAllowReadOnly", "alwaysAllowWrite", "alwaysAllowExecute"].includes(key))
+			.forEach(({ key }) => {
+				onAutoApproveToggle(key as AutoApproveSetting, true)
+			})
 		// Enable master auto-approval
 		if (!autoApprovalEnabled) {
 			setAutoApprovalEnabled(true)
@@ -104,9 +107,11 @@ export const AutoApproveDropdown = ({ disabled = false, triggerClassName = "" }:
 
 	const handleSelectNone = React.useCallback(() => {
 		// Disable all options
-		Object.keys(autoApproveSettingsConfig).forEach((key) => {
-			onAutoApproveToggle(key as AutoApproveSetting, false)
-		})
+		Object.values(autoApproveSettingsConfig)
+			.filter(({ key }) => !["alwaysAllowReadOnly", "alwaysAllowWrite", "alwaysAllowExecute"].includes(key))
+			.forEach(({ key }) => {
+				onAutoApproveToggle(key as AutoApproveSetting, false)
+			})
 	}, [onAutoApproveToggle])
 
 	const handleOpenSettings = React.useCallback(
@@ -123,7 +128,23 @@ export const AutoApproveDropdown = ({ disabled = false, triggerClassName = "" }:
 	}, [autoApprovalEnabled, setAutoApprovalEnabled])
 
 	// Calculate enabled and total counts as separate properties
-	const settingsArray = Object.values(autoApproveSettingsConfig)
+	const settingsArray = Object.values(autoApproveSettingsConfig).filter(
+		({ key }) => !["alwaysAllowReadOnly", "alwaysAllowWrite", "alwaysAllowExecute"].includes(key),
+	)
+	const projectModeLabel =
+		projectPermissionProfile?.mode === "request-approval"
+			? t("settings:projectPermissions.requestApproval.label")
+			: projectPermissionProfile?.mode === "auto-approval"
+				? t("settings:projectPermissions.autoApproval.label")
+				: t("settings:projectPermissions.title")
+	const projectModeDescription =
+		projectPermissionProfile?.mode === "request-approval"
+			? t("settings:projectPermissions.requestApproval.description")
+			: t("settings:projectPermissions.autoApproval.description")
+	const setProjectPermissionMode = (mode: "request-approval" | "auto-approval") =>
+		// `text` is the common scalar WebviewMessage payload and avoids relying
+		// on the overloaded `values` object used by unrelated messages.
+		vscode.postMessage({ type: "setProjectPermissionMode", text: mode })
 
 	const enabledCount = React.useMemo(() => {
 		return Object.values(toggles).filter((value) => !!value).length
@@ -161,18 +182,22 @@ export const AutoApproveDropdown = ({ disabled = false, triggerClassName = "" }:
 							: "opacity-90 hover:opacity-100 bg-vscode-input-background hover:border-[rgba(255,255,255,0.15)] cursor-pointer",
 						triggerClassName,
 					)}>
-					{!effectiveAutoApprovalEnabled ? (
+					{projectPermissionProfile ? (
+						<Shield className="size-3 flex-shrink-0" />
+					) : !effectiveAutoApprovalEnabled ? (
 						<X className="size-3 flex-shrink-0" />
 					) : (
 						<CheckCheck className="size-3 flex-shrink-0" />
 					)}
 
 					<span className="hidden min-[300px]:inline truncate min-w-0">
-						{!effectiveAutoApprovalEnabled
-							? t("chat:autoApprove.triggerLabelOff")
-							: enabledCount === totalCount
-								? t("chat:autoApprove.triggerLabelAll")
-								: t("chat:autoApprove.triggerLabel", { count: enabledCount })}
+						{projectPermissionProfile
+							? projectModeLabel
+							: !effectiveAutoApprovalEnabled
+								? t("chat:autoApprove.triggerLabelOff")
+								: enabledCount === totalCount
+									? t("chat:autoApprove.triggerLabelAll")
+									: t("chat:autoApprove.triggerLabel", { count: enabledCount })}
 					</span>
 					<span className="inline min-[300px]:hidden min-w-0">
 						{!effectiveAutoApprovalEnabled
@@ -190,6 +215,25 @@ export const AutoApproveDropdown = ({ disabled = false, triggerClassName = "" }:
 				className="p-0 overflow-hidden min-w-80 max-w-9/10"
 				onOpenAutoFocus={(e) => e.preventDefault()}>
 				<div className="flex flex-col w-full">
+					<div className="p-3 border-b border-vscode-dropdown-border">
+						<h4 className="m-0 font-bold text-base text-vscode-foreground">
+							{t("settings:projectPermissions.title")}
+						</h4>
+						<p className="mt-1 mb-2 text-xs text-vscode-descriptionForeground">{projectModeDescription}</p>
+						<div className="grid grid-cols-1 gap-1">
+							{(["request-approval", "auto-approval"] as const).map((mode) => (
+								<Button
+									key={mode}
+									variant={projectPermissionProfile?.mode === mode ? "primary" : "secondary"}
+									size="sm"
+									onClick={() => setProjectPermissionMode(mode)}>
+									{mode === "request-approval"
+										? t("settings:projectPermissions.requestApproval.label")
+										: t("settings:projectPermissions.autoApproval.label")}
+								</Button>
+							))}
+						</div>
+					</div>
 					{/* Header with description */}
 					<div className="p-3 border-b border-vscode-dropdown-border">
 						<div className="flex items-center justify-between gap-1 pr-1 pb-2">
