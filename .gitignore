@@ -1,0 +1,5 @@
+node_modules/
+*.vsix
+*.tar
+*.tgz
+.DS_Store

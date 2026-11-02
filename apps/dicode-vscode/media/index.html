@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src {{CSP}}; script-src 'nonce-{{NONCE}}'; img-src {{CSP}} data:;">
+  <link rel="stylesheet" href="{{CSS}}">
+  <title>DiCode</title>
+</head>
+<body>
+  <header><span class="brand"><span class="brand-mark">◈</span> DiCode</span><button id="newThread" title="新会话">＋</button></header>
+  <section id="login" class="login"><div class="hero">让想法成为代码。</div><p>登录后，在当前工作区和 DiCode 一起完成任务。</p><button id="loginButton" class="primary">登录 DiCode</button></section>
+  <main id="app" hidden>
+    <div class="toolbar"><span id="workspace"></span><button id="logout" title="退出登录">退出</button></div>
+    <div id="messages" aria-live="polite"><div class="empty"><div class="spark">✳</div><h2>从一个问题开始</h2><p>读取代码、执行命令、修改文件，由你决定关键操作。</p></div></div>
+    <div id="approval" hidden></div>
+    <div class="composer"><textarea id="prompt" rows="3" placeholder="描述你想完成的任务…"></textarea><div class="composer-bottom"><select id="model" aria-label="模型"></select><button id="send" class="primary" title="发送">➤</button><button id="stop" hidden title="停止">■</button></div></div>
+    <div id="status" role="status"></div>
+  </main>
+  <script nonce="{{NONCE}}" src="{{JS}}"></script>
+</body>
+</html>

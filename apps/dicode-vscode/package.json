@@ -1,0 +1,67 @@
+{
+	"name": "dicode-codex",
+	"displayName": "DiCode",
+	"description": "DiCode coding agent powered by the unmodified Codex CLI",
+	"version": "0.1.1",
+	"publisher": "atad-apts",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/wsjwsj40/costrict"
+	},
+	"engines": {
+		"vscode": "^1.93.1"
+	},
+	"categories": [
+		"AI"
+	],
+	"activationEvents": [
+		"onView:dicodeCodex.sidebar"
+	],
+	"main": "./extension.js",
+	"contributes": {
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "dicodeCodex",
+					"title": "DiCode",
+					"icon": "media/icon.svg"
+				}
+			]
+		},
+		"views": {
+			"dicodeCodex": [
+				{
+					"type": "webview",
+					"id": "dicodeCodex.sidebar",
+					"name": "DiCode"
+				}
+			]
+		},
+		"configuration": {
+			"title": "DiCode",
+			"properties": {
+				"dicodeCodex.serverUrl": {
+					"type": "string",
+					"default": "https://dicode.byd.com:30092",
+					"description": "DiCode API entry URL"
+				},
+				"dicodeCodex.codexPath": {
+					"type": "string",
+					"default": "codex",
+					"description": "Path to the installed Codex CLI"
+				}
+			}
+		}
+	},
+	"scripts": {
+		"test": "node --test test/*.test.js",
+		"check": "node --check extension.js && node --check codexInstaller.js && node --check media/main.js"
+	},
+	"files": [
+		"extension.js",
+		"codexInstaller.js",
+		"media/**",
+		"README.md",
+		"LICENSE"
+	]
+}
