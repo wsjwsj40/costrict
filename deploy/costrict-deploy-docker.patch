@@ -1,4 +1,4 @@
-From a54e7b1f6772407013d8780c22f0a133bdba7175 Mon Sep 17 00:00:00 2001
+From 5d803351eafb64b657f4fac8b69b60470b8daa45 Mon Sep 17 00:00:00 2001
 From: wsjwsj40 <1309342119@qq.com>
 Date: Mon, 2 Nov 2026 03:38:00 +0000
 Subject: [PATCH] feat: deploy DiCode Codex bridge and CLI assets
@@ -8,13 +8,13 @@ Subject: [PATCH] feat: deploy DiCode Codex bridge and CLI assets
  apisix_router_setting.sh                     |  1 +
  configure.sh                                 |  2 +
  costrict.sh                                  |  6 ++-
- docs/dicode-codex-mvp.md                     | 45 ++++++++++++++++++
- k8s/dicode-codex-bridge.yaml.tpl             | 50 ++++++++++++++++++++
- scripts/apisix_router/dicode-codex-bridge.sh | 17 +++++++
+ docs/dicode-codex-mvp.md                     | 55 ++++++++++++++++++++
+ k8s/dicode-codex-bridge.yaml.tpl             | 55 ++++++++++++++++++++
+ scripts/apisix_router/dicode-codex-bridge.sh | 17 ++++++
  scripts/deploy-dicode-codex-cli-assets.sh    | 21 ++++++++
  scripts/newest-images.list                   |  1 +
  scripts/templates.list                       |  1 +
- 10 files changed, 143 insertions(+), 2 deletions(-)
+ 10 files changed, 158 insertions(+), 2 deletions(-)
  create mode 100644 docs/dicode-codex-mvp.md
  create mode 100644 k8s/dicode-codex-bridge.yaml.tpl
  create mode 100755 scripts/apisix_router/dicode-codex-bridge.sh
@@ -97,37 +97,45 @@ index 76273ec..e79d4cb 100755
      success "所有服务已启动。"
 diff --git a/docs/dicode-codex-mvp.md b/docs/dicode-codex-mvp.md
 new file mode 100644
-index 0000000..42161d9
+index 0000000..6692774
 --- /dev/null
 +++ b/docs/dicode-codex-mvp.md
-@@ -0,0 +1,45 @@
+@@ -0,0 +1,55 @@
 +# DiCode Codex MVP deployment
 +
-+The standalone `dicode-codex-bridge` receives `POST /codex/v1/responses`. It checks the caller's bearer token and selected model through the existing `model-proxy` model-access service, then streams the request to the already Responses-compatible inference gateway. The VS Code extension starts an unmodified local Codex CLI; no Codex process runs in the Kubernetes container.
++The standalone `dicode-codex-bridge` receives `POST /codex/v1/responses`. It checks the caller's DiCode bearer token and selected model through the existing `model-proxy` model-access service. It calls the already Responses-compatible gateway using a separate API key from Kubernetes Secret `dicode-codex-gateway`, sends `originator: codex_cli_rs` plus session/thread IDs, and streams the original Responses events. The VS Code extension starts an unmodified local Codex CLI; no Codex process runs in the Kubernetes container.
 +
 +## Offline artifacts
 +
-+The main repository's `bin/` contains `dicode-codex-bridge-v0.1.0-linux-amd64-image.tar`, `dicode-codex-cli-0.164.0-assets.tar`, `dicode-codex-mvp.vsix`, and `SHA256SUMS-dicode-codex-mvp.txt`. Copy all four into the same directory on the internal network and run `sha256sum -c SHA256SUMS-dicode-codex-mvp.txt`. The bridge image is for **linux/amd64** cluster nodes. The CLI asset archive contains the official Codex 0.164.0 **Linux and Windows x64/arm64** platform packages.
++The release contains `dicode-codex-bridge-v0.1.1-linux-amd64-image.tar`, `dicode-codex-cli-0.164.0-assets.tar`, `dicode-codex-mvp.vsix`, the deployment patch, and a SHA-256 file. Copy them into one directory on the internal network and run `sha256sum -c SHA256SUMS-dicode-codex-mvp-v0.1.2.txt`. The bridge image is for **linux/amd64** cluster nodes. The CLI asset archive contains the official Codex 0.164.0 **Linux and Windows x64/arm64** platform packages.
 +
 +## Install the new service only
 +
 +1. On a machine with Docker and access to your internal registry, run:
 +
 +   ```sh
-+   docker load -i dicode-codex-bridge-v0.1.0-linux-amd64-image.tar
-+   docker tag costrict/dicode-codex-bridge:v0.1.0 REGISTRY/PROJECT/dicode-codex-bridge:v0.1.0
-+   docker push REGISTRY/PROJECT/dicode-codex-bridge:v0.1.0
++   docker load -i dicode-codex-bridge-v0.1.1-linux-amd64-image.tar
++   docker tag costrict/dicode-codex-bridge:v0.1.1 REGISTRY/PROJECT/dicode-codex-bridge:v0.1.1
++   docker push REGISTRY/PROJECT/dicode-codex-bridge:v0.1.1
 +   ```
 +
-+2. In this deployment repository, set `IMAGE_DICODE_CODEX_BRIDGE` in `scripts/newest-images.list` to `REGISTRY/PROJECT/dicode-codex-bridge:v0.1.0`. Set `CODEX_GATEWAY_RESPONSES_URL` in `configure.sh` to the gateway's **exact** `/responses` endpoint; verify that it accepts the user's DiCode bearer JWT and streams Responses events. The current default assumes `${MODEL_GATEWAY_BASE_URL}/v1/responses`.
-+3. Run `./costrict.sh prepare`. Check the generated `k8s/dicode-codex-bridge.yaml`, then apply only this new service:
++2. Create the gateway-key Secret in the target cluster from a local file containing only the key (for example, the key used to call the gateway directly). Do not put this key in `configure.sh` or the VSIX:
++
++   ```sh
++   kubectl -n costrict create secret generic dicode-codex-gateway \
++     --from-file=api-key=/secure/path/gateway-key.txt \
++     --dry-run=client -o yaml | kubectl apply -f -
++   ```
++
++3. In this deployment repository, set `IMAGE_DICODE_CODEX_BRIDGE` in `scripts/newest-images.list` to `REGISTRY/PROJECT/dicode-codex-bridge:v0.1.1`. Set `CODEX_GATEWAY_RESPONSES_URL` in `configure.sh` to `https://yice.byd.com/ai-gate/v1/responses`, or the corresponding internal address. The bridge must be able to reach that URL from the cluster. The caller's DiCode JWT is used only for model-access authorization; the Secret key is used only for the gateway.
++4. Run `./costrict.sh prepare`. Check the generated `k8s/dicode-codex-bridge.yaml`, then apply only this new service:
 +
 +   ```sh
 +   kubectl apply -f k8s/dicode-codex-bridge.yaml
 +   kubectl -n costrict rollout status deployment/dicode-codex-bridge
 +   ```
 +
-+4. Set the APISIX route. In one terminal run `kubectl -n costrict port-forward svc/apisix 39180:9180`. In another terminal, from this repository:
++5. Set the APISIX route. In one terminal run `kubectl -n costrict port-forward svc/apisix 39180:9180`. In another terminal, from this repository:
 +
 +   ```sh
 +   source ./configure.sh
@@ -136,6 +144,8 @@ index 0000000..42161d9
 +   ```
 +
 +   The public route is `POST /codex/v1/responses`. You can also use the existing `./apisix_router_setting.sh` workflow, which reapplies all routes.
++
++For a direct check, `kubectl -n costrict port-forward svc/dicode-codex-bridge 18080:8080`, then send a Responses request to `http://127.0.0.1:18080/codex/v1/responses` using a **DiCode user bearer token** and a model visible in `/ai-gateway/api/v1/models`. Do not send the gateway API key to the bridge as the user token. Check `kubectl -n costrict logs deployment/dicode-codex-bridge` if the model check or gateway call fails.
 +
 +## Codex CLI auto-install assets
 +
@@ -148,10 +158,10 @@ index 0000000..42161d9
 +The bridge's `/health` endpoint is only for Kubernetes probes. Model authorization is checked on every Responses request. Existing login, model list, and Chat-RAG routes remain on their current services.
 diff --git a/k8s/dicode-codex-bridge.yaml.tpl b/k8s/dicode-codex-bridge.yaml.tpl
 new file mode 100644
-index 0000000..9655864
+index 0000000..f7bef3c
 --- /dev/null
 +++ b/k8s/dicode-codex-bridge.yaml.tpl
-@@ -0,0 +1,50 @@
+@@ -0,0 +1,55 @@
 +apiVersion: v1
 +kind: Service
 +metadata:
@@ -191,6 +201,11 @@ index 0000000..9655864
 +              value: "http://model-proxy:8080/ai-gateway/api/v1/models"
 +            - name: GATEWAY_RESPONSES_URL
 +              value: "{{CODEX_GATEWAY_RESPONSES_URL}}"
++            - name: GATEWAY_API_KEY
++              valueFrom:
++                secretKeyRef:
++                  name: dicode-codex-gateway
++                  key: api-key
 +          ports:
 +            - name: http
 +              containerPort: 8080
@@ -253,14 +268,14 @@ index 0000000..2758b1b
 +kubectl -n "${namespace}" cp "${destination}/." "${pod}:/var/www/costrict/codex/"
 +echo "Codex CLI assets deployed to portal pod ${pod}"
 diff --git a/scripts/newest-images.list b/scripts/newest-images.list
-index e0e677b..0d22bc5 100644
+index e0e677b..b2f0568 100644
 --- a/scripts/newest-images.list
 +++ b/scripts/newest-images.list
 @@ -6,6 +6,7 @@ IMAGE_NGINX=nginx:1.27.1
  IMAGE_GRAFANA=grafana/grafana:11.2.0
  IMAGE_PROMETHEUS=quay.io/prometheus/prometheus:v2.54.0
  IMAGE_MODEL_PROXY=costrict/model-proxy-access:v0.4.2
-+IMAGE_DICODE_CODEX_BRIDGE=costrict/dicode-codex-bridge:v0.1.0
++IMAGE_DICODE_CODEX_BRIDGE=costrict/dicode-codex-bridge:v0.1.1
  IMAGE_CASDOOR=zgsm/casdoor:v2.1.3
  IMAGE_CHATRAG=zgsm/chat-rag:v1.5.22
  IMAGE_CODE_COMPLETION=zgsm/code-completion:v1.7.105

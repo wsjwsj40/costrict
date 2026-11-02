@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -18,19 +19,24 @@ import (
 const maxRequestBytes = 16 << 20
 
 type server struct {
-	modelsURL    string
-	responsesURL string
-	client       *http.Client
+	modelsURL     string
+	responsesURL  string
+	gatewayAPIKey string
+	client        *http.Client
 }
 
-func newServer(modelsURL, responsesURL string) (*server, error) {
+func newServer(modelsURL, responsesURL, gatewayAPIKey string) (*server, error) {
+	gatewayAPIKey = strings.TrimSpace(gatewayAPIKey)
 	for _, raw := range []string{modelsURL, responsesURL} {
 		u, err := url.Parse(raw)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return nil, fmt.Errorf("invalid upstream URL: %q", raw)
 		}
 	}
-	return &server{modelsURL: modelsURL, responsesURL: responsesURL,
+	if strings.TrimSpace(gatewayAPIKey) == "" {
+		return nil, errors.New("GATEWAY_API_KEY is required")
+	}
+	return &server{modelsURL: modelsURL, responsesURL: responsesURL, gatewayAPIKey: gatewayAPIKey,
 		client: &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, MaxIdleConnsPerHost: 32, ResponseHeaderTimeout: 180 * time.Second}}}, nil
 }
 
@@ -76,9 +82,24 @@ func (s *server) responses(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid upstream", http.StatusInternalServerError)
 		return
 	}
-	upstream.Header.Set("Authorization", auth)
+	upstream.Header.Set("Authorization", "Bearer "+s.gatewayAPIKey)
 	upstream.Header.Set("Content-Type", "application/json")
 	upstream.Header.Set("Accept", "text/event-stream")
+	upstream.Header.Set("originator", "codex_cli_rs")
+	for _, header := range []string{"session-id", "thread-id"} {
+		value := r.Header.Get(header)
+		if value == "" {
+			value = r.Header.Get(strings.ReplaceAll(header, "-", "_"))
+		}
+		if value == "" {
+			value, err = randomUUID()
+			if err != nil {
+				http.Error(w, "could not create request ID", http.StatusInternalServerError)
+				return
+			}
+		}
+		upstream.Header.Set(header, value)
+	}
 	if id := r.Header.Get("X-Request-Id"); id != "" {
 		upstream.Header.Set("X-Request-Id", id)
 	}
@@ -110,6 +131,16 @@ func (s *server) responses(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+func randomUUID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
 func (s *server) allowedModel(ctx context.Context, auth, model string) (bool, int, error) {
@@ -148,10 +179,11 @@ func (s *server) allowedModel(ctx context.Context, auth, model string) (bool, in
 func main() {
 	modelsURL := os.Getenv("MODEL_ACCESS_URL")
 	responsesURL := os.Getenv("GATEWAY_RESPONSES_URL")
-	if modelsURL == "" || responsesURL == "" {
-		log.Fatal("MODEL_ACCESS_URL and GATEWAY_RESPONSES_URL are required")
+	gatewayAPIKey := os.Getenv("GATEWAY_API_KEY")
+	if modelsURL == "" || responsesURL == "" || gatewayAPIKey == "" {
+		log.Fatal("MODEL_ACCESS_URL, GATEWAY_RESPONSES_URL, and GATEWAY_API_KEY are required")
 	}
-	s, err := newServer(modelsURL, responsesURL)
+	s, err := newServer(modelsURL, responsesURL, gatewayAPIKey)
 	if err != nil {
 		log.Fatal(err)
 	}
