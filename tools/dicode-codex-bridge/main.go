@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,29 +15,34 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 const maxRequestBytes = 16 << 20
 
 type server struct {
-	modelsURL     string
-	responsesURL  string
-	gatewayAPIKey string
-	client        *http.Client
+	modelsURL    string
+	responsesURL string
+	tokens       gatewayTokens
+	client       *http.Client
 }
 
-func newServer(modelsURL, responsesURL, gatewayAPIKey string) (*server, error) {
-	gatewayAPIKey = strings.TrimSpace(gatewayAPIKey)
+type gatewayTokens interface {
+	Authorization(context.Context, string) (string, error)
+}
+
+func newServer(modelsURL, responsesURL string, tokens gatewayTokens) (*server, error) {
 	for _, raw := range []string{modelsURL, responsesURL} {
 		u, err := url.Parse(raw)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return nil, fmt.Errorf("invalid upstream URL: %q", raw)
 		}
 	}
-	if strings.TrimSpace(gatewayAPIKey) == "" {
-		return nil, errors.New("GATEWAY_API_KEY is required")
+	if tokens == nil {
+		return nil, errors.New("gateway token provider is required")
 	}
-	return &server{modelsURL: modelsURL, responsesURL: responsesURL, gatewayAPIKey: gatewayAPIKey,
+	return &server{modelsURL: modelsURL, responsesURL: responsesURL, tokens: tokens,
 		client: &http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, MaxIdleConnsPerHost: 32, ResponseHeaderTimeout: 180 * time.Second}}}, nil
 }
 
@@ -77,12 +83,24 @@ func (s *server) responses(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "model is not available for this user", http.StatusForbidden)
 		return
 	}
+	// model-access has already validated the JWT signature and expiration.
+	email, err := emailFromVerifiedJWT(auth)
+	if err != nil {
+		http.Error(w, "verified token has no user email", http.StatusUnauthorized)
+		return
+	}
+	gatewayAuth, err := s.tokens.Authorization(r.Context(), email)
+	if err != nil {
+		log.Printf("gateway token exchange failed for user: %v", err)
+		http.Error(w, "gateway token unavailable", http.StatusBadGateway)
+		return
+	}
 	upstream, err := http.NewRequestWithContext(r.Context(), http.MethodPost, s.responsesURL, bytes.NewReader(body))
 	if err != nil {
 		http.Error(w, "invalid upstream", http.StatusInternalServerError)
 		return
 	}
-	upstream.Header.Set("Authorization", "Bearer "+s.gatewayAPIKey)
+	upstream.Header.Set("Authorization", gatewayAuth)
 	upstream.Header.Set("Content-Type", "application/json")
 	upstream.Header.Set("Accept", "text/event-stream")
 	upstream.Header.Set("originator", "codex_cli_rs")
@@ -133,6 +151,28 @@ func (s *server) responses(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func emailFromVerifiedJWT(auth string) (string, error) {
+	parts := strings.Split(strings.TrimSpace(auth[7:]), ".")
+	if len(parts) != 3 {
+		return "", errors.New("invalid JWT format")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", errors.New("invalid JWT payload")
+	}
+	var claims struct {
+		Email string `json:"email"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return "", errors.New("invalid JWT claims")
+	}
+	email := strings.ToLower(strings.TrimSpace(claims.Email))
+	if email == "" || !strings.Contains(email, "@") {
+		return "", errors.New("email claim is missing")
+	}
+	return email, nil
+}
+
 func randomUUID() (string, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -179,11 +219,22 @@ func (s *server) allowedModel(ctx context.Context, auth, model string) (bool, in
 func main() {
 	modelsURL := os.Getenv("MODEL_ACCESS_URL")
 	responsesURL := os.Getenv("GATEWAY_RESPONSES_URL")
-	gatewayAPIKey := os.Getenv("GATEWAY_API_KEY")
-	if modelsURL == "" || responsesURL == "" || gatewayAPIKey == "" {
-		log.Fatal("MODEL_ACCESS_URL, GATEWAY_RESPONSES_URL, and GATEWAY_API_KEY are required")
+	tokenURL := os.Getenv("TOKEN_EXCHANGE_URL")
+	openToken := os.Getenv("TOKEN_EXCHANGE_OPEN_TOKEN")
+	if modelsURL == "" || responsesURL == "" || tokenURL == "" || openToken == "" {
+		log.Fatal("MODEL_ACCESS_URL, GATEWAY_RESPONSES_URL, TOKEN_EXCHANGE_URL, and TOKEN_EXCHANGE_OPEN_TOKEN are required")
 	}
-	s, err := newServer(modelsURL, responsesURL, gatewayAPIKey)
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "redis:6379"
+	}
+	cache := &redisTokenCache{client: redis.NewClient(&redis.Options{Addr: redisAddr, Password: os.Getenv("REDIS_PASSWORD")})}
+	defer cache.client.Close()
+	tokens, err := newTokenService(tokenURL, openToken, cache)
+	if err != nil {
+		log.Fatal(err)
+	}
+	s, err := newServer(modelsURL, responsesURL, tokens)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -10,11 +12,25 @@ import (
 	"testing"
 )
 
+type fakeGatewayTokens struct{ emails []string }
+
+func (f *fakeGatewayTokens) Authorization(_ context.Context, email string) (string, error) {
+	f.emails = append(f.emails, email)
+	return "Bearer gateway-secret", nil
+}
+
+func testJWT(email string) string {
+	payload, _ := json.Marshal(map[string]string{"email": email})
+	return "header." + base64.RawURLEncoding.EncodeToString(payload) + ".signature"
+}
+
 func TestResponsesAuthorizationAndStreaming(t *testing.T) {
 	modelCalls, upstreamCalls := 0, 0
+	validJWT := testJWT(" USER@example.com ")
+	noEmailJWT := testJWT("")
 	models := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		modelCalls++
-		if r.Header.Get("Authorization") != "Bearer valid" {
+		if r.Header.Get("Authorization") != "Bearer "+validJWT && r.Header.Get("Authorization") != "Bearer "+noEmailJWT {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -49,7 +65,8 @@ func TestResponsesAuthorizationAndStreaming(t *testing.T) {
 		_, _ = io.WriteString(w, "event: response.completed\ndata: {}\n\n")
 	}))
 	defer upstream.Close()
-	s, err := newServer(models.URL, upstream.URL, "gateway-secret")
+	tokens := &fakeGatewayTokens{}
+	s, err := newServer(models.URL, upstream.URL, tokens)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,9 +76,10 @@ func TestResponsesAuthorizationAndStreaming(t *testing.T) {
 	}{
 		{"", "allowed", "", "", 401},
 		{"Bearer invalid", "allowed", "", "", 401},
-		{"Bearer valid", "denied", "", "", 403},
-		{"Bearer valid", "allowed", "client-session", "client-thread", 200},
-		{"Bearer valid", "allowed", "", "", 200},
+		{"Bearer " + validJWT, "denied", "", "", 403},
+		{"Bearer " + noEmailJWT, "allowed", "", "", 401},
+		{"Bearer " + validJWT, "allowed", "client-session", "client-thread", 200},
+		{"Bearer " + validJWT, "allowed", "", "", 200},
 	} {
 		request := httptest.NewRequest(http.MethodPost, "/codex/v1/responses", strings.NewReader(`{"model":"`+tc.model+`","stream":true}`))
 		if tc.token != "" {
@@ -80,13 +98,16 @@ func TestResponsesAuthorizationAndStreaming(t *testing.T) {
 			t.Error("stream events missing")
 		}
 	}
-	if modelCalls != 4 || upstreamCalls != 2 {
+	if modelCalls != 5 || upstreamCalls != 2 {
 		t.Errorf("calls: model=%d upstream=%d", modelCalls, upstreamCalls)
+	}
+	if len(tokens.emails) != 2 || tokens.emails[0] != "user@example.com" || tokens.emails[1] != "user@example.com" {
+		t.Errorf("unexpected verified user emails: %v", tokens.emails)
 	}
 }
 
-func TestRequiresGatewayKey(t *testing.T) {
-	if _, err := newServer("https://example.com/models", "https://example.com/responses", ""); err == nil {
-		t.Fatal("missing gateway key was accepted")
+func TestRequiresTokenProvider(t *testing.T) {
+	if _, err := newServer("https://example.com/models", "https://example.com/responses", nil); err == nil {
+		t.Fatal("missing token provider was accepted")
 	}
 }
