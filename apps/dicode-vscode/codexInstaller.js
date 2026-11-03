@@ -21,10 +21,48 @@ function run(command, args) {
 			stderr += String(chunk).slice(0, 2048)
 		})
 		child.on("error", reject)
-		child.on("exit", (code) =>
+		child.on("close", (code) =>
 			code === 0 ? resolve() : reject(new Error(`${command} exited ${code}: ${stderr.slice(0, 512)}`)),
 		)
 	})
+}
+
+function isInstalled(executable, marker, sha256) {
+	if (!fs.existsSync(executable)) return false
+	try {
+		return fs.readFileSync(marker, "utf8").trim() === sha256
+	} catch (error) {
+		// Installations from the previous VSIX have no marker, but were published by rename.
+		return error.code === "ENOENT" && !fs.existsSync(path.join(path.dirname(marker), ".installing"))
+	}
+}
+
+async function publishInstall(tempDir, installDir, executable, sha256) {
+	const marker = path.join(installDir, ".installed")
+	await fs.promises.writeFile(path.join(tempDir, ".installed"), sha256)
+	const retryable = new Set(["EPERM", "EACCES", "EBUSY", "EEXIST", "ENOTEMPTY"])
+	for (let attempt = 0; attempt < 6; attempt++) {
+		if (isInstalled(executable, marker, sha256)) return
+		try {
+			await fs.promises.rename(tempDir, installDir)
+			return
+		} catch (error) {
+			if (!retryable.has(error.code)) throw error
+			await new Promise((resolve) => setTimeout(resolve, Math.min(150 * 2 ** attempt, 1500)))
+		}
+	}
+	if (isInstalled(executable, marker, sha256)) return
+	// Some Windows security software prevents directory rename after extraction.
+	// Copy the verified package and write the marker only after the copy completes.
+	await fs.promises.mkdir(installDir, { recursive: true })
+	const copying = path.join(installDir, ".installing")
+	await fs.promises.writeFile(copying, sha256)
+	await fs.promises.cp(path.join(tempDir, "package"), path.join(installDir, "package"), {
+		recursive: true,
+		force: true,
+	})
+	await fs.promises.writeFile(marker, sha256)
+	await fs.promises.rm(copying)
 }
 
 async function downloadArchive(url, target, expectedHash, onProgress) {
@@ -68,7 +106,8 @@ async function ensureCodexInstalled(baseUrl, storagePath, onProgress) {
 	}
 	const installDir = path.join(storagePath, "codex", `${manifest.version}-${manifest.sha256.slice(0, 12)}`)
 	const executable = path.join(installDir, "package", "vendor", target.triple, "bin", target.executable)
-	if (fs.existsSync(executable)) return executable
+	const marker = path.join(installDir, ".installed")
+	if (isInstalled(executable, marker, manifest.sha256)) return executable
 
 	await fs.promises.mkdir(path.dirname(installDir), { recursive: true })
 	const tempDir = `${installDir}-${crypto.randomUUID()}.tmp`
@@ -82,11 +121,8 @@ async function ensureCodexInstalled(baseUrl, storagePath, onProgress) {
 		if (!fs.existsSync(tempExecutable)) throw new Error("Codex 安装包缺少可执行文件")
 		if (process.platform !== "win32") await fs.promises.chmod(tempExecutable, 0o755)
 		await fs.promises.rm(archivePath)
-		try {
-			await fs.promises.rename(tempDir, installDir)
-		} catch (error) {
-			if (!fs.existsSync(executable)) throw error
-		}
+		await publishInstall(tempDir, installDir, executable, manifest.sha256)
+		if (!isInstalled(executable, marker, manifest.sha256)) throw new Error("Codex 安装文件未完整写入")
 		onProgress?.(100)
 		return executable
 	} finally {
@@ -94,4 +130,4 @@ async function ensureCodexInstalled(baseUrl, storagePath, onProgress) {
 	}
 }
 
-module.exports = { ensureCodexInstalled }
+module.exports = { ensureCodexInstalled, publishInstall }

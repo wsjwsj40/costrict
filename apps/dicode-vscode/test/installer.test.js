@@ -6,7 +6,7 @@ const os = require("node:os")
 const path = require("node:path")
 const crypto = require("node:crypto")
 const { execFileSync } = require("node:child_process")
-const { ensureCodexInstalled } = require("../codexInstaller")
+const { ensureCodexInstalled, publishInstall } = require("../codexInstaller")
 
 test(
 	"downloads, verifies, installs and reuses a Codex platform package",
@@ -38,6 +38,8 @@ test(
 			const installed = await ensureCodexInstalled(base, path.join(root, "storage"))
 			assert.equal(fs.readFileSync(installed, "utf8"), "#!/bin/sh\necho codex-test\n")
 			assert.equal(await ensureCodexInstalled(base, path.join(root, "storage")), installed)
+			fs.rmSync(path.join(root, "storage", "codex", `0.164.0-${sha256.slice(0, 12)}`, ".installed"))
+			assert.equal(await ensureCodexInstalled(base, path.join(root, "storage")), installed)
 			assert.equal(downloads, 1)
 		} finally {
 			server.close()
@@ -45,3 +47,33 @@ test(
 		}
 	},
 )
+
+test("finishes installation when Windows-style EPERM blocks directory rename", async () => {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "dicode-installer-rename-test-"))
+	const tempDir = path.join(root, "staging")
+	const installDir = path.join(root, "installed")
+	const relativeExecutable = "package/vendor/x86_64-pc-windows-msvc/bin/codex.exe"
+	const tempExecutable = path.join(tempDir, relativeExecutable)
+	const executable = path.join(installDir, relativeExecutable)
+	const sha256 = "a".repeat(64)
+	fs.mkdirSync(path.dirname(tempExecutable), { recursive: true })
+	fs.writeFileSync(tempExecutable, "fake Windows executable")
+	const originalRename = fs.promises.rename
+	let attempts = 0
+	fs.promises.rename = async () => {
+		attempts++
+		const error = new Error("operation not permitted")
+		error.code = "EPERM"
+		throw error
+	}
+	try {
+		await publishInstall(tempDir, installDir, executable, sha256)
+		assert.equal(fs.readFileSync(executable, "utf8"), "fake Windows executable")
+		assert.equal(fs.readFileSync(path.join(installDir, ".installed"), "utf8"), sha256)
+		assert.equal(fs.existsSync(path.join(installDir, ".installing")), false)
+		assert.equal(attempts, 6)
+	} finally {
+		fs.promises.rename = originalRename
+		fs.rmSync(root, { recursive: true, force: true })
+	}
+})
