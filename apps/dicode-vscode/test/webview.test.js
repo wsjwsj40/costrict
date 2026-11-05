@@ -49,3 +49,18 @@ test('sidebar renders mixed app-server events and real approval decisions', asyn
   assert.equal(doc.querySelectorAll('.turn').length, 1)
   dom.window.close()
 })
+
+test('recent threads can be selected and history replaces the visible conversation', async () => {
+  const { dom, sent, emit, doc } = setup()
+  emit({ type: 'state', loggedIn: true, busy: false, threadId: 'one', workspace: '/repo', models: [], threads: [{ id: 'two', title: '修复登录' }, { id: 'one', title: '分析接口' }] })
+  doc.getElementById('threadsButton').click()
+  assert.equal(doc.querySelectorAll('.thread-entry').length, 2)
+  doc.querySelector('.thread-entry').click()
+  assert.equal(sent.at(-1).type, 'switchThread')
+  assert.equal(sent.at(-1).threadId, 'two')
+  emit({ type: 'history', snapshot: { threadId: 'two', turns: [{ id: 't', user: '修复登录', status: 'completed', items: [{ id: 'a', type: 'agentMessage', text: '已修复', raw: { phase: 'final_answer' }, status: 'completed' }] }] } })
+  await tick()
+  assert.equal(doc.querySelectorAll('.turn').length, 1)
+  assert.match(doc.getElementById('messages').textContent, /已修复/)
+  dom.window.close()
+})

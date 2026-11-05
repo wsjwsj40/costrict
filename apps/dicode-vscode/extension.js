@@ -12,6 +12,7 @@ const TOKEN_KEY = "dicodeCodex.tokens"
 const CLIENT_KEY = "dicodeCodex.machineId"
 const THREAD_KEY = "dicodeCodex.thread"
 const HISTORY_KEY = "dicodeCodex.history"
+const THREADS_KEY = "dicodeCodex.threads"
 
 class CodexClient {
 	constructor(binary, baseUrl, token, instructionsPath, onEvent) {
@@ -136,9 +137,12 @@ class DicodeView {
 		this.instructionsPath = path.join(context.extensionPath, "dicode-instructions.md")
 		this.instructions = fs.readFileSync(this.instructionsPath, "utf8")
 		this.conversation = new ConversationStore()
+		this.threads = context.globalState.get(THREADS_KEY, [])
 		const savedHistory = context.globalState.get(HISTORY_KEY)
-		if (savedHistory?.cwd === this.workspace && savedHistory?.threadId === this.threadId)
-			this.conversation.restore(savedHistory.snapshot)
+		if (!this.threads.length && savedHistory?.threadId)
+			this.threads = [{ id: savedHistory.threadId, cwd: savedHistory.cwd, title: savedHistory.snapshot?.turns?.[0]?.user || "历史会话", updatedAt: Date.now(), snapshot: savedHistory.snapshot }]
+		const current = this.threads.find((thread) => thread.id === this.threadId && thread.cwd === this.workspace)
+		if (current?.snapshot) this.conversation.restore(current.snapshot)
 		this.output = vscode.window.createOutputChannel("DiCode Codex")
 		this.beforeDocuments = new Map()
 	}
@@ -190,6 +194,7 @@ class DicodeView {
 			threadId: this.threadId,
 			workspace: this.workspace || "",
 			models: this.models || [],
+			threads: this.threads.filter((thread) => thread.cwd === this.workspace).map(({ id, title, updatedAt }) => ({ id, title, updatedAt })),
 		})
 	}
 	params(state, machineId) {
@@ -365,7 +370,10 @@ class DicodeView {
 		if (!this.threadId) return
 		const snapshot = this.conversation.snapshot()
 		if (JSON.stringify(snapshot).length > 2_000_000) return
-		this.context.globalState.update(HISTORY_KEY, { cwd: this.workspace, threadId: this.threadId, snapshot })
+		const title = snapshot.turns?.[0]?.user?.slice(0, 60) || "新会话"
+		this.threads = [{ id: this.threadId, cwd: this.workspace, title, updatedAt: Date.now(), snapshot }, ...this.threads.filter((thread) => thread.id !== this.threadId || thread.cwd !== this.workspace)].slice(0, 20)
+		this.context.globalState.update(THREADS_KEY, this.threads)
+		this.postState()
 	}
 	async send(text, model) {
 		if (this.busy) throw new Error("当前任务仍在执行")
@@ -392,10 +400,12 @@ class DicodeView {
 			this.threadId = result.thread.id
 			this.loadedThreadId = this.threadId
 			await this.context.globalState.update(THREAD_KEY, { id: this.threadId, cwd: this.workspace })
+			this.conversation.threadId = this.threadId
 		}
 		this.busy = true
 		this.conversation.threadId = this.threadId
 		this.conversation.begin(text)
+		this.persistHistory()
 		this.postState()
 		try {
 			const result = await client.request("turn/start", {
@@ -435,9 +445,11 @@ class DicodeView {
 			this.loadedThreadId = null
 			this.models = []
 			this.conversation.reset()
+			this.threads = []
 			await this.context.secrets.delete(TOKEN_KEY)
 			await this.context.globalState.update(THREAD_KEY, undefined)
 			await this.context.globalState.update(HISTORY_KEY, undefined)
+			await this.context.globalState.update(THREADS_KEY, undefined)
 			await this.postState()
 			return
 		}
@@ -447,8 +459,19 @@ class DicodeView {
 			this.loadedThreadId = null
 			this.conversation.reset()
 			await this.context.globalState.update(THREAD_KEY, undefined)
-			await this.context.globalState.update(HISTORY_KEY, undefined)
 			await this.postState()
+			return
+		}
+		if (message.type === "switchThread") {
+			if (this.busy) throw new Error("请先停止当前任务")
+			const selected = this.threads.find((thread) => thread.id === message.threadId && thread.cwd === this.workspace)
+			if (!selected) throw new Error("会话不存在")
+			this.threadId = selected.id
+			this.loadedThreadId = null
+			this.conversation.restore(selected.snapshot)
+			await this.context.globalState.update(THREAD_KEY, { id: this.threadId, cwd: this.workspace })
+			await this.postState()
+			this.post({ type: "history", snapshot: this.conversation.snapshot() })
 			return
 		}
 		if (message.type === "send") {
@@ -507,4 +530,4 @@ function activate(context) {
 		provider,
 	)
 }
-module.exports = { activate, CodexClient }
+module.exports = { activate, CodexClient, DicodeView }

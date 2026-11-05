@@ -8,10 +8,11 @@
   <title>DiCode</title>
 </head>
 <body>
-  <header><span class="brand"><span class="brand-mark">◈</span> DiCode</span><button id="newThread" title="新会话">＋</button></header>
+  <header><span class="brand"><span class="brand-mark">◈</span> DiCode</span><div class="header-actions"><button id="threadsButton" title="最近会话">☰</button><button id="newThread" title="新会话">＋</button></div></header>
   <section id="login" class="login"><div class="hero">让想法成为代码。</div><p>登录后，在当前工作区和 DiCode 一起完成任务。</p><button id="loginButton" class="primary">登录 DiCode</button></section>
   <main id="app" hidden>
     <div class="toolbar"><span id="workspace"></span><button id="logout" title="退出登录">退出</button></div>
+    <nav id="threadList" hidden aria-label="最近会话"></nav>
     <div id="messages" aria-live="polite"></div>
     <template id="emptyTemplate"><div class="empty"><div class="spark">✳</div><h2>从一个问题开始</h2><p>描述任务，DiCode 会在工作区中逐步完成。</p></div></template>
     <div id="approval" hidden></div>

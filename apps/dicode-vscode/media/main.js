@@ -193,7 +193,18 @@ function setState(state) {
   $('model').replaceChildren()
   for (const model of state.models || []) { const option = document.createElement('option'); option.value = model.id; option.textContent = model.name || model.id; $('model').append(option) }
   if ([...$('model').options].some(option => option.value === previous)) $('model').value = previous
-  if (state.threadId) store.threadId = state.threadId
+  store.threadId = state.threadId || null
+  const list = $('threadList')
+  list.replaceChildren()
+  if (!(state.threads || []).length) list.append(element('div', 'thread-empty', '还没有历史会话'))
+  for (const thread of state.threads || []) {
+    const entry = button(thread.title || '新会话', () => {
+      list.hidden = true
+      if (thread.id !== store.threadId && !busy) post('switchThread', { threadId: thread.id })
+    }, `thread-entry ${thread.id === store.threadId ? 'selected' : ''}`)
+    entry.title = thread.title || '新会话'
+    list.append(entry)
+  }
 }
 function approvalView(message) {
   if (activeApproval) { approvalQueue.push(message); return }
@@ -240,6 +251,7 @@ window.addEventListener('message', event => {
 $('loginButton').onclick = () => post('login')
 $('logout').onclick = () => { store.reset(); render(); post('logout') }
 $('newThread').onclick = () => { if (!busy) { store.reset(); render(); post('newThread') } }
+$('threadsButton').onclick = () => { $('threadList').hidden = !$('threadList').hidden }
 $('send').onclick = () => {
   const text = $('prompt').value.trim(), model = $('model').value
   if (!text || !model || busy) return
