@@ -27,12 +27,22 @@ markdown.renderer.rules.link_open = (tokens, idx, opts, env, self) => {
   tokens[idx].attrSet('rel', 'noopener noreferrer')
   return oldLinkOpen(tokens, idx, opts, env, self)
 }
-let busy = false, activeApproval = null, approvalQueue = [], scheduled = false
+let busy = false, stopping = false, activeApproval = null, approvalQueue = [], scheduled = false
+let latestStateVersion = -1
+let awaitingHostBusy = false
 const openDetails = new Set()
 const turnNodes = new Map(), dirtyTurns = new Set()
 function post(type, extra = {}) { vscode.postMessage({ type, ...extra }) }
 function element(tag, className = '', text = '') { const e = document.createElement(tag); e.className = className; e.textContent = text; return e }
 function button(label, click, className = '') { const e = element('button', className, label); e.onclick = click; return e }
+function setStatus(message, kind = 'idle') { $('status').textContent = message; $('statusLine').dataset.kind = kind }
+function updateComposer() {
+  $('send').hidden = busy
+  $('stop').hidden = !busy || stopping
+  $('stopping').hidden = !busy || !stopping
+  $('send').disabled = !($('prompt').value.trim() && $('model').value)
+}
+function resizePrompt() { const input = $('prompt'); input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 180)}px` }
 function nearBottom() { const e = $('messages'); return e.scrollHeight - e.scrollTop - e.clientHeight < 70 }
 function schedule() { if (scheduled) return; scheduled = true; setTimeout(() => { scheduled = false; render() }, 32) }
 function markdownView(text) {
@@ -56,13 +66,16 @@ function detail(key, label, body, className = '') {
   const d = element('details', `activity ${className}`)
   d.open = openDetails.has(key)
   d.ontoggle = () => { if (d.open) openDetails.add(key); else openDetails.delete(key) }
-  const summary = element('summary', '', label)
+  const summary = element('summary')
+  const match = /^([⌘▤◇◌])\s+(.*)$/.exec(label)
+  if (match) summary.append(element('span', 'activity-icon', match[1]), element('span', 'activity-label', match[2]))
+  else summary.textContent = label
   d.append(summary, body)
   return d
 }
 function statusText(item) {
   const status = item.status || 'inProgress'
-  return ({ inProgress: '运行中', completed: '完成', failed: '失败', declined: '已拒绝' })[status] || status
+  return ({ inProgress: '运行中', completed: '完成', failed: '失败', interrupted: '已停止', declined: '已拒绝' })[status] || status
 }
 function commandTitle(raw) {
   const actions = raw.commandActions || []
@@ -83,7 +96,7 @@ function commandView(item, turn) {
     body.append(element('div', 'muted', '输出'), element('pre', 'command-output', stripAnsi(item.output)), button('复制输出', () => navigator.clipboard.writeText(stripAnsi(item.output)), 'subtle'))
   }
   const label = `⌘  ${commandTitle(raw)}  ·  ${statusText(item)}  ${cmd ? '· ' + cmd.slice(0, 65) : ''}`
-  return detail(`${turn.id}:${item.id}`, label, body, item.status === 'failed' ? 'failed' : '')
+  return detail(`${turn.id}:${item.id}`, label, body, `command-card status-${item.status || 'inProgress'}`)
 }
 function diffLines(diff) {
   const pre = element('pre', 'diff')
@@ -111,7 +124,7 @@ function fileSummary(turn) {
   for (const file of files) {
     const body = element('div', 'file-body')
     body.append(button('打开文件', () => post('openFile', { path: file.path }), 'subtle'), button('在编辑器中比较', () => post('openDiff', { path: file.path, diff: file.diff }), 'subtle'), button('复制 Diff', () => navigator.clipboard.writeText(file.diff), 'subtle'), diffLines(file.diff))
-    root.append(detail(`${turn.id}:diff:${file.path}`, `▤  ${file.path}  ·  ${file.kind}  +${file.additions} -${file.deletions}`, body, 'file-card'))
+    root.append(detail(`${turn.id}:diff:${file.path}`, `▤  ${file.path}  ·  ${file.kind}  +${file.additions} -${file.deletions}`, body, 'file-card status-completed'))
   }
   return root
 }
@@ -125,7 +138,7 @@ function fileItem(item, turn) {
     body.append(row)
     if (change.diff) body.append(diffLines(change.diff))
   }
-  return detail(`${turn.id}:${item.id}`, `▤  修改文件 · ${statusText(item)} · ${changes.length} 个文件`, body)
+  return detail(`${turn.id}:${item.id}`, `▤  修改文件 · ${statusText(item)} · ${changes.length} 个文件`, body, `file-card status-${item.status || 'inProgress'}`)
 }
 function toolView(item, turn) {
   const raw = item.raw || {}, names = { mcpToolCall: 'MCP 工具', dynamicToolCall: '工具调用', webSearch: '网页搜索', imageView: '查看图片', collabToolCall: '协作任务', contextCompaction: '整理上下文' }
@@ -134,7 +147,7 @@ function toolView(item, turn) {
   const body = element('div', 'activity-body')
   const data = JSON.stringify(raw, null, 2)
   body.append(element('pre', 'tool-json', data), button('复制详情', () => navigator.clipboard.writeText(data), 'subtle'))
-  return detail(`${turn.id}:${item.id}`, `◇  ${title} · ${statusText(item)} ${descriptor ? '· ' + descriptor : ''}`, body)
+  return detail(`${turn.id}:${item.id}`, `◇  ${title} · ${statusText(item)} ${descriptor ? '· ' + descriptor : ''}`, body, `tool-card status-${item.status || 'inProgress'}`)
 }
 function planView(plan) {
   if (!plan?.steps?.length) return null
@@ -148,8 +161,13 @@ function planView(plan) {
   return box
 }
 function itemView(item, turn) {
-  if (item.type === 'agentMessage') { const box = element('article', `agent ${item.raw?.phase === 'final_answer' ? 'final-answer' : ''}`); box.append(markdownView(item.text)); return box }
-  if (item.type === 'reasoning') return item.summary ? detail(`${turn.id}:${item.id}`, '◌  思考摘要', markdownView(item.summary), 'reasoning') : null
+  if (item.type === 'agentMessage') {
+    const final = item.raw?.phase === 'final_answer'
+    const box = element('article', `agent ${final ? 'final-answer' : 'commentary-answer'}`)
+    if (final) box.append(element('div', 'agent-heading', '✦  DiCode · 答复'))
+    box.append(markdownView(item.text)); return box
+  }
+  if (item.type === 'reasoning') return item.summary ? detail(`${turn.id}:${item.id}`, '◌  思考摘要', markdownView(item.summary), 'reasoning status-completed') : null
   if (item.type === 'commandExecution') return commandView(item, turn)
   if (item.type === 'fileChange') return fileItem(item, turn)
   return toolView(item, turn)
@@ -175,7 +193,8 @@ function render() {
     const files = fileSummary(turn)
     if (files) content.append(files)
     for (const item of finalItems) content.append(itemView(item, turn))
-    if (turn.status === 'inProgress' || turn.status === 'starting') content.append(element('div', 'working', '◌  DiCode 正在处理…'))
+    if (turn.status === 'inProgress' || turn.status === 'starting') content.append(element('div', 'working', stopping && turn === store.turns.at(-1) ? '◌  正在停止…' : '◌  DiCode 正在处理…'))
+    if (turn.status === 'interrupted') content.append(element('div', 'turn-interrupted', '已停止 · 可以继续提问'))
     if (turn.error) content.append(element('div', 'turn-error', turn.error.message || String(turn.error)))
     section.append(content)
     const previous = turnNodes.get(turn.id)
@@ -186,13 +205,21 @@ function render() {
   if (follow) list.scrollTop = list.scrollHeight
 }
 function setState(state) {
+  if (typeof state.version === 'number' && state.version < latestStateVersion) return
+  if (typeof state.version === 'number') latestStateVersion = state.version
   $('login').hidden = state.loggedIn; $('app').hidden = !state.loggedIn
-  busy = state.busy; $('send').hidden = busy; $('stop').hidden = !busy
+  if (state.busy) awaitingHostBusy = false
+  busy = !!state.busy || awaitingHostBusy; stopping = !!state.stopping || (awaitingHostBusy && stopping)
+  updateComposer()
+  if (stopping) setStatus('正在停止当前任务…', 'warning')
   $('workspace').textContent = state.workspace || '未打开工作区'
   const previous = $('model').value
   $('model').replaceChildren()
   for (const model of state.models || []) { const option = document.createElement('option'); option.value = model.id; option.textContent = model.name || model.id; $('model').append(option) }
   if ([...$('model').options].some(option => option.value === previous)) $('model').value = previous
+  else if ([...$('model').options].some(option => option.value === vscode.getState?.()?.modelId)) $('model').value = vscode.getState().modelId
+  renderModelPicker(state.models || [])
+  updateComposer()
   store.threadId = state.threadId || null
   const list = $('threadList')
   list.replaceChildren()
@@ -204,6 +231,39 @@ function setState(state) {
     }, `thread-entry ${thread.id === store.threadId ? 'selected' : ''}`)
     entry.title = thread.title || '新会话'
     list.append(entry)
+  }
+}
+function renderModelPicker(models) {
+  const selected = models.find(model => model.id === $('model').value)
+  $('modelLabel').textContent = selected?.name || selected?.id || '选择模型'
+  const menu = $('modelMenu')
+  menu.replaceChildren(element('div', 'model-menu-heading', '选择模型'))
+  if (models.length > 5) {
+    const search = document.createElement('input')
+    search.className = 'model-search'
+    search.placeholder = '搜索模型…'
+    search.setAttribute('aria-label', '搜索模型')
+    search.oninput = () => {
+      const query = search.value.trim().toLowerCase()
+      for (const option of menu.querySelectorAll('.model-option')) option.hidden = !option.textContent.toLowerCase().includes(query)
+    }
+    menu.append(search)
+  }
+  if (!models.length) menu.append(element('div', 'model-empty', '暂无可用模型'), button('刷新模型列表', () => post('models'), 'model-refresh'))
+  for (const model of models) {
+    const entry = button(`${model.name || model.id}`, () => {
+      $('model').value = model.id
+      $('modelLabel').textContent = model.name || model.id
+      vscode.setState?.({ ...(vscode.getState?.() || {}), modelId: model.id })
+      renderModelPicker(models)
+      menu.hidden = true
+      $('modelPicker').setAttribute('aria-expanded', 'false')
+      updateComposer()
+    }, `model-option ${model.id === $('model').value ? 'selected' : ''}`)
+    entry.setAttribute('role', 'option')
+    entry.setAttribute('aria-selected', String(model.id === $('model').value))
+    entry.title = model.name || model.id
+    menu.append(entry)
   }
 }
 function approvalView(message) {
@@ -230,9 +290,11 @@ window.addEventListener('message', event => {
   const msg = event.data
   if (msg.type === 'state') setState(msg)
   if (msg.type === 'history') { store.restore(msg.snapshot); turnNodes.clear(); $('messages').replaceChildren(); for (const turn of store.turns) dirtyTurns.add(turn.id); schedule() }
-  if (msg.type === 'notice') $('status').textContent = msg.message
-  if (msg.type === 'error') { $('status').textContent = `错误：${msg.message}`; const turn = store.turns.at(-1); if (turn && busy) { turn.error = { message: msg.message }; turn.status = 'failed'; dirtyTurns.add(turn.id); schedule() } }
+  if (msg.type === 'notice') setStatus(msg.message, 'working')
+  if (msg.type === 'error') { awaitingHostBusy = false; setStatus(`错误：${msg.message}`, 'error'); const turn = store.turns.at(-1); if (turn && busy) { turn.error = { message: msg.message }; turn.status = 'failed'; dirtyTurns.add(turn.id); schedule() } }
+  if (msg.type === 'stopped') { awaitingHostBusy = false; busy = false; stopping = false; updateComposer(); setStatus(msg.message || '已停止，可以继续提问', 'warning'); const turn = store.turns.at(-1); if (turn) { turn.status = 'interrupted'; dirtyTurns.add(turn.id); schedule() } }
   if (msg.type === 'approval') approvalView(msg)
+  if (msg.type === 'approvalsCleared') { activeApproval = null; approvalQueue.length = 0; $('approval').hidden = true }
   if (msg.type === 'rpc') {
     if (msg.method === 'serverRequest/resolved') {
       const id = String(msg.params?.requestId ?? msg.params?.id)
@@ -241,8 +303,11 @@ window.addEventListener('message', event => {
     } else {
       const turn = store.receive(msg.method, msg.params)
       dirtyTurns.add(turn.id)
+      if (msg.method === 'turn/started' && !stopping) setStatus('DiCode 正在处理…', 'working')
       if (msg.method === 'turn/completed') {
-        $('status').textContent = msg.params?.turn?.status === 'completed' ? '已完成' : `任务${msg.params?.turn?.status || '结束'}`
+        awaitingHostBusy = false; busy = false; stopping = false; updateComposer()
+        const status = msg.params?.turn?.status
+        setStatus(status === 'completed' ? '已完成 · 可以继续提问' : status === 'interrupted' ? '已停止 · 可以继续提问' : status === 'failed' ? '任务失败 · 可以重试' : `任务${status || '结束'}`, status === 'completed' ? 'success' : status === 'failed' ? 'error' : 'warning')
       }
       schedule()
     }
@@ -255,10 +320,28 @@ $('threadsButton').onclick = () => { $('threadList').hidden = !$('threadList').h
 $('send').onclick = () => {
   const text = $('prompt').value.trim(), model = $('model').value
   if (!text || !model || busy) return
-  dirtyTurns.add(store.begin(text).id); $('prompt').value = ''; $('status').textContent = '正在执行…'; busy = true
+  dirtyTurns.add(store.begin(text).id); $('prompt').value = ''; awaitingHostBusy = true; busy = true; stopping = false
+  resizePrompt(); updateComposer(); setStatus('正在连接 Agent…', 'working')
   render(); post('send', { text, model })
 }
 $('prompt').onkeydown = event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('send').click() } }
-$('stop').onclick = () => post('stop')
+$('stop').onclick = () => { if (!busy || stopping) return; stopping = true; updateComposer(); setStatus('正在停止当前任务…', 'warning'); dirtyTurns.add(store.turns.at(-1)?.id); schedule(); post('stop') }
+$('prompt').addEventListener('input', () => { resizePrompt(); updateComposer() })
+$('modelPicker').onclick = () => {
+  const menu = $('modelMenu')
+  menu.hidden = !menu.hidden
+  $('modelPicker').setAttribute('aria-expanded', String(!menu.hidden))
+  if (!menu.hidden) (menu.querySelector('.model-search') || menu.querySelector('.model-option'))?.focus()
+}
+document.getElementById('modelMenu').addEventListener('keydown', event => {
+  if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return
+  event.preventDefault()
+  const options = [...$('modelMenu').querySelectorAll('.model-option')].filter(option => !option.hidden)
+  const index = options.indexOf(document.activeElement)
+  options[(index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length]?.focus()
+})
+document.addEventListener('keydown', event => { if (event.key === 'Escape') { $('modelMenu').hidden = true; $('modelPicker').setAttribute('aria-expanded', 'false') } })
+document.addEventListener('click', event => { if (!$('modelPicker').contains(event.target) && !$('modelMenu').contains(event.target)) { $('modelMenu').hidden = true; $('modelPicker').setAttribute('aria-expanded', 'false') } })
 post('ready')
 render()
+updateComposer()

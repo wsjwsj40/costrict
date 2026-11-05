@@ -48,9 +48,11 @@ test('plan and cumulative multi-file diff update in place', () => {
 test('interruption and reasoning summary retain separate item state', () => {
   const s = new ConversationStore(); s.begin('分析')
   s.receive('item/reasoning/summaryTextDelta', { turnId: 't', itemId: 'r', delta: '正在定位' })
+  s.receive('item/started', { turnId: 't', item: { id: 'tool', type: 'dynamicToolCall', status: 'inProgress' } })
   s.receive('item/reasoning/summaryPartAdded', { turnId: 't', itemId: 'r' })
   s.receive('item/reasoning/summaryTextDelta', { turnId: 't', itemId: 'r', delta: '文件' })
   s.receive('turn/completed', { turnId: 't', turn: { status: 'interrupted' } })
   assert.equal(s.turns[0].items[0].summary, '正在定位\n文件')
   assert.equal(s.turns[0].status, 'interrupted')
+  assert.equal(s.turns[0].items[1].status, 'interrupted')
 })

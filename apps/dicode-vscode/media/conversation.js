@@ -36,6 +36,9 @@ class ConversationStore {
       this.threadId = params.threadId || this.threadId
     } else if (method === 'turn/completed') {
       turn.status = params.turn?.status || 'completed'; turn.error = params.turn?.error || null
+      if (turn.status === 'interrupted' || turn.status === 'failed') {
+        for (const item of turn.items) if (item.status === 'inProgress') item.status = turn.status
+      }
     } else if (method === 'turn/plan/updated') {
       turn.plan = { explanation: params.explanation || '', steps: params.plan || [] }
     } else if (method === 'turn/diff/updated') {

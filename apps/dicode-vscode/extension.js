@@ -58,6 +58,7 @@ class CodexClient {
 		this.proc.on("exit", (code) => this.fail(new Error(`Codex exited (${code})`)))
 	}
 	consume(chunk) {
+		if (this.closed) return
 		this.buffer += chunk
 		if (this.buffer.length > 8 * 1024 * 1024) return this.fail(new Error("Codex message too large"))
 		let newline
@@ -84,7 +85,7 @@ class CodexClient {
 		}
 	}
 	request(method, params = {}) {
-		if (this.proc.exitCode !== null || this.proc.killed) return Promise.reject(new Error("Codex is unavailable"))
+		if (this.closed || this.proc.exitCode !== null || this.proc.killed) return Promise.reject(new Error("Codex is unavailable"))
 		const id = this.nextId++
 		return new Promise((resolve, reject) => {
 			const timer = setTimeout(() => {
@@ -102,9 +103,11 @@ class CodexClient {
 		})
 	}
 	notify(method, params = {}) {
+		if (this.closed) return
 		this.proc.stdin.write(JSON.stringify({ method, params }) + "\n")
 	}
 	respond(id, result) {
+		if (this.closed) return
 		this.proc.stdin.write(JSON.stringify({ id, result }) + "\n")
 	}
 	async initialize(version) {
@@ -122,7 +125,13 @@ class CodexClient {
 		this.onEvent({ type: "error", message: error.message })
 	}
 	dispose() {
+		if (this.closed) return
 		this.closed = true
+		for (const pending of this.pending.values()) {
+			clearTimeout(pending.timer)
+			pending.reject(new Error("Codex connection closed"))
+		}
+		this.pending.clear()
 		this.proc.kill()
 	}
 }
@@ -133,6 +142,10 @@ class DicodeView {
 		const savedThread = context.globalState.get(THREAD_KEY)
 		this.threadId = savedThread?.cwd === this.workspace ? savedThread.id : null
 		this.busy = false
+		this.stopping = false
+		this.interruptSent = false
+		this.runSequence = 0
+		this.activeRunId = null
 		this.approvals = new Map()
 		this.instructionsPath = path.join(context.extensionPath, "dicode-instructions.md")
 		this.instructions = fs.readFileSync(this.instructionsPath, "utf8")
@@ -187,10 +200,13 @@ class DicodeView {
 		this.postState()
 	}
 	async postState() {
+		const version = (this.stateVersion = (this.stateVersion || 0) + 1)
 		this.post({
 			type: "state",
+			version,
 			loggedIn: !!(await this.tokens())?.access_token,
 			busy: this.busy,
+			stopping: this.stopping,
 			threadId: this.threadId,
 			workspace: this.workspace || "",
 			models: this.models || [],
@@ -282,18 +298,25 @@ class DicodeView {
 	}
 	async ensureClient() {
 		const token = await this.accessToken()
+		if (this.clientPromise) return this.clientPromise
 		if (this.client) return this.client
-		const binary = await this.ensureBinary()
-		const client = new CodexClient(binary, `${this.serverUrl}/codex/v1`, token, this.instructionsPath, (event) => this.onCodexEvent(event))
-		this.client = client
-		try {
-			await client.initialize(EXTENSION_VERSION)
-		} catch (error) {
-			client.dispose()
-			this.client = null
-			throw error
-		}
-		return client
+		const pending = (async () => {
+			const binary = await this.ensureBinary()
+			const client = new CodexClient(binary, `${this.serverUrl}/codex/v1`, token, this.instructionsPath, (event) => {
+				if (this.client === client) this.onCodexEvent(event)
+			})
+			this.client = client
+			try {
+				await client.initialize(EXTENSION_VERSION)
+			} catch (error) {
+				client.dispose()
+				if (this.client === client) this.client = null
+				throw error
+			}
+			return client
+		})()
+		this.clientPromise = pending
+		try { return await pending } finally { if (this.clientPromise === pending) this.clientPromise = null }
 	}
 	async ensureBinary() {
 		const override = vscode.workspace.getConfiguration("dicodeCodex").get("codexPath")
@@ -326,10 +349,16 @@ class DicodeView {
 			return
 		}
 		if (event.type === "error") {
+			clearTimeout(this.stopTimer)
 			this.client = null
 			this.loadedThreadId = null
 			this.busy = false
+			this.stopping = false
+			this.interruptSent = false
+			this.activeRunId = null
+			this.turnId = null
 			this.approvals.clear()
+			this.post({ type: "approvalsCleared" })
 			const turn = this.conversation.turns.at(-1)
 			if (turn && ["starting", "inProgress"].includes(turn.status)) { turn.status = "failed"; turn.error = { message: event.message }; this.persistHistory() }
 			this.post(event)
@@ -345,7 +374,15 @@ class DicodeView {
 			this.approvals.delete(String(message.params?.requestId ?? message.params?.id))
 			this.post({ type: "rpc", method: message.method, params: message.params })
 		} else if (message.method === "turn/completed") {
+			clearTimeout(this.stopTimer)
+			this.stopping = false
+			this.interruptSent = false
+			this.activeRunId = null
 			this.conversation.receive(message.method, message.params)
+			if (message.params?.turn?.status === "interrupted" || message.params?.turn?.status === "failed") {
+				this.approvals.clear()
+				this.post({ type: "approvalsCleared" })
+			}
 			this.persistHistory()
 			this.busy = false
 			this.turnId = null
@@ -354,6 +391,10 @@ class DicodeView {
 		} else if (message.method === "error") {
 			this.post({ type: "error", message: message.params.error?.message || "Codex error" })
 		} else if (/^(turn\/|item\/)/.test(message.method || "")) {
+			if (message.method === "turn/started" && this.busy) {
+				this.turnId = message.params?.turn?.id || this.turnId
+				if (this.stopping) this.interruptCurrentTurn()
+			}
 			const params = message.params?.item?.type === "reasoning"
 				? { ...message.params, item: { ...message.params.item, content: undefined } }
 				: message.params
@@ -361,6 +402,46 @@ class DicodeView {
 			this.scheduleHistory()
 			this.post({ type: "rpc", method: message.method, params })
 		}
+	}
+	async interruptCurrentTurn() {
+		if (!this.busy || !this.stopping || !this.turnId || this.interruptSent || !this.client) return
+		this.interruptSent = true
+		try {
+			await this.client.request("turn/interrupt", { threadId: this.threadId, turnId: this.turnId })
+			if (this.busy && this.stopping) {
+				clearTimeout(this.stopTimer)
+				this.stopTimer = setTimeout(() => this.recoverStoppedTurn(), 8000)
+			}
+		} catch (error) {
+			if (this.busy && this.stopping) this.recoverStoppedTurn(`停止确认失败：${error.message}`)
+		}
+	}
+	async stop() {
+		if (!this.busy || this.stopping) return
+		this.stopping = true
+		this.postState()
+		this.stopTimer = setTimeout(() => this.recoverStoppedTurn(), 15000)
+		this.interruptCurrentTurn()
+	}
+	recoverStoppedTurn(reason = "未收到结束通知，已重连 Agent") {
+		if (!this.busy || !this.stopping) return
+		clearTimeout(this.stopTimer)
+		this.busy = false
+		this.stopping = false
+		this.interruptSent = false
+		this.activeRunId = null
+		this.turnId = null
+		this.client?.dispose()
+		this.client = null
+		this.loadedThreadId = null
+		this.approvals.clear()
+		this.post({ type: "approvalsCleared" })
+		const turn = this.conversation.turns.at(-1)
+		if (turn && ["starting", "inProgress"].includes(turn.status))
+			this.conversation.receive("turn/completed", { turnId: turn.id, turn: { id: turn.id, status: "interrupted" } })
+		this.persistHistory()
+		this.post({ type: "stopped", message: reason })
+		this.postState()
 	}
 	scheduleHistory() {
 		if (this.historyTimer) return
@@ -380,43 +461,60 @@ class DicodeView {
 		if (!text) throw new Error("请输入任务")
 		if (!this.workspace) throw new Error("请先打开工作区")
 		if (!this.models?.some((item) => item.id === model)) throw new Error("请选择可用模型")
-		const client = await this.ensureClient()
-		if (this.threadId && this.loadedThreadId !== this.threadId) {
-			try {
-				await client.request("thread/resume", { threadId: this.threadId, excludeTurns: true, baseInstructions: this.instructions })
-			} catch {
-				this.threadId = null
-			}
-			this.loadedThreadId = this.threadId
-		}
-		if (!this.threadId) {
-			const result = await client.request("thread/start", {
-				model,
-				cwd: this.workspace,
-				approvalPolicy: "on-request",
-				sandbox: "workspace-write",
-				baseInstructions: this.instructions,
-			})
-			this.threadId = result.thread.id
-			this.loadedThreadId = this.threadId
-			await this.context.globalState.update(THREAD_KEY, { id: this.threadId, cwd: this.workspace })
-			this.conversation.threadId = this.threadId
-		}
 		this.busy = true
-		this.conversation.threadId = this.threadId
+		const runId = ++this.runSequence
+		this.activeRunId = runId
+		this.stopping = false
+		this.interruptSent = false
+		this.turnId = null
 		this.conversation.begin(text)
-		this.persistHistory()
 		this.postState()
 		try {
+			const client = await this.ensureClient()
+			if (this.activeRunId !== runId) return
+			if (this.stopping) return this.recoverStoppedTurn("已取消")
+			if (this.threadId && this.loadedThreadId !== this.threadId) {
+				try {
+					await client.request("thread/resume", { threadId: this.threadId, excludeTurns: true, baseInstructions: this.instructions })
+				} catch (error) {
+					throw new Error(`无法恢复当前会话：${error.message}`)
+				}
+				this.loadedThreadId = this.threadId
+			}
+			if (this.activeRunId !== runId) return
+			if (this.stopping) return this.recoverStoppedTurn("已取消")
+			if (!this.threadId) {
+				const started = await client.request("thread/start", {
+					model,
+					cwd: this.workspace,
+					approvalPolicy: "on-request",
+					sandbox: "workspace-write",
+					baseInstructions: this.instructions,
+				})
+				this.threadId = started.thread.id
+				this.loadedThreadId = this.threadId
+				await this.context.globalState.update(THREAD_KEY, { id: this.threadId, cwd: this.workspace })
+			}
+			if (this.activeRunId !== runId) return
+			if (this.stopping) return this.recoverStoppedTurn("已取消")
+			this.conversation.threadId = this.threadId
+			this.persistHistory()
 			const result = await client.request("turn/start", {
 				threadId: this.threadId,
 				cwd: this.workspace,
 				model,
 				input: [{ type: "text", text }],
 			})
-			this.turnId = result.turn.id
+			if (this.activeRunId === runId && this.busy) {
+				this.turnId = this.turnId || result.turn.id
+				if (this.stopping) this.interruptCurrentTurn()
+			}
 		} catch (error) {
+			if (this.activeRunId !== runId) return
+			clearTimeout(this.stopTimer)
 			this.busy = false
+			this.stopping = false
+			this.activeRunId = null
 			const turn = this.conversation.turns.at(-1)
 			if (turn?.status === "starting") { turn.status = "failed"; turn.error = { message: error.message }; this.persistHistory() }
 			this.postState()
@@ -439,8 +537,15 @@ class DicodeView {
 			return
 		}
 		if (message.type === "logout") {
+			clearTimeout(this.stopTimer)
+			clearTimeout(this.historyTimer)
 			this.client?.dispose()
 			this.client = null
+			this.busy = false
+			this.stopping = false
+			this.activeRunId = null
+			this.turnId = null
+			this.approvals.clear()
 			this.threadId = null
 			this.loadedThreadId = null
 			this.models = []
@@ -503,8 +608,8 @@ class DicodeView {
 			await vscode.window.showTextDocument(document, location ? { selection: new vscode.Range(Number(location[1]) - 1, 0, Number(location[1]) - 1, 0) } : undefined)
 			return
 		}
-		if (message.type === "stop" && this.busy && this.turnId) {
-			await this.client.request("turn/interrupt", { threadId: this.threadId, turnId: this.turnId })
+		if (message.type === "stop") {
+			await this.stop()
 			return
 		}
 		if (message.type === "approve") {
@@ -515,6 +620,7 @@ class DicodeView {
 		}
 	}
 	dispose() {
+		clearTimeout(this.stopTimer)
 		clearTimeout(this.historyTimer)
 		this.persistHistory()
 		this.client?.dispose()

@@ -8,16 +8,29 @@
   <title>DiCode</title>
 </head>
 <body>
-  <header><span class="brand"><span class="brand-mark">◈</span> DiCode</span><div class="header-actions"><button id="threadsButton" title="最近会话">☰</button><button id="newThread" title="新会话">＋</button></div></header>
+  <header><span class="brand"><span class="brand-mark">✦</span> DiCode <span class="brand-sub">代码助手</span></span><div class="header-actions"><button id="threadsButton" title="最近会话" aria-label="最近会话">☰</button><button id="newThread" title="新会话" aria-label="新会话">＋</button></div></header>
   <section id="login" class="login"><div class="hero">让想法成为代码。</div><p>登录后，在当前工作区和 DiCode 一起完成任务。</p><button id="loginButton" class="primary">登录 DiCode</button></section>
   <main id="app" hidden>
-    <div class="toolbar"><span id="workspace"></span><button id="logout" title="退出登录">退出</button></div>
+    <div class="toolbar"><span class="workspace-pill"><span class="workspace-dot"></span><span id="workspace"></span></span><button id="logout" title="退出登录">退出</button></div>
     <nav id="threadList" hidden aria-label="最近会话"></nav>
     <div id="messages" aria-live="polite"></div>
     <template id="emptyTemplate"><div class="empty"><div class="spark">✳</div><h2>从一个问题开始</h2><p>描述任务，DiCode 会在工作区中逐步完成。</p></div></template>
     <div id="approval" hidden></div>
-    <div class="composer"><textarea id="prompt" rows="3" placeholder="描述你想完成的任务…"></textarea><div class="composer-bottom"><select id="model" aria-label="模型"></select><button id="send" class="primary" title="发送">➤</button><button id="stop" hidden title="停止">■</button></div></div>
-    <div id="status" role="status"></div>
+    <div class="composer-shell">
+      <div class="composer">
+        <div class="composer-title"><span class="composer-spark">✦</span><span>向 DiCode 提问</span></div>
+        <textarea id="prompt" rows="2" placeholder="描述问题、修改需求或下一步…" aria-label="输入问题"></textarea>
+        <div class="composer-bottom">
+          <div class="model-control"><button id="modelPicker" type="button" aria-label="选择模型" aria-haspopup="listbox" aria-expanded="false"><span class="model-spark">◈</span><span id="modelLabel">选择模型</span><span class="chevron">⌄</span></button><div id="modelMenu" role="listbox" hidden></div></div>
+          <select id="model" hidden aria-label="模型"></select>
+          <span class="input-hint">Enter 发送</span>
+          <button id="send" class="send-button" title="发送" aria-label="发送">↑</button>
+          <button id="stop" class="stop-button" hidden title="停止当前任务" aria-label="停止当前任务">■</button>
+          <button id="stopping" class="stopping-button" hidden disabled aria-label="正在停止">···</button>
+        </div>
+      </div>
+      <div id="statusLine" class="status-line" role="status" aria-live="polite"><span id="statusDot" class="status-dot"></span><span id="status">准备就绪</span></div>
+    </div>
   </main>
   <script nonce="{{NONCE}}" src="{{JS}}"></script>
 </body>
