@@ -203,17 +203,20 @@ class DicodeView {
 	}
 	async postState() {
 		const version = (this.stateVersion = (this.stateVersion || 0) + 1)
-		this.post({
+		const lastTurn = this.conversation.turns.at(-1)
+		const state = {
 			type: "state",
 			version,
-			loggedIn: !!(await this.tokens())?.access_token,
 			busy: this.busy,
 			stopping: this.stopping,
+			lastTurn: lastTurn ? { id: lastTurn.id, status: lastTurn.status, error: lastTurn.error } : null,
 			threadId: this.threadId,
 			workspace: this.workspace || "",
 			models: this.models || [],
 			threads: this.threads.filter((thread) => thread.cwd === this.workspace).map(({ id, title, updatedAt }) => ({ id, title, updatedAt })),
-		})
+		}
+		state.loggedIn = !!(await this.tokens())?.access_token
+		this.post(state)
 	}
 	params(state, machineId) {
 		return new URLSearchParams({

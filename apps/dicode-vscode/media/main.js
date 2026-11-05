@@ -231,7 +231,7 @@ function render() {
     const files = fileSummary(turn)
     if (files) content.append(files)
     for (const item of finalItems) content.append(itemView(item, turn))
-    if (turn.status === 'inProgress' || turn.status === 'starting') content.append(element('div', 'working', stopping && turn === store.turns.at(-1) ? '◌  正在停止…' : '◌  DiCode 正在处理…'))
+    if ((turn.status === 'inProgress' || turn.status === 'starting') && busy && turn === store.turns.at(-1)) content.append(element('div', 'working', stopping ? '◌  正在停止…' : '◌  DiCode 正在处理…'))
     if (turn.status === 'interrupted') content.append(element('div', 'turn-interrupted', '已停止 · 可以继续提问'))
     if (turn.error) content.append(element('div', 'turn-error', turn.error.message || String(turn.error)))
     section.append(content)
@@ -263,7 +263,23 @@ function setState(state) {
   if (typeof state.version === 'number') latestStateVersion = state.version
   $('login').hidden = state.loggedIn; $('app').hidden = !state.loggedIn
   if (state.busy) awaitingHostBusy = false
+  const wasBusy = busy, wasStopping = stopping
   busy = !!state.busy || awaitingHostBusy; stopping = !!state.stopping || (awaitingHostBusy && stopping)
+  const latest = store.turns.at(-1)
+  const wasStatus = latest?.status, wasError = latest?.error?.message
+  if (!busy && latest) {
+    const terminal = state.lastTurn?.status
+    if (['completed', 'interrupted', 'failed'].includes(terminal) && (!state.lastTurn.id || state.lastTurn.id === latest.id || latest.id.startsWith('local-'))) {
+      latest.status = terminal
+      latest.error = state.lastTurn.error || null
+    } else if (latest.status === 'starting' || latest.status === 'inProgress') {
+      latest.status = 'interrupted'
+    }
+    if (latest.status === 'completed') setStatus('已完成 · 可以继续提问', 'success')
+    else if (latest.status === 'interrupted') setStatus('已停止 · 可以继续提问', 'warning')
+    else if (latest.status === 'failed') setStatus('任务失败 · 可以重试', 'error')
+  }
+  if (latest && (wasBusy !== busy || wasStopping !== stopping || wasStatus !== latest.status || wasError !== latest.error?.message)) { dirtyTurns.add(latest.id); schedule() }
   updateComposer()
   if (stopping) setStatus('正在停止当前任务…', 'warning')
   $('workspace').textContent = state.workspace || '未打开工作区'
@@ -344,7 +360,7 @@ function approvalView(message) {
 window.addEventListener('message', event => {
   const msg = event.data
   if (msg.type === 'state') setState(msg)
-  if (msg.type === 'history') { store.restore(msg.snapshot); turnNodes.clear(); $('messages').replaceChildren(); visibleTurnLimit = 30; followMessages = true; for (const turn of store.turns) dirtyTurns.add(turn.id); schedule() }
+  if (msg.type === 'history') { store.restore(msg.snapshot); const latest = store.turns.at(-1); if (!busy && latest && ['starting', 'inProgress'].includes(latest.status)) { latest.status = 'interrupted'; setStatus('已停止 · 可以继续提问', 'warning') } turnNodes.clear(); $('messages').replaceChildren(); visibleTurnLimit = 30; followMessages = true; for (const turn of store.turns) dirtyTurns.add(turn.id); schedule() }
   if (msg.type === 'notice') setStatus(msg.message, 'working')
   if (msg.type === 'error') { awaitingHostBusy = false; setStatus(`错误：${msg.message}`, 'error'); const turn = store.turns.at(-1); if (turn && busy) { turn.error = { message: msg.message }; turn.status = 'failed'; dirtyTurns.add(turn.id); schedule() } }
   if (msg.type === 'stopped') { awaitingHostBusy = false; busy = false; stopping = false; updateComposer(); setStatus(msg.message || '已停止，可以继续提问', 'warning'); const turn = store.turns.at(-1); if (turn) { turn.status = 'interrupted'; dirtyTurns.add(turn.id); schedule() } }

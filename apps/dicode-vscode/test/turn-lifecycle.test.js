@@ -149,3 +149,15 @@ test('stop timeout recovers even when previous command output was null', async (
   assert.equal(posted.filter(message => message.type === 'state').at(-1).busy, false)
   view.dispose()
 })
+
+test('idle state includes the terminal turn status for webview reconciliation', async () => {
+  const { view, posted } = makeView()
+  view.conversation.begin('运行命令')
+  view.conversation.receive('turn/started', { threadId: 'thread', turn: { id: 't1', status: 'inProgress' } })
+  view.conversation.receive('turn/completed', { turnId: 't1', turn: { id: 't1', status: 'interrupted' } })
+  await view.postState()
+  const state = posted.filter(message => message.type === 'state').at(-1)
+  assert.equal(state.busy, false)
+  assert.deepEqual(state.lastTurn, { id: 't1', status: 'interrupted', error: null })
+  view.dispose()
+})
