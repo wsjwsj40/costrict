@@ -463,8 +463,9 @@ class DicodeView {
 	persistHistory() {
 		if (!this.threadId) return
 		const snapshot = this.conversation.snapshot()
-		if (JSON.stringify(snapshot).length > 2_000_000) return
-		const title = snapshot.turns?.[0]?.user?.slice(0, 60) || "新会话"
+		while (snapshot.turns.length > 1 && JSON.stringify(snapshot).length > 2_000_000) snapshot.turns.shift()
+		const previous = this.threads.find((thread) => thread.id === this.threadId && thread.cwd === this.workspace)
+		const title = previous?.title || (typeof snapshot.turns?.[0]?.user === "string" ? snapshot.turns[0].user.slice(0, 60) || "新会话" : "新会话")
 		this.threads = [{ id: this.threadId, cwd: this.workspace, title, updatedAt: Date.now(), snapshot }, ...this.threads.filter((thread) => thread.id !== this.threadId || thread.cwd !== this.workspace)].slice(0, 20)
 		this.context.globalState.update(THREADS_KEY, this.threads)
 		this.postState()

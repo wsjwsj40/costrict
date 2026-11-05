@@ -49,8 +49,8 @@ class ConversationStore {
       const item = this.item(turn, incoming.id, incoming.type)
       item.raw = { ...item.raw, ...incoming }
       item.status = method === 'item/completed' ? (incoming.status || 'completed') : (incoming.status || 'inProgress')
-      if (incoming.text !== undefined) item.text = incoming.text
-      if (incoming.aggregatedOutput !== undefined) item.output = incoming.aggregatedOutput
+      if (incoming.text !== undefined) item.text = typeof incoming.text === 'string' ? incoming.text : ''
+      if (incoming.aggregatedOutput !== undefined) item.output = typeof incoming.aggregatedOutput === 'string' ? incoming.aggregatedOutput : ''
       if (incoming.summary !== undefined) item.summary = Array.isArray(incoming.summary) ? incoming.summary.map(p => p.text || p).join('\n') : incoming.summary
     } else if (['item/agentMessage/delta', 'item/commandExecution/outputDelta', 'item/reasoning/summaryTextDelta'].includes(method)) {
       const item = this.item(turn, params.itemId, deltaType(method))
@@ -66,7 +66,7 @@ class ConversationStore {
     return turn
   }
   snapshot() {
-    return { threadId: this.threadId, turns: this.turns.slice(-20).map(turn => ({ ...turn, items: turn.items.map(item => ({ ...item, output: item.output.slice(-30000), raw: { ...item.raw, aggregatedOutput: item.raw?.aggregatedOutput?.slice(-30000) } })) })) }
+    return { threadId: this.threadId, turns: this.turns.slice(-100).map(turn => ({ ...turn, items: (turn.items || []).map(item => ({ ...item, output: String(item.output || '').slice(-30000), raw: { ...item.raw, aggregatedOutput: typeof item.raw?.aggregatedOutput === 'string' ? item.raw.aggregatedOutput.slice(-30000) : item.raw?.aggregatedOutput } })) })) }
   }
   restore(snapshot) {
     this.reset()

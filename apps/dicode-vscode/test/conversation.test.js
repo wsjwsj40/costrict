@@ -56,3 +56,12 @@ test('interruption and reasoning summary retain separate item state', () => {
   assert.equal(s.turns[0].status, 'interrupted')
   assert.equal(s.turns[0].items[1].status, 'interrupted')
 })
+
+test('null command output from app-server cannot break history snapshots', () => {
+  const s = new ConversationStore(); s.begin('运行服务器')
+  s.receive('item/completed', { turnId: 't', item: { id: 'cmd', type: 'commandExecution', aggregatedOutput: null } })
+  assert.equal(s.turns[0].items[0].output, '')
+  assert.equal(s.snapshot().turns[0].items[0].output, '')
+  s.turns[0].items[0].output = null // old saved state
+  assert.equal(s.snapshot().turns[0].items[0].output, '')
+})

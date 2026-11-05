@@ -109,3 +109,43 @@ test('normal completion permits another turn on the existing thread', async () =
   assert.equal(view.busy, false)
   view.dispose()
 })
+
+test('stop completes and permits another question when command output is null', async () => {
+  const { view, posted } = makeView()
+  const calls = []
+  const client = { request(method) { calls.push(method); return Promise.resolve(method === 'turn/start' ? { turn: { id: 't2' } } : {}) }, dispose() {} }
+  view.client = client
+  view.conversation.begin('启动游戏')
+  view.conversation.receive('turn/started', { threadId: 'thread', turn: { id: 't1', status: 'inProgress' } })
+  view.conversation.receive('item/completed', { turnId: 't1', item: { id: 'cmd', type: 'commandExecution', aggregatedOutput: null } })
+  view.busy = true
+  view.turnId = 't1'
+  await view.stop()
+  rpc(view, 'turn/completed', { threadId: 'thread', turnId: 't1', turn: { id: 't1', status: 'interrupted' } })
+  await tick()
+  assert.equal(view.busy, false)
+  assert.equal(view.stopping, false)
+  assert.equal(posted.filter(message => message.type === 'state').at(-1).busy, false)
+  view.ensureClient = async () => { view.client = client; return client }
+  await view.send('继续修复', 'm')
+  assert.equal(calls.includes('turn/start'), true)
+  view.dispose()
+})
+
+test('stop timeout recovers even when previous command output was null', async () => {
+  const { view, posted } = makeView()
+  view.client = { request: async () => ({}), dispose() {} }
+  view.conversation.begin('启动游戏')
+  view.conversation.receive('turn/started', { threadId: 'thread', turn: { id: 't1', status: 'inProgress' } })
+  view.conversation.receive('item/completed', { turnId: 't1', item: { id: 'cmd', type: 'commandExecution', aggregatedOutput: null } })
+  view.busy = true
+  view.turnId = 't1'
+  await view.stop()
+  view.recoverStoppedTurn()
+  await tick()
+  assert.equal(view.busy, false)
+  assert.equal(view.conversation.turns[0].status, 'interrupted')
+  assert.equal(posted.filter(message => message.type === 'stopped').length, 1)
+  assert.equal(posted.filter(message => message.type === 'state').at(-1).busy, false)
+  view.dispose()
+})

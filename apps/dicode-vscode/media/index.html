@@ -11,10 +11,10 @@
   <header><span class="brand"><span class="brand-mark">✦</span> DiCode <span class="brand-sub">代码助手</span></span><div class="header-actions"><button id="threadsButton" title="最近会话" aria-label="最近会话">☰</button><button id="newThread" title="新会话" aria-label="新会话">＋</button></div></header>
   <section id="login" class="login"><div class="hero">让想法成为代码。</div><p>登录后，在当前工作区和 DiCode 一起完成任务。</p><button id="loginButton" class="primary">登录 DiCode</button></section>
   <main id="app" hidden>
+    <button id="recentPrompt" class="recent-prompt" hidden type="button" aria-label="跳转到当前提问"><span class="recent-prompt-icon">↥</span><span class="recent-prompt-copy"><span class="recent-prompt-label">当前提问 · 点击定位</span><span id="recentPromptText" class="recent-prompt-text"></span></span></button>
     <div class="toolbar"><span class="workspace-pill"><span class="workspace-dot"></span><span id="workspace"></span></span><button id="logout" title="退出登录">退出</button></div>
     <nav id="threadList" hidden aria-label="最近会话"></nav>
-    <button id="recentPrompt" class="recent-prompt" hidden type="button" aria-label="跳转到最近的提问"><span class="recent-prompt-icon">↥</span><span class="recent-prompt-copy"><span class="recent-prompt-label">最近提问 · 点击定位</span><span id="recentPromptText" class="recent-prompt-text"></span></span></button>
-    <div id="messages" aria-live="polite"></div>
+    <div class="conversation-area"><div id="messages" aria-live="polite"></div><button id="backToBottom" class="back-to-bottom" hidden type="button">↓ 回到底部</button></div>
     <template id="emptyTemplate"><div class="empty"><div class="spark">✳</div><h2>从一个问题开始</h2><p>描述任务，DiCode 会在工作区中逐步完成。</p></div></template>
     <div id="approval" hidden></div>
     <div class="composer-shell">

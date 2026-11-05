@@ -133,13 +133,75 @@ test('streaming follows the bottom until the user scrolls up, and recent prompt 
   await tick()
   assert.equal(list.scrollTop, height)
   list.scrollTop = 100
+  list.dispatchEvent(new dom.window.WheelEvent('wheel', { deltaY: -100 }))
   list.dispatchEvent(new dom.window.Event('scroll'))
   height = 1800
   emit({ type: 'rpc', method: 'item/agentMessage/delta', params: { itemId: 'a', delta: '更多内容' } })
   await tick()
   assert.equal(list.scrollTop, 100)
+  assert.equal(doc.getElementById('backToBottom').hidden, false)
   doc.getElementById('recentPrompt').click()
   assert.equal(scrolledTo.node.className, 'user-message')
   assert.equal(scrolledTo.options.block, 'start')
+  doc.getElementById('backToBottom').click()
+  assert.equal(list.scrollTop, height)
+  assert.equal(doc.getElementById('backToBottom').hidden, true)
+  dom.window.close()
+})
+
+test('pinned prompt reflects the user turn above the current viewport', async () => {
+  const { dom, emit, doc } = setup()
+  const list = doc.getElementById('messages')
+  Object.defineProperty(list, 'scrollHeight', { get: () => 2000 })
+  Object.defineProperty(list, 'clientHeight', { get: () => 200 })
+  list.getBoundingClientRect = () => ({ top: 100 })
+  dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
+    if (!this.classList.contains('user-message')) return { top: 0 }
+    return { top: 100 + [...list.querySelectorAll('.user-message')].indexOf(this) * 400 - list.scrollTop }
+  }
+  emit({ type: 'state', loggedIn: true, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: [1, 2, 3, 4].map(n => ({ id: `t${n}`, user: `第${n}条输入`, items: [], status: 'completed' })) } })
+  await tick()
+  list.scrollTop = 500
+  list.dispatchEvent(new dom.window.WheelEvent('wheel', { deltaY: -100 }))
+  list.dispatchEvent(new dom.window.Event('scroll'))
+  assert.equal(doc.getElementById('recentPromptText').textContent, '第2条输入')
+  list.scrollTop = 900
+  list.dispatchEvent(new dom.window.Event('scroll'))
+  assert.equal(doc.getElementById('recentPromptText').textContent, '第3条输入')
+  list.scrollTop = 1500
+  list.dispatchEvent(new dom.window.Event('scroll'))
+  assert.equal(doc.getElementById('recentPromptText').textContent, '第4条输入')
+  dom.window.close()
+})
+
+test('long conversations show a recent window and load older turns on demand', async () => {
+  const { dom, emit, doc } = setup()
+  emit({ type: 'state', loggedIn: true, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: Array.from({ length: 35 }, (_, i) => ({ id: `t${i}`, user: `输入${i}`, items: [], status: 'completed' })) } })
+  await tick()
+  assert.equal(doc.querySelectorAll('.turn').length, 30)
+  doc.querySelector('.show-earlier').click()
+  assert.equal(doc.querySelectorAll('.turn').length, 35)
+  assert.equal(doc.querySelector('.show-earlier'), null)
+  dom.window.close()
+})
+
+test('a paused reader keeps the same visible turns when a new turn arrives', async () => {
+  const { dom, emit, doc } = setup()
+  const list = doc.getElementById('messages')
+  Object.defineProperty(list, 'scrollHeight', { get: () => 3000 })
+  Object.defineProperty(list, 'clientHeight', { get: () => 200 })
+  emit({ type: 'state', loggedIn: true, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: Array.from({ length: 31 }, (_, i) => ({ id: `t${i}`, user: `输入${i}`, items: [], status: 'completed' })) } })
+  await tick()
+  assert.equal(doc.querySelector('.turn').dataset.turnId, 't1')
+  list.scrollTop = 300
+  list.dispatchEvent(new dom.window.WheelEvent('wheel', { deltaY: -100 }))
+  list.dispatchEvent(new dom.window.Event('scroll'))
+  emit({ type: 'rpc', method: 'turn/started', params: { threadId: 'thread', turn: { id: 't31', status: 'inProgress' } } })
+  await tick()
+  assert.equal(doc.querySelector('.turn').dataset.turnId, 't1')
+  assert.equal(list.scrollTop, 300)
   dom.window.close()
 })
