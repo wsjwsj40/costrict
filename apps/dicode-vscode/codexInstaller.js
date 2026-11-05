@@ -65,24 +65,24 @@ async function publishInstall(tempDir, installDir, executable, sha256) {
 	await fs.promises.rm(copying)
 }
 
-async function downloadArchive(url, target, expectedHash, onProgress) {
+async function downloadArchive(url, target, expectedHash, onProgress, label = "Codex") {
 	const response = await fetch(url, { signal: AbortSignal.timeout(600000), redirect: "error" })
-	if (!response.ok || !response.body) throw new Error(`Codex 下载失败：HTTP ${response.status}`)
+	if (!response.ok || !response.body) throw new Error(`${label} 下载失败：HTTP ${response.status}`)
 	const total = Number(response.headers.get("content-length")) || 0
-	if (total > MAX_ARCHIVE_BYTES) throw new Error("Codex 安装包过大")
+	if (total > MAX_ARCHIVE_BYTES) throw new Error(`${label} 安装包过大`)
 	const hash = crypto.createHash("sha256")
 	let bytes = 0
 	const meter = new Transform({
 		transform(chunk, _encoding, done) {
 			bytes += chunk.length
-			if (bytes > MAX_ARCHIVE_BYTES) return done(new Error("Codex 安装包过大"))
+			if (bytes > MAX_ARCHIVE_BYTES) return done(new Error(`${label} 安装包过大`))
 			hash.update(chunk)
 			onProgress?.(total ? Math.min(99, Math.floor((bytes * 100) / total)) : null)
 			done(null, chunk)
 		},
 	})
 	await pipeline(Readable.fromWeb(response.body), meter, fs.createWriteStream(target, { flags: "wx" }))
-	if (hash.digest("hex") !== expectedHash.toLowerCase()) throw new Error("Codex 安装包 SHA-256 校验失败")
+	if (hash.digest("hex") !== expectedHash.toLowerCase()) throw new Error(`${label} 安装包 SHA-256 校验失败`)
 }
 
 async function ensureCodexInstalled(baseUrl, storagePath, onProgress) {
@@ -130,4 +130,4 @@ async function ensureCodexInstalled(baseUrl, storagePath, onProgress) {
 	}
 }
 
-module.exports = { ensureCodexInstalled, publishInstall }
+module.exports = { ensureCodexInstalled, publishInstall, isInstalled, downloadArchive, run }

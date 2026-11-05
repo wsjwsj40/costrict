@@ -45,6 +45,13 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .thread-entry.selected { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
 .thread-empty { padding: 8px; color: var(--muted); font-size: 11px; }
 #messages { flex: 1; min-height: 120px; overflow-y: auto; padding: 16px 12px 25px; }
+.recent-prompt { display: flex; align-items: center; gap: 9px; width: calc(100% - 20px); margin: 3px 10px 0; padding: 7px 9px; text-align: left; border: 1px solid color-mix(in srgb, var(--brand) 22%, var(--border)); background: color-mix(in srgb, var(--brand) 7%, var(--surface)); box-shadow: 0 2px 8px var(--vscode-widget-shadow, #0002); }
+.recent-prompt:hover { background: color-mix(in srgb, var(--brand) 13%, var(--surface)); }
+.recent-prompt-icon { flex: none; color: var(--brand); font-size: 17px; }
+.recent-prompt-copy { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.recent-prompt-label { color: var(--brand); font-size: 10px; font-weight: 650; }
+.recent-prompt-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.user-message { scroll-margin-top: 12px; }
 .empty { text-align: center; padding: 28px 10px; }
 .empty h2 { font-size: 16px; margin: 7px 0 4px; }
 .spark { font-size: 31px; color: var(--brand); }

@@ -4,6 +4,7 @@ const crypto = require("node:crypto")
 const path = require("node:path")
 const fs = require("node:fs")
 const { ensureCodexInstalled } = require("./codexInstaller")
+const { ensurePowerShellInstalled, powerShellEnv } = require("./powerShellInstaller")
 const { beforeFromUnifiedDiff } = require("./diff")
 const { ConversationStore } = require("./media/conversation")
 const EXTENSION_VERSION = require("./package.json").version
@@ -15,7 +16,7 @@ const HISTORY_KEY = "dicodeCodex.history"
 const THREADS_KEY = "dicodeCodex.threads"
 
 class CodexClient {
-	constructor(binary, baseUrl, token, instructionsPath, onEvent) {
+	constructor(binary, baseUrl, token, instructionsPath, onEvent, powerShellPath) {
 		this.onEvent = onEvent
 		this.nextId = 1
 		this.pending = new Map()
@@ -43,7 +44,7 @@ class CodexClient {
 				"-c",
 				"model_providers.dicode.supports_websockets=false",
 			],
-			{ env: { ...process.env, DICODE_ACCESS_TOKEN: token }, stdio: ["pipe", "pipe", "pipe"] },
+			{ env: { ...(powerShellPath ? powerShellEnv(powerShellPath) : process.env), DICODE_ACCESS_TOKEN: token }, stdio: ["pipe", "pipe", "pipe"] },
 		)
 		this.proc.stdout.setEncoding("utf8")
 		this.proc.stdout.on("data", (chunk) => this.consume(chunk))
@@ -191,6 +192,7 @@ class DicodeView {
 			.then((tokens) => tokens?.access_token && this.loadModels())
 			.catch((error) => this.post({ type: "error", message: error.message }))
 		this.ensureBinary().catch((error) => this.post({ type: "error", message: error.message }))
+		if (process.platform === "win32") this.ensurePowerShell().catch((error) => this.post({ type: "error", message: error.message }))
 	}
 	async tokens() {
 		return this.context.secrets.get(TOKEN_KEY).then((raw) => (raw ? JSON.parse(raw) : null))
@@ -301,10 +303,10 @@ class DicodeView {
 		if (this.clientPromise) return this.clientPromise
 		if (this.client) return this.client
 		const pending = (async () => {
-			const binary = await this.ensureBinary()
+			const [binary, powerShellPath] = await Promise.all([this.ensureBinary(), process.platform === "win32" ? this.ensurePowerShell() : Promise.resolve(null)])
 			const client = new CodexClient(binary, `${this.serverUrl}/codex/v1`, token, this.instructionsPath, (event) => {
 				if (this.client === client) this.onCodexEvent(event)
-			})
+			}, powerShellPath)
 			this.client = client
 			try {
 				await client.initialize(EXTENSION_VERSION)
@@ -342,6 +344,17 @@ class DicodeView {
 				})
 		}
 		return this.installPromise
+	}
+	async ensurePowerShell() {
+		if (!this.powerShellPromise) {
+			this.powerShellPromise = ensurePowerShellInstalled(this.serverUrl, this.context.globalStorageUri.fsPath, (progress) => {
+				this.post({ type: "notice", message: progress === null ? "正在下载 PowerShell 7…" : `正在安装 PowerShell 7：${progress}%` })
+			}).then((executable) => {
+				this.post({ type: "notice", message: "PowerShell 7 已就绪" })
+				return executable
+			}).catch((error) => { this.powerShellPromise = null; throw error })
+		}
+		return this.powerShellPromise
 	}
 	onCodexEvent(event) {
 		if (event.type === "diagnostic") {

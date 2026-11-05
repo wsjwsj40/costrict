@@ -2,7 +2,7 @@
 	"name": "dicode-codex",
 	"displayName": "DiCode",
 	"description": "DiCode coding agent powered by the unmodified Codex CLI",
-	"version": "0.2.2",
+	"version": "0.2.3",
 	"publisher": "atad-apts",
 	"repository": {
 		"type": "git",
@@ -57,11 +57,12 @@
 		"build": "esbuild media/main.js --bundle --platform=browser --format=iife --outfile=media/bundle.js --minify",
 		"vscode:prepublish": "npm run build",
 		"test": "npm run build && node --test test/*.test.js",
-		"check": "node --check extension.js && node --check codexInstaller.js && node --check diff.js && node --check media/conversation.js && node --check media/main.js"
+		"check": "node --check extension.js && node --check codexInstaller.js && node --check powerShellInstaller.js && node --check diff.js && node --check media/conversation.js && node --check media/main.js"
 	},
 	"files": [
 		"extension.js",
 		"codexInstaller.js",
+		"powerShellInstaller.js",
 		"diff.js",
 		"dicode-instructions.md",
 		"media/**",

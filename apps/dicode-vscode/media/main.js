@@ -30,6 +30,8 @@ markdown.renderer.rules.link_open = (tokens, idx, opts, env, self) => {
 let busy = false, stopping = false, activeApproval = null, approvalQueue = [], scheduled = false
 let latestStateVersion = -1
 let awaitingHostBusy = false
+let followMessages = true
+let recentPromptId = null
 const openDetails = new Set()
 const turnNodes = new Map(), dirtyTurns = new Set()
 function post(type, extra = {}) { vscode.postMessage({ type, ...extra }) }
@@ -44,6 +46,17 @@ function updateComposer() {
 }
 function resizePrompt() { const input = $('prompt'); input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 180)}px` }
 function nearBottom() { const e = $('messages'); return e.scrollHeight - e.scrollTop - e.clientHeight < 70 }
+function scrollToBottom() { const list = $('messages'); list.scrollTop = list.scrollHeight }
+function updateRecentPrompt() {
+  const turn = store.turns.findLast(t => t.user)
+  recentPromptId = turn?.id || null
+  $('recentPrompt').hidden = !turn
+  if (turn) {
+    const preview = turn.user.replace(/\s+/g, ' ').trim()
+    $('recentPromptText').textContent = preview
+    $('recentPrompt').title = preview
+  }
+}
 function schedule() { if (scheduled) return; scheduled = true; setTimeout(() => { scheduled = false; render() }, 32) }
 function markdownView(text) {
   const div = element('div', 'markdown')
@@ -173,7 +186,8 @@ function itemView(item, turn) {
   return toolView(item, turn)
 }
 function render() {
-  const list = $('messages'), follow = nearBottom()
+  const list = $('messages'), follow = followMessages
+  updateRecentPrompt()
   if (!store.turns.length) { list.replaceChildren($('emptyTemplate').content.cloneNode(true)); turnNodes.clear(); return }
   list.querySelector('.empty')?.remove()
   const present = new Set(store.turns.map(t => t.id))
@@ -181,6 +195,7 @@ function render() {
   for (const turn of store.turns) {
     if (turnNodes.has(turn.id) && !dirtyTurns.has(turn.id)) continue
     const section = element('section', 'turn')
+    section.dataset.turnId = turn.id
     if (turn.user) { const user = element('div', 'user-message'); user.append(element('div', 'speaker', '你'), markdownView(turn.user)); section.append(user) }
     const content = element('div', 'turn-content')
     const finalItems = []
@@ -202,7 +217,10 @@ function render() {
     turnNodes.set(turn.id, section)
   }
   dirtyTurns.clear()
-  if (follow) list.scrollTop = list.scrollHeight
+  if (follow) {
+    scrollToBottom()
+    requestAnimationFrame(() => { if (followMessages) scrollToBottom() })
+  }
 }
 function setState(state) {
   if (typeof state.version === 'number' && state.version < latestStateVersion) return
@@ -289,7 +307,7 @@ function approvalView(message) {
 window.addEventListener('message', event => {
   const msg = event.data
   if (msg.type === 'state') setState(msg)
-  if (msg.type === 'history') { store.restore(msg.snapshot); turnNodes.clear(); $('messages').replaceChildren(); for (const turn of store.turns) dirtyTurns.add(turn.id); schedule() }
+  if (msg.type === 'history') { store.restore(msg.snapshot); turnNodes.clear(); $('messages').replaceChildren(); followMessages = true; for (const turn of store.turns) dirtyTurns.add(turn.id); schedule() }
   if (msg.type === 'notice') setStatus(msg.message, 'working')
   if (msg.type === 'error') { awaitingHostBusy = false; setStatus(`错误：${msg.message}`, 'error'); const turn = store.turns.at(-1); if (turn && busy) { turn.error = { message: msg.message }; turn.status = 'failed'; dirtyTurns.add(turn.id); schedule() } }
   if (msg.type === 'stopped') { awaitingHostBusy = false; busy = false; stopping = false; updateComposer(); setStatus(msg.message || '已停止，可以继续提问', 'warning'); const turn = store.turns.at(-1); if (turn) { turn.status = 'interrupted'; dirtyTurns.add(turn.id); schedule() } }
@@ -314,19 +332,26 @@ window.addEventListener('message', event => {
   }
 })
 $('loginButton').onclick = () => post('login')
-$('logout').onclick = () => { store.reset(); render(); post('logout') }
-$('newThread').onclick = () => { if (!busy) { store.reset(); render(); post('newThread') } }
+$('logout').onclick = () => { store.reset(); followMessages = true; render(); post('logout') }
+$('newThread').onclick = () => { if (!busy) { store.reset(); followMessages = true; render(); post('newThread') } }
 $('threadsButton').onclick = () => { $('threadList').hidden = !$('threadList').hidden }
 $('send').onclick = () => {
   const text = $('prompt').value.trim(), model = $('model').value
   if (!text || !model || busy) return
-  dirtyTurns.add(store.begin(text).id); $('prompt').value = ''; awaitingHostBusy = true; busy = true; stopping = false
+  dirtyTurns.add(store.begin(text).id); $('prompt').value = ''; awaitingHostBusy = true; busy = true; stopping = false; followMessages = true
   resizePrompt(); updateComposer(); setStatus('正在连接 Agent…', 'working')
   render(); post('send', { text, model })
 }
 $('prompt').onkeydown = event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('send').click() } }
 $('stop').onclick = () => { if (!busy || stopping) return; stopping = true; updateComposer(); setStatus('正在停止当前任务…', 'warning'); dirtyTurns.add(store.turns.at(-1)?.id); schedule(); post('stop') }
 $('prompt').addEventListener('input', () => { resizePrompt(); updateComposer() })
+$('messages').addEventListener('scroll', () => { followMessages = nearBottom() })
+$('recentPrompt').onclick = () => {
+  const node = turnNodes.get(recentPromptId)?.querySelector('.user-message')
+  if (!node) return
+  followMessages = false
+  node.scrollIntoView({ block: 'start', behavior: 'smooth' })
+}
 $('modelPicker').onclick = () => {
   const menu = $('modelMenu')
   menu.hidden = !menu.hidden

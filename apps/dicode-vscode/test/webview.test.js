@@ -8,7 +8,7 @@ const html = fs.readFileSync(path.join(root, 'media/index.html'), 'utf8')
 const bundle = fs.readFileSync(path.join(root, 'media/bundle.js'), 'utf8')
 const tick = () => new Promise(resolve => setTimeout(resolve, 45))
 function setup() {
-  const dom = new JSDOM(html, { runScripts: 'outside-only', url: 'https://dicode.local/' })
+  const dom = new JSDOM(html, { runScripts: 'outside-only', pretendToBeVisual: true, url: 'https://dicode.local/' })
   const sent = []
   dom.window.acquireVsCodeApi = () => ({ postMessage: message => sent.push(message) })
   dom.window.eval(bundle)
@@ -110,5 +110,36 @@ test('model picker filters longer lists without changing the selected model', ()
   search.dispatchEvent(new dom.window.Event('input'))
   assert.equal([...doc.querySelectorAll('.model-option')].filter(option => !option.hidden).length, 1)
   assert.equal(doc.getElementById('model').value, 'm0')
+  dom.window.close()
+})
+
+test('streaming follows the bottom until the user scrolls up, and recent prompt jumps to its message', async () => {
+  const { dom, emit, doc } = setup()
+  const list = doc.getElementById('messages')
+  let height = 1000
+  Object.defineProperty(list, 'scrollHeight', { get: () => height })
+  Object.defineProperty(list, 'clientHeight', { get: () => 200 })
+  let scrolledTo = null
+  dom.window.HTMLElement.prototype.scrollIntoView = function (options) { scrolledTo = { node: this, options } }
+  emit({ type: 'state', loggedIn: true, workspace: '/repo', models: [{ id: 'm', name: 'Model' }] })
+  doc.getElementById('prompt').value = '第一问，请检查登录'
+  doc.getElementById('prompt').dispatchEvent(new dom.window.Event('input'))
+  doc.getElementById('send').click()
+  assert.equal(list.scrollTop, height)
+  assert.equal(doc.getElementById('recentPrompt').hidden, false)
+  assert.match(doc.getElementById('recentPromptText').textContent, /第一问/)
+  emit({ type: 'rpc', method: 'item/agentMessage/delta', params: { itemId: 'a', delta: '分析中' } })
+  height = 1500
+  await tick()
+  assert.equal(list.scrollTop, height)
+  list.scrollTop = 100
+  list.dispatchEvent(new dom.window.Event('scroll'))
+  height = 1800
+  emit({ type: 'rpc', method: 'item/agentMessage/delta', params: { itemId: 'a', delta: '更多内容' } })
+  await tick()
+  assert.equal(list.scrollTop, 100)
+  doc.getElementById('recentPrompt').click()
+  assert.equal(scrolledTo.node.className, 'user-message')
+  assert.equal(scrolledTo.options.block, 'start')
   dom.window.close()
 })

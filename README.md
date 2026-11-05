@@ -9,6 +9,7 @@ This repository contains only the new DiCode Codex MVP. It uses an unchanged Cod
 | `apps/dicode-vscode/` | VS Code sidebar, login, model selection, Codex app-server client, and automatic CLI installation |
 | `tools/dicode-codex-bridge/` | Independent Go Responses endpoint and Docker image |
 | `scripts/package-dicode-codex-cli.js` | Packages the original Codex CLI platform archives for offline hosting |
+| `scripts/package-dicode-powershell.js` | Packages the official Windows PowerShell 7 portable ZIPs for Portal hosting |
 | `deploy/` | Patch and instructions for the existing Kubernetes deployment repository |
 
 ## Build
