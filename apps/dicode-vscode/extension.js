@@ -4,14 +4,17 @@ const crypto = require("node:crypto")
 const path = require("node:path")
 const fs = require("node:fs")
 const { ensureCodexInstalled } = require("./codexInstaller")
+const { beforeFromUnifiedDiff } = require("./diff")
+const { ConversationStore } = require("./media/conversation")
 const EXTENSION_VERSION = require("./package.json").version
 
 const TOKEN_KEY = "dicodeCodex.tokens"
 const CLIENT_KEY = "dicodeCodex.machineId"
 const THREAD_KEY = "dicodeCodex.thread"
+const HISTORY_KEY = "dicodeCodex.history"
 
 class CodexClient {
-	constructor(binary, baseUrl, token, onEvent) {
+	constructor(binary, baseUrl, token, instructionsPath, onEvent) {
 		this.onEvent = onEvent
 		this.nextId = 1
 		this.pending = new Map()
@@ -22,6 +25,8 @@ class CodexClient {
 				"app-server",
 				"--listen",
 				"stdio://",
+				"-c",
+				`model_instructions_file=${JSON.stringify(instructionsPath)}`,
 				"-c",
 				'model_provider="dicode"',
 				"-c",
@@ -128,7 +133,14 @@ class DicodeView {
 		this.threadId = savedThread?.cwd === this.workspace ? savedThread.id : null
 		this.busy = false
 		this.approvals = new Map()
+		this.instructionsPath = path.join(context.extensionPath, "dicode-instructions.md")
+		this.instructions = fs.readFileSync(this.instructionsPath, "utf8")
+		this.conversation = new ConversationStore()
+		const savedHistory = context.globalState.get(HISTORY_KEY)
+		if (savedHistory?.cwd === this.workspace && savedHistory?.threadId === this.threadId)
+			this.conversation.restore(savedHistory.snapshot)
 		this.output = vscode.window.createOutputChannel("DiCode Codex")
+		this.beforeDocuments = new Map()
 	}
 	get serverUrl() {
 		return vscode.workspace.getConfiguration("dicodeCodex").get("serverUrl").replace(/\/$/, "")
@@ -153,9 +165,9 @@ class DicodeView {
 			.replaceAll("{{NONCE}}", nonce)
 			.replaceAll("{{CSP}}", view.webview.cspSource)
 			.replaceAll("{{CSS}}", media("style.css").toString())
-			.replaceAll("{{JS}}", media("main.js").toString())
+			.replaceAll("{{JS}}", media("bundle.js").toString())
 		view.webview.onDidReceiveMessage((message) =>
-			this.handle(message).catch((error) => this.post({ type: "error", message: error.message })),
+			this.handle(message).catch((error) => { this.post({ type: "error", message: error.message }); this.postState() }),
 		)
 		this.postState()
 		this.tokens()
@@ -267,7 +279,7 @@ class DicodeView {
 		const token = await this.accessToken()
 		if (this.client) return this.client
 		const binary = await this.ensureBinary()
-		const client = new CodexClient(binary, `${this.serverUrl}/codex/v1`, token, (event) => this.onCodexEvent(event))
+		const client = new CodexClient(binary, `${this.serverUrl}/codex/v1`, token, this.instructionsPath, (event) => this.onCodexEvent(event))
 		this.client = client
 		try {
 			await client.initialize(EXTENSION_VERSION)
@@ -312,26 +324,48 @@ class DicodeView {
 			this.client = null
 			this.loadedThreadId = null
 			this.busy = false
+			this.approvals.clear()
+			const turn = this.conversation.turns.at(-1)
+			if (turn && ["starting", "inProgress"].includes(turn.status)) { turn.status = "failed"; turn.error = { message: event.message }; this.persistHistory() }
 			this.post(event)
 			this.postState()
 			return
 		}
 		const { message } = event
 		if (message.method?.endsWith("/requestApproval") && message.id !== undefined) {
-			this.approvals.set(String(message.id), message.id)
+			const decisions = (message.params?.availableDecisions || ["accept", "decline"]).map((entry) => typeof entry === "string" ? entry : entry.decision).filter(Boolean)
+			this.approvals.set(String(message.id), { id: message.id, decisions, method: message.method, params: message.params })
 			this.post({ type: "approval", id: String(message.id), method: message.method, params: message.params })
-		} else if (message.method === "item/agentMessage/delta") {
-			this.post({ type: "delta", itemId: message.params.itemId, text: message.params.delta })
-		} else if (message.method === "item/started" || message.method === "item/completed") {
-			this.post({ type: "item", method: message.method, item: message.params.item })
+		} else if (message.method === "serverRequest/resolved") {
+			this.approvals.delete(String(message.params?.requestId ?? message.params?.id))
+			this.post({ type: "rpc", method: message.method, params: message.params })
 		} else if (message.method === "turn/completed") {
+			this.conversation.receive(message.method, message.params)
+			this.persistHistory()
 			this.busy = false
 			this.turnId = null
-			this.post({ type: "completed", status: message.params.turn?.status, error: message.params.turn?.error })
+			this.post({ type: "rpc", method: message.method, params: message.params })
 			this.postState()
 		} else if (message.method === "error") {
 			this.post({ type: "error", message: message.params.error?.message || "Codex error" })
+		} else if (/^(turn\/|item\/)/.test(message.method || "")) {
+			const params = message.params?.item?.type === "reasoning"
+				? { ...message.params, item: { ...message.params.item, content: undefined } }
+				: message.params
+			this.conversation.receive(message.method, params)
+			this.scheduleHistory()
+			this.post({ type: "rpc", method: message.method, params })
 		}
+	}
+	scheduleHistory() {
+		if (this.historyTimer) return
+		this.historyTimer = setTimeout(() => { this.historyTimer = null; this.persistHistory() }, 1500)
+	}
+	persistHistory() {
+		if (!this.threadId) return
+		const snapshot = this.conversation.snapshot()
+		if (JSON.stringify(snapshot).length > 2_000_000) return
+		this.context.globalState.update(HISTORY_KEY, { cwd: this.workspace, threadId: this.threadId, snapshot })
 	}
 	async send(text, model) {
 		if (this.busy) throw new Error("当前任务仍在执行")
@@ -341,7 +375,7 @@ class DicodeView {
 		const client = await this.ensureClient()
 		if (this.threadId && this.loadedThreadId !== this.threadId) {
 			try {
-				await client.request("thread/resume", { threadId: this.threadId, excludeTurns: true })
+				await client.request("thread/resume", { threadId: this.threadId, excludeTurns: true, baseInstructions: this.instructions })
 			} catch {
 				this.threadId = null
 			}
@@ -353,12 +387,15 @@ class DicodeView {
 				cwd: this.workspace,
 				approvalPolicy: "on-request",
 				sandbox: "workspace-write",
+				baseInstructions: this.instructions,
 			})
 			this.threadId = result.thread.id
 			this.loadedThreadId = this.threadId
 			await this.context.globalState.update(THREAD_KEY, { id: this.threadId, cwd: this.workspace })
 		}
 		this.busy = true
+		this.conversation.threadId = this.threadId
+		this.conversation.begin(text)
 		this.postState()
 		try {
 			const result = await client.request("turn/start", {
@@ -370,6 +407,8 @@ class DicodeView {
 			this.turnId = result.turn.id
 		} catch (error) {
 			this.busy = false
+			const turn = this.conversation.turns.at(-1)
+			if (turn?.status === "starting") { turn.status = "failed"; turn.error = { message: error.message }; this.persistHistory() }
 			this.postState()
 			throw error
 		}
@@ -377,6 +416,8 @@ class DicodeView {
 	async handle(message) {
 		if (message.type === "ready") {
 			await this.postState()
+			if (this.conversation.turns.length) this.post({ type: "history", snapshot: this.conversation.snapshot() })
+			for (const [id, approval] of this.approvals) this.post({ type: "approval", id, method: approval.method, params: approval.params })
 			return
 		}
 		if (message.type === "login") {
@@ -393,8 +434,10 @@ class DicodeView {
 			this.threadId = null
 			this.loadedThreadId = null
 			this.models = []
+			this.conversation.reset()
 			await this.context.secrets.delete(TOKEN_KEY)
 			await this.context.globalState.update(THREAD_KEY, undefined)
+			await this.context.globalState.update(HISTORY_KEY, undefined)
 			await this.postState()
 			return
 		}
@@ -402,7 +445,9 @@ class DicodeView {
 			if (this.busy) throw new Error("请先停止当前任务")
 			this.threadId = null
 			this.loadedThreadId = null
+			this.conversation.reset()
 			await this.context.globalState.update(THREAD_KEY, undefined)
+			await this.context.globalState.update(HISTORY_KEY, undefined)
 			await this.postState()
 			return
 		}
@@ -410,18 +455,45 @@ class DicodeView {
 			await this.send(String(message.text || "").trim(), message.model)
 			return
 		}
+		if (message.type === "openFile" || message.type === "openLink" || message.type === "openDiff") {
+			const target = String(message.path || message.href || "")
+			if (message.type === "openLink" && /^https?:\/\//i.test(target)) {
+				await vscode.env.openExternal(vscode.Uri.parse(target))
+				return
+			}
+			if (!this.workspace) return
+			const location = /(?:#L|:)(\d+)$/.exec(target)
+			const file = path.resolve(this.workspace, location ? target.slice(0, location.index) : target)
+			const relative = path.relative(this.workspace, file)
+			if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("文件不在当前工作区")
+			if (message.type === "openDiff") {
+				const current = fs.readFileSync(file, "utf8")
+				const before = beforeFromUnifiedDiff(current, String(message.diff || ""))
+				const id = crypto.randomUUID()
+				this.beforeDocuments.set(id, before)
+				if (this.beforeDocuments.size > 20) this.beforeDocuments.delete(this.beforeDocuments.keys().next().value)
+				const beforeUri = vscode.Uri.from({ scheme: "dicode-before", path: `/${relative}`, query: id })
+				await vscode.commands.executeCommand("vscode.diff", beforeUri, vscode.Uri.file(file), `${relative} · DiCode 变更`)
+				return
+			}
+			const document = await vscode.workspace.openTextDocument(file)
+			await vscode.window.showTextDocument(document, location ? { selection: new vscode.Range(Number(location[1]) - 1, 0, Number(location[1]) - 1, 0) } : undefined)
+			return
+		}
 		if (message.type === "stop" && this.busy && this.turnId) {
 			await this.client.request("turn/interrupt", { threadId: this.threadId, turnId: this.turnId })
 			return
 		}
 		if (message.type === "approve") {
-			const id = this.approvals.get(String(message.id))
-			if (id === undefined) return
+			const approval = this.approvals.get(String(message.id))
+			if (!approval || !approval.decisions.includes(message.decision)) return
 			this.approvals.delete(String(message.id))
-			this.client.respond(id, { decision: message.decision === "accept" ? "accept" : "decline" })
+			this.client.respond(approval.id, { decision: message.decision })
 		}
 	}
 	dispose() {
+		clearTimeout(this.historyTimer)
+		this.persistHistory()
 		this.client?.dispose()
 		this.output.dispose()
 	}
@@ -429,6 +501,10 @@ class DicodeView {
 
 function activate(context) {
 	const provider = new DicodeView(context)
-	context.subscriptions.push(vscode.window.registerWebviewViewProvider("dicodeCodex.sidebar", provider), provider)
+	context.subscriptions.push(
+		vscode.window.registerWebviewViewProvider("dicodeCodex.sidebar", provider),
+		vscode.workspace.registerTextDocumentContentProvider("dicode-before", { provideTextDocumentContent: (uri) => provider.beforeDocuments.get(uri.query) || "" }),
+		provider,
+	)
 }
 module.exports = { activate, CodexClient }

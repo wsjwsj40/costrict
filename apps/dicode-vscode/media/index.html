@@ -12,7 +12,8 @@
   <section id="login" class="login"><div class="hero">让想法成为代码。</div><p>登录后，在当前工作区和 DiCode 一起完成任务。</p><button id="loginButton" class="primary">登录 DiCode</button></section>
   <main id="app" hidden>
     <div class="toolbar"><span id="workspace"></span><button id="logout" title="退出登录">退出</button></div>
-    <div id="messages" aria-live="polite"><div class="empty"><div class="spark">✳</div><h2>从一个问题开始</h2><p>读取代码、执行命令、修改文件，由你决定关键操作。</p></div></div>
+    <div id="messages" aria-live="polite"></div>
+    <template id="emptyTemplate"><div class="empty"><div class="spark">✳</div><h2>从一个问题开始</h2><p>描述任务，DiCode 会在工作区中逐步完成。</p></div></template>
     <div id="approval" hidden></div>
     <div class="composer"><textarea id="prompt" rows="3" placeholder="描述你想完成的任务…"></textarea><div class="composer-bottom"><select id="model" aria-label="模型"></select><button id="send" class="primary" title="发送">➤</button><button id="stop" hidden title="停止">■</button></div></div>
     <div id="status" role="status"></div>

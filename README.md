@@ -13,7 +13,7 @@ This repository contains only the new DiCode Codex MVP. It uses an unchanged Cod
 
 ## Build
 
-From `apps/dicode-vscode`, run `npm test`, then `vsce package --no-dependencies` to build the VSIX. The extension has no npm runtime dependencies. From the repository root, run `docker build -t costrict/dicode-codex-bridge:v0.1.2 tools/dicode-codex-bridge` to build the bridge. From `tools/dicode-codex-bridge`, run `go test ./...` for its HTTP tests.
+From `apps/dicode-vscode`, run `npm ci && npm run build && npm test`, then `npx vsce package --no-dependencies` to build the VSIX. The webview bundle ships inside the VSIX and does not load libraries from the network. From the repository root, run `docker build -t costrict/dicode-codex-bridge:v0.1.2 tools/dicode-codex-bridge` to build the bridge. From `tools/dicode-codex-bridge`, run `go test ./...` for its HTTP tests.
 
 The prebuilt image, VSIX, four-platform Codex CLI resource archive, checksums, and deployment patch are available in the [DiCode Codex MVP release](https://github.com/wsjwsj40/costrict/releases/tag/dicode-codex-mvp-v0.1.4).
 

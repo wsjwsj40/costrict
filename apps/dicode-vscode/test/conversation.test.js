@@ -1,0 +1,56 @@
+const { test } = require('node:test')
+const assert = require('node:assert/strict')
+const { ConversationStore, parseDiff } = require('../media/conversation')
+const { beforeFromUnifiedDiff } = require('../diff')
+
+test('streaming agent text uses one item and completed item is authoritative', () => {
+  const s = new ConversationStore(); s.begin('修复问题')
+  s.receive('turn/started', { threadId: 'thread', turn: { id: 'turn', status: 'inProgress' } })
+  s.receive('item/agentMessage/delta', { turnId: 'turn', itemId: 'answer', delta: '你' })
+  s.receive('item/agentMessage/delta', { turnId: 'turn', itemId: 'answer', delta: '好' })
+  s.receive('item/completed', { turnId: 'turn', item: { id: 'answer', type: 'agentMessage', text: '你好！' } })
+  s.receive('item/agentMessage/delta', { turnId: 'turn', itemId: 'answer', delta: '重复' })
+  assert.equal(s.turns.length, 1)
+  assert.equal(s.turns[0].items.length, 1)
+  assert.equal(s.turns[0].items[0].text, '你好！')
+})
+
+test('command output, failure and long log survive snapshot and restore', () => {
+  const s = new ConversationStore(); s.begin('测试')
+  s.receive('item/started', { turnId: 't', item: { id: 'cmd', type: 'commandExecution', command: 'npm test' } })
+  s.receive('item/commandExecution/outputDelta', { turnId: 't', itemId: 'cmd', delta: 'x'.repeat(50000) })
+  s.receive('item/completed', { turnId: 't', item: { id: 'cmd', type: 'commandExecution', status: 'failed', command: 'npm test', aggregatedOutput: 'failed', exitCode: 1 } })
+  s.receive('turn/completed', { turnId: 't', turn: { status: 'failed', error: { message: 'test failed' } } })
+  assert.equal(s.turns[0].items[0].output, 'failed')
+  assert.equal(s.turns[0].items[0].status, 'failed')
+  const restored = new ConversationStore(); restored.restore(s.snapshot())
+  assert.equal(restored.turns[0].items[0].raw.exitCode, 1)
+  assert.equal(restored.turns[0].error.message, 'test failed')
+})
+
+test('plan and cumulative multi-file diff update in place', () => {
+  const s = new ConversationStore(); s.begin('改两处')
+  s.receive('turn/plan/updated', { turnId: 't', plan: [{ step: '读文件', status: 'pending' }] })
+  s.receive('turn/plan/updated', { turnId: 't', plan: [{ step: '读文件', status: 'completed' }] })
+  const one = 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b'
+  const two = one + '\ndiff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-c\n+d'
+  s.receive('turn/diff/updated', { turnId: 't', diff: one })
+  s.receive('turn/diff/updated', { turnId: 't', diff: two })
+  assert.equal(s.turns.length, 1)
+  assert.equal(s.turns[0].plan.steps.length, 1)
+  assert.equal(s.turns[0].plan.steps[0].status, 'completed')
+  assert.equal(parseDiff(s.turns[0].diff).length, 2)
+  assert.equal(parseDiff(s.turns[0].diff)[0].additions, 1)
+  assert.equal(beforeFromUnifiedDiff('b\n', one), 'a\n')
+  assert.throws(() => beforeFromUnifiedDiff('z\n', one), /文件内容已变化/)
+})
+
+test('interruption and reasoning summary retain separate item state', () => {
+  const s = new ConversationStore(); s.begin('分析')
+  s.receive('item/reasoning/summaryTextDelta', { turnId: 't', itemId: 'r', delta: '正在定位' })
+  s.receive('item/reasoning/summaryPartAdded', { turnId: 't', itemId: 'r' })
+  s.receive('item/reasoning/summaryTextDelta', { turnId: 't', itemId: 'r', delta: '文件' })
+  s.receive('turn/completed', { turnId: 't', turn: { status: 'interrupted' } })
+  assert.equal(s.turns[0].items[0].summary, '正在定位\n文件')
+  assert.equal(s.turns[0].status, 'interrupted')
+})
