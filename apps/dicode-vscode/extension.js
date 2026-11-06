@@ -148,6 +148,7 @@ class DicodeView {
 		this.runSequence = 0
 		this.activeRunId = null
 		this.approvals = new Map()
+		this.inputRequests = new Map()
 		this.instructionsPath = path.join(context.extensionPath, "dicode-instructions.md")
 		this.instructions = fs.readFileSync(this.instructionsPath, "utf8")
 		this.conversation = new ConversationStore()
@@ -375,6 +376,7 @@ class DicodeView {
 			this.turnId = null
 			this.approvals.clear()
 			this.post({ type: "approvalsCleared" })
+			this.clearInputRequests()
 			const turn = this.conversation.turns.at(-1)
 			if (turn && ["starting", "inProgress"].includes(turn.status)) { turn.status = "failed"; turn.error = { message: event.message }; this.persistHistory() }
 			this.post(event)
@@ -386,8 +388,13 @@ class DicodeView {
 			const decisions = (message.params?.availableDecisions || ["accept", "decline"]).map((entry) => typeof entry === "string" ? entry : entry.decision).filter(Boolean)
 			this.approvals.set(String(message.id), { id: message.id, decisions, method: message.method, params: message.params })
 			this.post({ type: "approval", id: String(message.id), method: message.method, params: message.params })
+		} else if (message.method === "item/tool/requestUserInput" && message.id !== undefined) {
+			this.inputRequests.set(String(message.id), { id: message.id, params: message.params, submitted: false })
+			this.post({ type: "userInputRequest", id: String(message.id), params: message.params })
 		} else if (message.method === "serverRequest/resolved") {
-			this.approvals.delete(String(message.params?.requestId ?? message.params?.id))
+			const requestId = String(message.params?.requestId ?? message.params?.id)
+			this.approvals.delete(requestId)
+			this.inputRequests.delete(requestId)
 			this.post({ type: "rpc", method: message.method, params: message.params })
 		} else if (message.method === "turn/completed") {
 			clearTimeout(this.stopTimer)
@@ -399,6 +406,7 @@ class DicodeView {
 				this.approvals.clear()
 				this.post({ type: "approvalsCleared" })
 			}
+			this.clearInputRequests()
 			this.persistHistory()
 			this.busy = false
 			this.turnId = null
@@ -418,6 +426,31 @@ class DicodeView {
 			this.scheduleHistory()
 			this.post({ type: "rpc", method: message.method, params })
 		}
+	}
+	clearInputRequests() {
+		if (!this.inputRequests.size) return
+		this.inputRequests.clear()
+		this.post({ type: "userInputsCleared" })
+	}
+	answerUserInput(message) {
+		const request = this.inputRequests.get(String(message.id))
+		if (!request || request.submitted || !this.client || this.client.closed) return
+		const questions = request.params?.questions
+		if (!Array.isArray(questions) || !questions.length || questions.length > 3) throw new Error("用户输入请求格式无效")
+		const submitted = message.answers
+		if (!submitted || typeof submitted !== "object" || Array.isArray(submitted) || Object.keys(submitted).length !== questions.length) throw new Error("请回答所有问题")
+		const answers = {}
+		for (const question of questions) {
+			if (typeof question.id !== "string" || !question.id) throw new Error("问题编号无效")
+			const entries = submitted[question.id]?.answers
+			const options = (question.options || []).map((option) => option.label)
+			if (!Array.isArray(entries) || !entries.length || entries.length > 2 || entries.some((entry) => typeof entry !== "string" || !entry.trim() || entry.length > 4000)) throw new Error("回答格式无效")
+			if (entries.filter((entry) => options.includes(entry)).length > 1 || entries.some((entry) => !options.includes(entry) && !/^user_note: \S/.test(entry))) throw new Error("回答不在可选范围内")
+			answers[question.id] = { answers: entries }
+		}
+		request.submitted = true
+		this.client.respond(request.id, { answers })
+		this.post({ type: "userInputSubmitted", id: String(message.id) })
 	}
 	async interruptCurrentTurn() {
 		if (!this.busy || !this.stopping || !this.turnId || this.interruptSent || !this.client) return
@@ -452,6 +485,7 @@ class DicodeView {
 		this.loadedThreadId = null
 		this.approvals.clear()
 		this.post({ type: "approvalsCleared" })
+		this.clearInputRequests()
 		const turn = this.conversation.turns.at(-1)
 		if (turn && ["starting", "inProgress"].includes(turn.status))
 			this.conversation.receive("turn/completed", { turnId: turn.id, turn: { id: turn.id, status: "interrupted" } })
@@ -543,6 +577,7 @@ class DicodeView {
 			await this.postState()
 			if (this.conversation.turns.length) this.post({ type: "history", snapshot: this.conversation.snapshot() })
 			for (const [id, approval] of this.approvals) this.post({ type: "approval", id, method: approval.method, params: approval.params })
+			for (const [id, input] of this.inputRequests) this.post({ type: "userInputRequest", id, params: input.params, submitted: input.submitted })
 			return
 		}
 		if (message.type === "login") {
@@ -563,6 +598,7 @@ class DicodeView {
 			this.activeRunId = null
 			this.turnId = null
 			this.approvals.clear()
+			this.clearInputRequests()
 			this.threadId = null
 			this.loadedThreadId = null
 			this.models = []
@@ -634,6 +670,11 @@ class DicodeView {
 			if (!approval || !approval.decisions.includes(message.decision)) return
 			this.approvals.delete(String(message.id))
 			this.client.respond(approval.id, { decision: message.decision })
+			return
+		}
+		if (message.type === "answerUserInput") {
+			try { this.answerUserInput(message) }
+			catch (error) { this.post({ type: "userInputError", id: String(message.id), message: error.message }) }
 		}
 	}
 	dispose() {

@@ -10,6 +10,8 @@ Version 0.2.5 keeps the same thread for follow-up questions after completion or 
 
 Version 0.2.6 adds ordinary Agent planning guidance: use the built-in `update_plan` tool for substantive multi-step work, update statuses as work progresses, and skip plans for simple tasks. Actual plan events still depend on the selected model and gateway tool-call support.
 
+Version 0.2.7 keeps the correct user message pinned after jumping to it. When Codex requests user input, the sidebar shows its choices and a custom answer field above the composer, sends the answer through the app-server request, and continues the same turn. The card clears when the request resolves or the turn stops.
+
 On Windows x64/ARM64, the extension automatically downloads a verified portable PowerShell 7 package from the portal and prepends its directory to the Codex CLI child process PATH. The original Codex CLI discovers `pwsh.exe` through PATH. The extension probes the executable before starting the agent. This does not alter the user's system PATH or install PowerShell globally. The portal assets must be deployed before installing this VSIX. See `../../deploy/powershell-assets.md`.
 
 This MVP supports login, model selection, a single persisted thread, streaming replies, command/file approvals, stopping a turn, and a new thread. It requires an open workspace. The old Roo-based extension is not part of this package.

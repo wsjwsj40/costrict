@@ -28,6 +28,7 @@ markdown.renderer.rules.link_open = (tokens, idx, opts, env, self) => {
   return oldLinkOpen(tokens, idx, opts, env, self)
 }
 let busy = false, stopping = false, activeApproval = null, approvalQueue = [], scheduled = false
+let activeUserInput = null, userInputQueue = []
 let latestStateVersion = -1
 let awaitingHostBusy = false
 let followMessages = true
@@ -51,12 +52,13 @@ function nearBottom() { const e = $('messages'); return e.scrollHeight - e.scrol
 function scrollToBottom() { const list = $('messages'); list.scrollTop = list.scrollHeight; $('backToBottom').hidden = true }
 function updateRecentPrompt() {
   const list = $('messages')
-  const listTop = list.getBoundingClientRect().top
+  // scrollIntoView aligns the message 12px below the viewport via scroll-margin-top.
+  const listTop = list.getBoundingClientRect().top + 20
   const visible = store.turns.slice(-visibleTurnLimit).filter(turn => turn.user && turnNodes.has(turn.id))
   let turn = visible[0]
   for (const candidate of visible) {
     const top = turnNodes.get(candidate.id).querySelector('.user-message')?.getBoundingClientRect().top
-    if (top === undefined || top > listTop + 8) break
+    if (top === undefined || top > listTop) break
     turn = candidate
   }
   recentPromptId = turn?.id || null
@@ -357,6 +359,69 @@ function approvalView(message) {
   box.append(actions); box.hidden = false
   requestAnimationFrame(() => { if (followMessages) scrollToBottom(); updateNavigation() })
 }
+function showNextUserInput() {
+  const box = $('userInput')
+  box.replaceChildren()
+  activeUserInput = userInputQueue.shift() || null
+  if (!activeUserInput) { box.hidden = true; return }
+  const request = activeUserInput, questions = request.params?.questions || []
+  box.append(element('strong', 'user-input-title', 'DiCode 需要你的决定'))
+  box.append(element('p', 'user-input-hint', '回答后将继续当前任务'))
+  const rows = []
+  questions.forEach((question, index) => {
+    const section = element('div', 'user-input-question')
+    section.append(element('span', 'user-input-question-title', question.header || `问题 ${index + 1}`))
+    section.append(element('div', 'user-input-question-text', question.question || '请选择或输入回答'))
+    const radios = []
+    for (const option of question.options || []) {
+      const label = element('label', 'user-input-option')
+      const radio = document.createElement('input')
+      radio.type = 'radio'; radio.name = `user-input-${request.id}-${index}`; radio.value = option.label
+      const copy = element('span', 'user-input-option-copy')
+      copy.append(element('strong', '', option.label))
+      if (option.description) copy.append(element('span', 'user-input-option-description', option.description))
+      label.append(radio, copy); section.append(label); radios.push(radio)
+    }
+    const custom = document.createElement(question.isSecret ? 'input' : 'textarea')
+    if (question.isSecret) custom.type = 'password'
+    else custom.rows = 2
+    custom.className = 'user-input-custom'
+    custom.placeholder = radios.length ? '自定义回答，或补充所选选项…' : '输入你的回答…'
+    custom.setAttribute('aria-label', `${question.header || `问题 ${index + 1}`}的自定义回答`)
+    section.append(element('label', 'user-input-custom-label', radios.length ? '自定义回答或补充说明' : '你的回答'), custom)
+    box.append(section)
+    rows.push({ question, radios, custom })
+  })
+  const actions = element('div', 'user-input-actions')
+  const error = element('span', 'user-input-error')
+  const submit = button('继续执行', () => {
+    const answers = {}
+    for (const { question, radios, custom } of rows) {
+      const chosen = radios.find(radio => radio.checked)?.value
+      const note = custom.value.trim()
+      if (!chosen && !note) { error.textContent = '请回答所有问题'; custom.focus(); return }
+      if (note.length > 3989) { error.textContent = '回答过长，请缩短后再提交'; custom.focus(); return }
+      answers[question.id] = { answers: [chosen, note && `user_note: ${note}`].filter(Boolean) }
+    }
+    error.textContent = ''
+    submit.disabled = true; submit.textContent = '正在提交…'
+    post('answerUserInput', { id: request.id, answers })
+  }, 'primary')
+  actions.append(error, submit); box.append(actions)
+  if (request.submitted) { submit.disabled = true; submit.textContent = '已提交，正在继续…' }
+  box.hidden = false
+}
+function enqueueUserInput(message) {
+  const id = String(message.id)
+  if (String(activeUserInput?.id) === id) return
+  if (userInputQueue.some(request => String(request.id) === id)) return
+  userInputQueue.push(message)
+  if (!activeUserInput) showNextUserInput()
+}
+function clearUserInputs() {
+  activeUserInput = null; userInputQueue.length = 0
+  $('userInput').replaceChildren(); $('userInput').hidden = true
+}
 window.addEventListener('message', event => {
   const msg = event.data
   if (msg.type === 'state') setState(msg)
@@ -366,11 +431,25 @@ window.addEventListener('message', event => {
   if (msg.type === 'stopped') { awaitingHostBusy = false; busy = false; stopping = false; updateComposer(); setStatus(msg.message || '已停止，可以继续提问', 'warning'); const turn = store.turns.at(-1); if (turn) { turn.status = 'interrupted'; dirtyTurns.add(turn.id); schedule() } }
   if (msg.type === 'approval') approvalView(msg)
   if (msg.type === 'approvalsCleared') { activeApproval = null; approvalQueue.length = 0; $('approval').hidden = true }
+  if (msg.type === 'userInputRequest') enqueueUserInput(msg)
+  if (msg.type === 'userInputSubmitted' && String(activeUserInput?.id) === String(msg.id)) {
+    const submit = $('userInput').querySelector('.user-input-actions button')
+    if (submit) submit.textContent = '已提交，正在继续…'
+  }
+  if (msg.type === 'userInputError' && String(activeUserInput?.id) === String(msg.id)) {
+    const submit = $('userInput').querySelector('.user-input-actions button')
+    if (submit) { submit.disabled = false; submit.textContent = '继续执行' }
+    const error = $('userInput').querySelector('.user-input-error')
+    if (error) error.textContent = msg.message || '提交失败，请重试'
+  }
+  if (msg.type === 'userInputsCleared') clearUserInputs()
   if (msg.type === 'rpc') {
     if (msg.method === 'serverRequest/resolved') {
       const id = String(msg.params?.requestId ?? msg.params?.id)
       for (let i = approvalQueue.length - 1; i >= 0; i--) if (String(approvalQueue[i].id) === id) approvalQueue.splice(i, 1)
       if (String(activeApproval?.id) === id) { activeApproval = null; $('approval').hidden = true; if (approvalQueue.length) approvalView(approvalQueue.shift()) }
+      userInputQueue = userInputQueue.filter(request => String(request.id) !== id)
+      if (String(activeUserInput?.id) === id) showNextUserInput()
     } else {
       const turn = store.receive(msg.method, msg.params)
       dirtyTurns.add(turn.id)

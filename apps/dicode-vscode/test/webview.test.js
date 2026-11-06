@@ -166,12 +166,43 @@ test('pinned prompt reflects the user turn above the current viewport', async ()
   list.dispatchEvent(new dom.window.WheelEvent('wheel', { deltaY: -100 }))
   list.dispatchEvent(new dom.window.Event('scroll'))
   assert.equal(doc.getElementById('recentPromptText').textContent, '第2条输入')
+  // The jump puts the second question 12px below the list's top edge.
+  list.scrollTop = 388
+  list.dispatchEvent(new dom.window.Event('scroll'))
+  assert.equal(doc.getElementById('recentPromptText').textContent, '第2条输入')
   list.scrollTop = 900
   list.dispatchEvent(new dom.window.Event('scroll'))
   assert.equal(doc.getElementById('recentPromptText').textContent, '第3条输入')
   list.scrollTop = 1500
   list.dispatchEvent(new dom.window.Event('scroll'))
   assert.equal(doc.getElementById('recentPromptText').textContent, '第4条输入')
+  dom.window.close()
+})
+
+test('user input request offers choices and custom text, then resumes the same turn', () => {
+  const { dom, sent, emit, doc } = setup()
+  emit({ type: 'state', loggedIn: true, busy: true, workspace: '/repo', models: [{ id: 'm', name: 'Model' }] })
+  const params = { threadId: 'thread', turnId: 'turn', itemId: 'item', questions: [
+    { id: 'scope', header: '范围', question: '修改哪些文件？', options: [{ label: '全部', description: '修改所有相关文件' }, { label: '当前文件', description: '只改当前文件' }] },
+    { id: 'detail', header: '要求', question: '还有其他要求吗？', options: [] },
+  ] }
+  emit({ type: 'userInputRequest', id: 'req-1', params })
+  assert.equal(doc.getElementById('userInput').hidden, false)
+  assert.match(doc.getElementById('userInput').textContent, /修改哪些文件/)
+  doc.querySelectorAll('.user-input-option input')[1].click()
+  doc.querySelectorAll('.user-input-custom')[0].value = '不要改测试'
+  doc.querySelector('.user-input-actions button').click()
+  assert.equal(sent.at(-1).type, 'ready')
+  assert.match(doc.querySelector('.user-input-error').textContent, /请回答所有问题/)
+  doc.querySelectorAll('.user-input-custom')[1].value = '保留现有 API'
+  doc.querySelector('.user-input-actions button').click()
+  assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1))), { type: 'answerUserInput', id: 'req-1', answers: {
+    scope: { answers: ['当前文件', 'user_note: 不要改测试'] },
+    detail: { answers: ['user_note: 保留现有 API'] },
+  } })
+  assert.equal(doc.getElementById('stop').hidden, false)
+  emit({ type: 'rpc', method: 'serverRequest/resolved', params: { requestId: 'req-1' } })
+  assert.equal(doc.getElementById('userInput').hidden, true)
   dom.window.close()
 })
 

@@ -28,6 +28,32 @@ function makeView() {
 function rpc(view, method, params) { view.onCodexEvent({ type: 'rpc', message: { method, params } }) }
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 
+test('user input server request responds to the current turn and clears on resolution or stop', async () => {
+  const { view, posted } = makeView()
+  const replies = []
+  view.client = { respond: (id, body) => replies.push({ id, body }), request: async () => ({}), dispose() {} }
+  view.busy = true
+  view.turnId = 'turn'
+  const params = { threadId: 'thread', turnId: 'turn', itemId: 'item', questions: [{ id: 'scope', header: '范围', question: '选哪个？', options: [{ label: '当前文件', description: '仅一个文件' }] }] }
+  view.onCodexEvent({ type: 'rpc', message: { id: 42, method: 'item/tool/requestUserInput', params } })
+  assert.equal(posted.at(-1).type, 'userInputRequest')
+  await view.handle({ type: 'answerUserInput', id: '42', answers: { scope: { answers: ['当前文件', 'user_note: 保留 API'] } } })
+  assert.deepEqual(replies, [{ id: 42, body: { answers: { scope: { answers: ['当前文件', 'user_note: 保留 API'] } } } }])
+  assert.equal(view.busy, true)
+  await view.handle({ type: 'answerUserInput', id: '42', answers: { scope: { answers: ['当前文件'] } } })
+  assert.equal(replies.length, 1)
+  rpc(view, 'serverRequest/resolved', { requestId: 42 })
+  assert.equal(view.inputRequests.size, 0)
+  view.onCodexEvent({ type: 'rpc', message: { id: 43, method: 'item/tool/requestUserInput', params } })
+  await view.stop()
+  view.recoverStoppedTurn()
+  await tick()
+  assert.equal(view.inputRequests.size, 0)
+  assert.equal(posted.filter(message => message.type === 'state').at(-1).busy, false)
+  assert.ok(posted.some(message => message.type === 'userInputsCleared'))
+  view.dispose()
+})
+
 test('stop during turn/start uses turn/started id and allows follow-up in same thread', async () => {
   const { view, posted } = makeView()
   const calls = []
