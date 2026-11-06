@@ -12,6 +12,8 @@ Version 0.2.6 adds ordinary Agent planning guidance: use the built-in `update_pl
 
 Version 0.2.7 keeps the correct user message pinned after jumping to it. When Codex requests user input, the sidebar shows its choices and a custom answer field above the composer, sends the answer through the app-server request, and continues the same turn. The card clears when the request resolves or the turn stops.
 
+Version 0.2.8 enables `request_user_input` in ordinary Agent mode and the built-in `update_plan` tool when launching Codex. These flags apply only to the plugin's CLI process; users do not need to edit `config.toml` or the Codex binary. The selected model and gateway must still support function calls for the agent to invoke these tools.
+
 On Windows x64/ARM64, the extension automatically downloads a verified portable PowerShell 7 package from the portal and prepends its directory to the Codex CLI child process PATH. The original Codex CLI discovers `pwsh.exe` through PATH. The extension probes the executable before starting the agent. This does not alter the user's system PATH or install PowerShell globally. The portal assets must be deployed before installing this VSIX. See `../../deploy/powershell-assets.md`.
 
 This MVP supports login, model selection, a single persisted thread, streaming replies, command/file approvals, stopping a turn, and a new thread. It requires an open workspace. The old Roo-based extension is not part of this package.
