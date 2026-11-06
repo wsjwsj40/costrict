@@ -189,11 +189,12 @@ test('user input request offers choices and custom text, then resumes the same t
   emit({ type: 'userInputRequest', id: 'req-1', params })
   assert.equal(doc.getElementById('userInput').hidden, false)
   assert.match(doc.getElementById('userInput').textContent, /修改哪些文件/)
-  doc.querySelectorAll('.user-input-option input')[1].click()
-  doc.querySelectorAll('.user-input-custom')[0].value = '不要改测试'
+  doc.querySelectorAll('.user-input-question')[0].querySelectorAll('.user-input-option input')[1].click()
+  assert.equal(doc.querySelectorAll('.user-input-question')[0].querySelector('.user-input-field').hidden, true)
+  doc.querySelectorAll('.user-input-note')[0].value = '不要改测试'
   doc.querySelector('.user-input-actions button').click()
   assert.equal(sent.at(-1).type, 'ready')
-  assert.match(doc.querySelector('.user-input-error').textContent, /请回答所有问题/)
+  assert.match(doc.querySelector('.user-input-error').textContent, /请输入自定义回答/)
   doc.querySelectorAll('.user-input-custom')[1].value = '保留现有 API'
   doc.querySelector('.user-input-actions button').click()
   assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1))), { type: 'answerUserInput', id: 'req-1', answers: {
@@ -203,6 +204,28 @@ test('user input request offers choices and custom text, then resumes the same t
   assert.equal(doc.getElementById('stop').hidden, false)
   emit({ type: 'rpc', method: 'serverRequest/resolved', params: { requestId: 'req-1' } })
   assert.equal(doc.getElementById('userInput').hidden, true)
+  dom.window.close()
+})
+
+test('user can switch from a selected option to a custom answer without sending the old note', () => {
+  const { dom, sent, emit, doc } = setup()
+  emit({ type: 'state', loggedIn: true, busy: true, workspace: '/repo', models: [{ id: 'm', name: 'Model' }] })
+  emit({ type: 'userInputRequest', id: 'req-custom', params: { questions: [{ id: 'style', header: '风格', question: '选择风格', options: [{ label: '简洁', description: '少量装饰' }, { label: '丰富', description: '更多装饰' }] }] } })
+  const section = doc.querySelector('.user-input-question')
+  const radios = section.querySelectorAll('.user-input-option input')
+  const custom = section.querySelector('.user-input-custom')
+  const note = section.querySelector('.user-input-note')
+  radios[0].click()
+  note.value = '偏蓝'
+  radios[2].click()
+  assert.equal(radios[0].checked, false)
+  assert.equal(section.querySelectorAll('.user-input-field')[0].hidden, false)
+  assert.equal(section.querySelectorAll('.user-input-field')[1].hidden, true)
+  doc.querySelector('.user-input-actions button').click()
+  assert.match(doc.querySelector('.user-input-error').textContent, /请输入自定义回答/)
+  custom.value = '用自然绿色'
+  doc.querySelector('.user-input-actions button').click()
+  assert.deepEqual(JSON.parse(JSON.stringify(sent.at(-1).answers)), { style: { answers: ['user_note: 用自然绿色'] } })
   dom.window.close()
 })
 

@@ -136,21 +136,27 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 #approval > strong { flex: none; }
 #approval pre { flex: 1; min-height: 0; white-space: pre-wrap; overflow: auto; max-height: min(100px, 15vh); }
 .approval-actions { flex: none; display: flex; gap: 5px; flex-wrap: wrap; }
-.user-input { flex: none; max-height: min(55vh, 440px); overflow-y: auto; margin: 0 10px 8px; padding: 12px; border: 1px solid color-mix(in srgb, var(--brand) 38%, var(--border)); border-left: 3px solid var(--brand); border-radius: 10px; background: var(--surface); box-shadow: 0 3px 14px var(--vscode-widget-shadow, #0002); }
-.user-input-title { display: block; margin-bottom: 3px; color: var(--brand); font-size: 12px; }
-.user-input-hint { margin: 0 0 10px; color: var(--muted); font-size: 11px; }
-.user-input-question { padding: 9px 0; border-top: 1px solid var(--border); }
-.user-input-question-title { display: block; font-size: 11px; font-weight: 650; color: var(--brand); }
-.user-input-question-text { margin: 4px 0 8px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
-.user-input-option { display: flex; gap: 8px; align-items: flex-start; margin: 5px 0; padding: 7px 8px; border: 1px solid var(--border); border-radius: 7px; cursor: pointer; }
-.user-input-option:has(input:checked) { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 8%, var(--surface)); }
+.user-input { flex: none; max-height: min(58vh, 480px); overflow-y: auto; margin: 0 10px 8px; padding: 12px; border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--border)); border-radius: 11px; background: var(--surface); box-shadow: 0 5px 18px var(--vscode-widget-shadow, #0002); }
+.user-input-heading { display: flex; align-items: center; gap: 7px; margin-bottom: 2px; }
+.user-input-mark { display: grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: 7px; background: color-mix(in srgb, var(--brand) 14%, var(--surface)); color: var(--brand); font-size: 14px; }
+.user-input-title { color: var(--vscode-foreground); font-size: 12px; }
+.user-input-hint { margin: 0 0 9px 29px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.user-input-question { padding: 10px 0; border-top: 1px solid var(--border); }
+.user-input-question-title { display: block; color: var(--brand); font-size: 10px; font-weight: 650; }
+.user-input-question-text { margin: 5px 0 9px; font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.user-input-option { display: flex; gap: 9px; align-items: flex-start; margin: 5px 0; padding: 8px 9px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--surface) 85%, transparent); cursor: pointer; transition: border-color .12s, background .12s; }
+.user-input-option:hover { border-color: color-mix(in srgb, var(--brand) 55%, var(--border)); }
+.user-input-option:has(input:checked) { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--surface)); }
 .user-input-option input { margin: 2px 0 0; accent-color: var(--brand); }
+.user-input-other { border-style: dashed; }
 .user-input-option-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.user-input-option-copy strong { font-size: 11px; font-weight: 600; }
 .user-input-option-description { color: var(--muted); font-size: 11px; line-height: 1.35; }
-.user-input-custom-label { display: block; margin: 9px 0 4px; font-size: 11px; color: var(--muted); }
-.user-input-custom { display: block; width: 100%; min-height: 42px; max-height: 100px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit; resize: vertical; }
-.user-input-custom:focus { border-color: var(--vscode-focusBorder, var(--brand)); }
-.user-input-actions { position: sticky; bottom: -12px; display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 9px 0 0; background: var(--surface); }
+.user-input-field { margin-top: 8px; }
+.user-input-field-label { display: block; margin-bottom: 5px; color: var(--muted); font-size: 11px; }
+.user-input-custom, .user-input-note { display: block; width: 100%; min-height: 42px; max-height: 100px; padding: 7px 8px; border: 1px solid var(--vscode-input-border, var(--border)); border-radius: 7px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); font: inherit; font-size: 12px; resize: vertical; }
+.user-input-custom:focus, .user-input-note:focus { border-color: var(--vscode-focusBorder, var(--brand)); }
+.user-input-actions { position: sticky; bottom: -12px; display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 10px 0 0; border-top: 1px solid var(--border); background: var(--surface); }
 .user-input-error { margin-right: auto; color: var(--red); font-size: 11px; }
 .composer-shell { flex: none; padding: 4px 10px 3px; background: var(--vscode-sideBar-background); border-top: 1px solid var(--border); }
 .composer { position: relative; border: 1px solid var(--vscode-input-border, var(--border)); background: var(--vscode-input-background); border-radius: 11px; padding: 9px 10px 7px; transition: border-color .15s; }

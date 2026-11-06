@@ -362,18 +362,23 @@ function approvalView(message) {
 function showNextUserInput() {
   const box = $('userInput')
   box.replaceChildren()
+  box.scrollTop = 0
   activeUserInput = userInputQueue.shift() || null
   if (!activeUserInput) { box.hidden = true; return }
   const request = activeUserInput, questions = request.params?.questions || []
-  box.append(element('strong', 'user-input-title', 'DiCode 需要你的决定'))
-  box.append(element('p', 'user-input-hint', '回答后将继续当前任务'))
+  const heading = element('div', 'user-input-heading')
+  heading.append(element('span', 'user-input-mark', '✦'), element('strong', 'user-input-title', 'DiCode 需要你的决定'))
+  box.append(heading, element('p', 'user-input-hint', '请选择一个选项，或切换为自定义回答。提交后继续当前任务。'))
   const rows = []
   questions.forEach((question, index) => {
     const section = element('div', 'user-input-question')
-    section.append(element('span', 'user-input-question-title', question.header || `问题 ${index + 1}`))
+    section.setAttribute('role', 'group')
+    section.setAttribute('aria-label', question.header || `问题 ${index + 1}`)
+    section.append(element('span', 'user-input-question-title', `${index + 1} / ${questions.length} · ${question.header || '问题'}`))
     section.append(element('div', 'user-input-question-text', question.question || '请选择或输入回答'))
     const radios = []
-    for (const option of question.options || []) {
+    const options = question.options || []
+    for (const option of options) {
       const label = element('label', 'user-input-option')
       const radio = document.createElement('input')
       radio.type = 'radio'; radio.name = `user-input-${request.id}-${index}`; radio.value = option.label
@@ -382,26 +387,56 @@ function showNextUserInput() {
       if (option.description) copy.append(element('span', 'user-input-option-description', option.description))
       label.append(radio, copy); section.append(label); radios.push(radio)
     }
+    let customRadio = null
+    if (options.length) {
+      const label = element('label', 'user-input-option user-input-other')
+      customRadio = document.createElement('input')
+      customRadio.type = 'radio'; customRadio.name = `user-input-${request.id}-${index}`; customRadio.value = '__dicode_custom__'
+      const copy = element('span', 'user-input-option-copy')
+      copy.append(element('strong', '', '自定义回答'), element('span', 'user-input-option-description', '替换已选项，输入自己的答案'))
+      label.append(customRadio, copy); section.append(label)
+    }
     const custom = document.createElement(question.isSecret ? 'input' : 'textarea')
     if (question.isSecret) custom.type = 'password'
     else custom.rows = 2
     custom.className = 'user-input-custom'
-    custom.placeholder = radios.length ? '自定义回答，或补充所选选项…' : '输入你的回答…'
+    custom.placeholder = '输入你的回答…'
     custom.setAttribute('aria-label', `${question.header || `问题 ${index + 1}`}的自定义回答`)
-    section.append(element('label', 'user-input-custom-label', radios.length ? '自定义回答或补充说明' : '你的回答'), custom)
+    const customPanel = element('div', 'user-input-field')
+    customPanel.append(element('span', 'user-input-field-label', '自定义回答'), custom)
+    section.append(customPanel)
+    let note = null, notePanel = null
+    if (options.length) {
+      note = document.createElement(question.isSecret ? 'input' : 'textarea')
+      if (question.isSecret) note.type = 'password'
+      else note.rows = 2
+      note.className = 'user-input-note'
+      note.placeholder = '可选：补充你对所选选项的要求…'
+      note.setAttribute('aria-label', `${question.header || `问题 ${index + 1}`}的补充说明`)
+      notePanel = element('div', 'user-input-field')
+      notePanel.append(element('span', 'user-input-field-label', '补充说明 · 可选'), note)
+      section.append(notePanel)
+      const updateFields = () => { customPanel.hidden = !customRadio.checked; notePanel.hidden = !radios.some(radio => radio.checked) }
+      for (const radio of [...radios, customRadio]) radio.onchange = updateFields
+      updateFields()
+    }
     box.append(section)
-    rows.push({ question, radios, custom })
+    rows.push({ question, radios, customRadio, custom, note })
   })
   const actions = element('div', 'user-input-actions')
   const error = element('span', 'user-input-error')
+  error.setAttribute('role', 'alert')
   const submit = button('继续执行', () => {
     const answers = {}
-    for (const { question, radios, custom } of rows) {
+    for (const { question, radios, customRadio, custom, note } of rows) {
       const chosen = radios.find(radio => radio.checked)?.value
-      const note = custom.value.trim()
-      if (!chosen && !note) { error.textContent = '请回答所有问题'; custom.focus(); return }
-      if (note.length > 3989) { error.textContent = '回答过长，请缩短后再提交'; custom.focus(); return }
-      answers[question.id] = { answers: [chosen, note && `user_note: ${note}`].filter(Boolean) }
+      const isCustom = !radios.length || !!customRadio?.checked
+      const textField = isCustom ? custom : note
+      const text = textField?.value.trim() || ''
+      if (!chosen && !isCustom) { error.textContent = '请为每个问题选择选项或自定义回答'; radios[0]?.focus(); return }
+      if (isCustom && !text) { error.textContent = '请输入自定义回答'; custom.focus(); return }
+      if (text.length > 3989) { error.textContent = '回答过长，请缩短后再提交'; textField.focus(); return }
+      answers[question.id] = { answers: [chosen, text && `user_note: ${text}`].filter(Boolean) }
     }
     error.textContent = ''
     submit.disabled = true; submit.textContent = '正在提交…'
