@@ -147,7 +147,10 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .user-input-option { display: flex; gap: 9px; align-items: flex-start; margin: 5px 0; padding: 8px 9px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--surface) 85%, transparent); cursor: pointer; transition: border-color .12s, background .12s; }
 .user-input-option:hover { border-color: color-mix(in srgb, var(--brand) 55%, var(--border)); }
 .user-input-option:has(input:checked) { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, var(--surface)); }
-.user-input-option input { margin: 2px 0 0; accent-color: var(--brand); }
+.user-input-option input[type="radio"] { appearance: none; -webkit-appearance: none; display: block; flex: none; width: 15px; height: 15px; margin: 1px 0 0; padding: 0; border: 1.5px solid var(--muted); border-radius: 50%; background: var(--surface); outline: none; box-shadow: none; cursor: pointer; }
+.user-input-option input[type="radio"]:checked { border-color: var(--brand); background: radial-gradient(circle, var(--brand) 0 3px, transparent 3.5px) center / 100% 100% no-repeat, var(--surface); }
+.user-input-option:has(input[type="radio"]:focus-visible) { outline: 2px solid var(--vscode-focusBorder, var(--brand)); outline-offset: 2px; }
+@media (forced-colors: active) { .user-input-option input[type="radio"] { appearance: auto; -webkit-appearance: auto; } }
 .user-input-other { border-style: dashed; }
 .user-input-option-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .user-input-option-copy strong { font-size: 11px; font-weight: 600; }
