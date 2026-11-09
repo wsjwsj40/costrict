@@ -31,9 +31,13 @@ test('sidebar renders mixed app-server events and real approval decisions', asyn
   emit({ type: 'rpc', method: 'item/agentMessage/delta', params: { turnId: 't', itemId: 'a', delta: '# 完成\n`src/a.ts:12`\n```ts\nconst n = 1\n```\n<script>alert(1)</script>' } })
   await tick()
   assert.equal(doc.getElementById('planDock').hidden, false)
-  assert.equal(doc.getElementById('planDock').nextElementSibling.className, 'composer-shell')
+  assert.equal(doc.getElementById('planDock').nextElementSibling.id, 'changeDock')
+  assert.equal(doc.getElementById('changeDock').nextElementSibling.className, 'composer-shell')
   assert.match(doc.getElementById('messages').textContent, /搜索代码/)
-  assert.match(doc.getElementById('messages').textContent, /1 个文件变更/)
+  assert.match(doc.getElementById('changeDock').textContent, /1 个文件已修改/)
+  doc.querySelector('#changeDock .view-changes').click()
+  assert.equal(sent.at(-1).type, 'openDiff')
+  assert.equal(sent.at(-1).path, 'a.txt')
   assert.equal(doc.querySelectorAll('.plan-step').length, 0)
   assert.equal(doc.querySelectorAll('.code-block').length, 1)
   assert.equal(doc.querySelectorAll('#messages script').length, 0)
@@ -44,13 +48,15 @@ test('sidebar renders mixed app-server events and real approval decisions', asyn
   emit({ type: 'approval', id: '99', method: 'item/commandExecution/requestApproval', params: { command: 'npm test', reason: '需要在沙箱外执行', cwd: '/repo', availableDecisions: ['accept', 'decline'] } })
   assert.equal(doc.querySelectorAll('#approval button').length, 2)
   assert.match(doc.getElementById('approval').textContent, /原因：需要在沙箱外执行/)
-  doc.querySelector('#approval button').click()
+  doc.querySelector('#approval .approval-accept').click()
   assert.equal(sent.at(-1).type, 'approve')
   assert.equal(sent.at(-1).id, '99')
   assert.equal(sent.at(-1).decision, 'accept')
   emit({ type: 'rpc', method: 'turn/completed', params: { turnId: 't', turn: { status: 'completed' } } })
   await tick()
   assert.equal(doc.getElementById('planDock').hidden, true)
+  assert.equal(doc.getElementById('changeDock').hidden, true)
+  assert.match(doc.querySelector('.turn-content > .file-summary').textContent, /a.txt/)
   assert.equal(doc.querySelectorAll('.turn').length, 1)
   dom.window.close()
 })
@@ -97,6 +103,63 @@ test('completed turn folds muted activity behind elapsed time and keeps final an
   assert.equal(doc.querySelectorAll('.turn-content > .final-answer').length, 1)
   assert.equal(doc.querySelector('.turn-content > .final-answer').textContent.includes('已修复'), true)
   assert.equal(doc.querySelectorAll('.turn-content > .commentary-answer').length, 0)
+  dom.window.close()
+})
+
+test('consecutive commands share a collapsible list and retain their output', async () => {
+  const { dom, emit, doc } = setup()
+  emit({ type: 'state', loggedIn: true, busy: false, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
+    id: 'turn', user: '查看项目', status: 'completed', startedAt: 1000, completedAt: 3000,
+    items: [
+      { id: 'one', type: 'commandExecution', status: 'completed', raw: { command: 'Get-ChildItem', commandActions: [{ type: 'list' }] }, output: 'README.md' },
+      { id: 'two', type: 'commandExecution', status: 'completed', raw: { command: 'Get-Content README.md' }, output: 'project' },
+      { id: 'answer', type: 'agentMessage', status: 'completed', text: '已查看', raw: { phase: 'final_answer' } },
+    ],
+  }] } })
+  await tick()
+  const group = doc.querySelector('.command-group')
+  assert.ok(group)
+  assert.equal(group.open, false)
+  assert.match(group.querySelector('summary').textContent, /已运行命令/)
+  assert.equal(group.querySelectorAll('.command-card').length, 2)
+  assert.match(group.textContent, /Get-Content README\.md/)
+  assert.match(group.textContent, /README\.md/)
+  assert.equal(doc.querySelector('.turn-process').open, false)
+  dom.window.close()
+})
+
+test('running commands shimmer, editing shows changes, and completion keeps a file list', async () => {
+  const { dom, sent, emit, doc } = setup()
+  const diff = 'diff --git a/src/a.js b/src/a.js\n--- a/src/a.js\n+++ b/src/a.js\n@@ -1 +1 @@\n-old\n+new'
+  emit({ type: 'state', loggedIn: true, busy: true, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
+    id: 'turn', user: '修改文件', status: 'inProgress', startedAt: Date.now() - 5000, diff,
+    items: [
+      { id: 'done', type: 'commandExecution', status: 'completed', raw: { command: 'rg --files' }, output: 'src/a.js' },
+      { id: 'running', type: 'commandExecution', status: 'inProgress', raw: { command: 'npm test' }, output: '' },
+      { id: 'edit', type: 'fileChange', status: 'inProgress', raw: { changes: [{ path: 'src/a.js', diff }] } },
+    ],
+  }] } })
+  await tick()
+  assert.match(doc.querySelector('.turn-process-summary').textContent, /^正在处理/)
+  assert.match(doc.querySelector('.command-group-summary').textContent, /已运行命令/)
+  assert.match(doc.querySelector('.command-card.status-inProgress').textContent, /正在运行 npm test/)
+  assert.equal(doc.querySelectorAll('.command-card.status-inProgress .running-shimmer').length, 1)
+  assert.match(doc.querySelector('.file-card.status-inProgress').textContent, /正在编辑文件/)
+  assert.equal(doc.getElementById('changeDock').hidden, false)
+  doc.querySelector('#changeDock .view-changes').click()
+  assert.equal(sent.at(-1).type, 'openDiff')
+  assert.equal(sent.at(-1).path, 'src/a.js')
+  emit({ type: 'rpc', method: 'item/completed', params: { turnId: 'turn', item: { id: 'running', type: 'commandExecution', status: 'completed', command: 'npm test' } } })
+  emit({ type: 'rpc', method: 'item/completed', params: { turnId: 'turn', item: { id: 'edit', type: 'fileChange', status: 'completed', changes: [{ path: 'src/a.js', diff }] } } })
+  emit({ type: 'rpc', method: 'turn/completed', params: { turnId: 'turn', turn: { id: 'turn', status: 'completed' } } })
+  await tick()
+  assert.equal(doc.querySelectorAll('.running-shimmer').length, 0)
+  assert.equal(doc.getElementById('changeDock').hidden, true)
+  assert.match(doc.querySelector('.turn-content > .file-summary').textContent, /src\/a.js/)
+  doc.querySelector('.file-summary-row').click()
+  assert.equal(sent.at(-1).type, 'openDiff')
   dom.window.close()
 })
 

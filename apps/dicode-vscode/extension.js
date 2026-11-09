@@ -178,6 +178,7 @@ class DicodeView {
 		if (current?.snapshot) this.conversation.restore(current.snapshot)
 		this.output = vscode.window.createOutputChannel("DiCode Codex")
 		this.beforeDocuments = new Map()
+		this.afterDocuments = new Map()
 	}
 	get serverUrl() {
 		return vscode.workspace.getConfiguration("dicodeCodex").get("serverUrl").replace(/\/$/, "")
@@ -729,13 +730,18 @@ class DicodeView {
 			const relative = path.relative(this.workspace, file)
 			if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("文件不在当前工作区")
 			if (message.type === "openDiff") {
-				const current = fs.readFileSync(file, "utf8")
-				const before = beforeFromUnifiedDiff(current, String(message.diff || ""))
+				const exists = fs.existsSync(file)
+				const current = exists ? fs.readFileSync(file, "utf8") : ""
+				const diff = String(message.diff || "")
+				const before = /^--- \/dev\/null$/m.test(diff) ? "" : beforeFromUnifiedDiff(current, diff)
 				const id = crypto.randomUUID()
 				this.beforeDocuments.set(id, before)
 				if (this.beforeDocuments.size > 20) this.beforeDocuments.delete(this.beforeDocuments.keys().next().value)
 				const beforeUri = vscode.Uri.from({ scheme: "dicode-before", path: `/${relative}`, query: id })
-				await vscode.commands.executeCommand("vscode.diff", beforeUri, vscode.Uri.file(file), `${relative} · DiCode 变更`)
+				if (!exists) this.afterDocuments.set(id, current)
+				if (this.afterDocuments.size > 20) this.afterDocuments.delete(this.afterDocuments.keys().next().value)
+				const afterUri = exists ? vscode.Uri.file(file) : vscode.Uri.from({ scheme: "dicode-after", path: `/${relative}`, query: id })
+				await vscode.commands.executeCommand("vscode.diff", beforeUri, afterUri, `${relative} · DiCode 变更`)
 				return
 			}
 			const document = await vscode.workspace.openTextDocument(file)
@@ -772,6 +778,7 @@ function activate(context) {
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider("dicodeCodex.sidebar", provider),
 		vscode.workspace.registerTextDocumentContentProvider("dicode-before", { provideTextDocumentContent: (uri) => provider.beforeDocuments.get(uri.query) || "" }),
+		vscode.workspace.registerTextDocumentContentProvider("dicode-after", { provideTextDocumentContent: (uri) => provider.afterDocuments.get(uri.query) || "" }),
 		provider,
 	)
 }

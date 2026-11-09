@@ -37,6 +37,7 @@ let userScrollUntil = 0
 let visibleTurnLimit = 30
 const openDetails = new Set()
 const processPreference = new Map()
+const commandGroupPreference = new Map()
 let planDockExpanded = false, planDockSignature = '', planDockTurnId = null
 const turnNodes = new Map(), dirtyTurns = new Set()
 function post(type, extra = {}) { vscode.postMessage({ type, ...extra }) }
@@ -66,7 +67,8 @@ function updateRecentPrompt() {
     turn = candidate
   }
   recentPromptId = turn?.id || null
-  $('recentPrompt').hidden = !turn
+  const promptTop = turn ? turnNodes.get(turn.id)?.querySelector('.user-message')?.getBoundingClientRect().top : undefined
+  $('recentPrompt').hidden = !turn || (promptTop !== undefined && promptTop >= listTop && promptTop < list.getBoundingClientRect().bottom)
   if (turn) {
     const preview = turn.user.replace(/\s+/g, ' ').trim()
     $('recentPromptText').textContent = preview
@@ -122,14 +124,32 @@ function stripAnsi(text) { return String(text || '').replace(/\x1b\[[0-?]*[ -/]*
 function commandView(item, turn) {
   const raw = item.raw || {}, body = element('div', 'activity-body')
   const cmd = raw.command || ''
-  const meta = element('div', 'muted', [raw.cwd, raw.exitCode !== undefined ? `退出码 ${raw.exitCode}` : '', raw.durationMs !== undefined ? `${raw.durationMs} ms` : ''].filter(Boolean).join(' · '))
+  const running = item.status === 'inProgress'
+  const meta = element('div', 'muted', [commandTitle(raw), raw.cwd, raw.exitCode !== undefined ? `退出码 ${raw.exitCode}` : '', raw.durationMs !== undefined ? `${raw.durationMs} ms` : ''].filter(Boolean).join(' · '))
   const cmdPre = element('pre', 'command-text', cmd)
   body.append(meta, cmdPre, button('复制命令', () => navigator.clipboard.writeText(cmd), 'subtle'))
   if (item.output) {
     body.append(element('div', 'muted', '输出'), element('pre', 'command-output', stripAnsi(item.output)), button('复制输出', () => navigator.clipboard.writeText(stripAnsi(item.output)), 'subtle'))
   }
-  const label = `⌘  ${commandTitle(raw)}  ·  ${statusText(item)}  ${cmd ? '· ' + cmd.slice(0, 65) : ''}`
-  return detail(`${turn.id}:${item.id}`, label, body, `command-card status-${item.status || 'inProgress'}`)
+  const label = `⌘  ${running ? '正在运行' : '已运行'} ${cmd || commandTitle(raw)}`
+  const card = detail(`${turn.id}:${item.id}`, label, body, `command-card status-${item.status || 'inProgress'}`)
+  if (running) card.querySelector('.activity-label')?.classList.add('running-shimmer')
+  return card
+}
+function commandGroup(items, turn) {
+  const group = element('details', 'command-group')
+  const key = `${turn.id}:commands:${items[0].id}`
+  group.open = commandGroupPreference.get(key) || false
+  group.ontoggle = () => {
+    requestAnimationFrame(() => { if (followMessages) scrollToBottom(); updateNavigation() })
+  }
+  const summary = element('summary', 'command-group-summary')
+  summary.onclick = () => { commandGroupPreference.set(key, !group.open) }
+  summary.append(element('span', 'command-group-icon', '⌘'), element('span', '', '已运行命令'), element('span', 'command-group-chevron', '⌄'))
+  const list = element('div', 'command-group-list')
+  for (const item of items) list.append(commandView(item, turn))
+  group.append(summary, list)
+  return group
 }
 function diffLines(diff) {
   const pre = element('pre', 'diff')
@@ -139,7 +159,7 @@ function diffLines(diff) {
   }
   return pre
 }
-function fileSummary(turn) {
+function changedFiles(turn) {
   let files = parseDiff(turn.diff)
   if (!files.length) {
     files = (turn.items || []).filter(item => item.type === 'fileChange').flatMap(item => (item.raw?.changes || []).flatMap(change => {
@@ -150,28 +170,53 @@ function fileSummary(turn) {
     }))
     files = [...new Map(files.map(file => [file.path, file])).values()]
   }
+  return files
+}
+function fileSummary(turn, compact = false) {
+  const files = changedFiles(turn)
   if (!files.length) return null
-  const root = element('section', 'file-summary')
+  const root = element('section', `file-summary${compact ? ' compact' : ''}`)
   const plus = files.reduce((n, f) => n + f.additions, 0), minus = files.reduce((n, f) => n + f.deletions, 0)
-  root.append(element('div', 'file-heading', `${files.length} 个文件变更  +${plus}  -${minus}`))
+  const heading = element('div', 'file-summary-heading')
+  const title = element('div', 'file-summary-title', `${files.length} 个文件已修改`)
+  const stats = element('span', 'file-stats')
+  stats.append(element('span', 'added-count', `+${plus}`), document.createTextNode(' '), element('span', 'deleted-count', `-${minus}`))
+  heading.append(element('span', 'file-summary-icon', '▤'), title, stats)
+  heading.append(button('查看变更', () => post('openDiff', { path: files[0].path, diff: files[0].diff }), 'view-changes'))
+  root.append(heading)
+  if (compact) return root
+  const list = element('div', 'file-summary-list')
   for (const file of files) {
-    const body = element('div', 'file-body')
-    body.append(button('打开文件', () => post('openFile', { path: file.path }), 'subtle'), button('在编辑器中比较', () => post('openDiff', { path: file.path, diff: file.diff }), 'subtle'), button('复制 Diff', () => navigator.clipboard.writeText(file.diff), 'subtle'), diffLines(file.diff))
-    root.append(detail(`${turn.id}:diff:${file.path}`, `▤  ${file.path}  ·  ${file.kind}  +${file.additions} -${file.deletions}`, body, 'file-card status-completed'))
+    const row = button('', () => post('openDiff', { path: file.path, diff: file.diff }), 'file-summary-row')
+    row.append(element('span', 'file-summary-path', file.path))
+    const count = element('span', 'file-stats')
+    count.append(element('span', 'added-count', `+${file.additions}`), document.createTextNode(' '), element('span', 'deleted-count', `-${file.deletions}`))
+    row.append(count)
+    list.append(row)
   }
+  root.append(list)
+  const toggle = button('收起文件 ⌃', () => {
+    list.hidden = !list.hidden
+    toggle.textContent = list.hidden ? '展开文件 ⌄' : '收起文件 ⌃'
+  }, 'file-summary-toggle')
+  root.append(toggle)
   return root
 }
 function fileItem(item, turn) {
   const changes = item.raw?.changes || []
+  const running = item.status === 'inProgress'
   const body = element('div', 'activity-body')
   for (const change of changes) {
     const path = change.path || change.filePath || ''
     const row = element('div', 'file-row', `${change.kind || 'modified'}  ${path}`)
     if (path) row.append(button('打开', () => post('openFile', { path }), 'subtle'))
     body.append(row)
-    if (change.diff) body.append(diffLines(change.diff))
+    if (change.diff && path) body.append(button('在编辑器中比较', () => post('openDiff', { path, diff: change.diff }), 'subtle'), diffLines(change.diff))
   }
-  return detail(`${turn.id}:${item.id}`, `▤  修改文件 · ${statusText(item)} · ${changes.length} 个文件`, body, `file-card status-${item.status || 'inProgress'}`)
+  const label = `▤  ${running ? '正在编辑文件' : '已编辑文件'}${changes.length ? ` · ${changes.map(change => change.path || change.filePath).filter(Boolean).join('、')}` : ''}`
+  const card = detail(`${turn.id}:${item.id}`, label, body, `file-card status-${item.status || 'inProgress'}`)
+  if (running) card.querySelector('.activity-label')?.classList.add('running-shimmer')
+  return card
 }
 function toolView(item, turn) {
   const raw = item.raw || {}, names = { mcpToolCall: 'MCP 工具', dynamicToolCall: '工具调用', webSearch: '网页搜索', imageView: '查看图片', collabToolCall: '协作任务', contextCompaction: '整理上下文' }
@@ -188,6 +233,19 @@ function formatDuration(turn) {
   if (seconds < 60) return `用时${seconds}秒`
   const minutes = Math.floor(seconds / 60), remainder = seconds % 60
   return `用时${minutes}分${String(remainder).padStart(2, '0')}秒`
+}
+function formatElapsed(startedAt) {
+  if (!Number.isFinite(startedAt)) return '正在处理…'
+  const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
+  return seconds < 60 ? `正在处理 ${seconds}秒` : `正在处理 ${Math.floor(seconds / 60)}分${String(seconds % 60).padStart(2, '0')}秒`
+}
+function renderChangeDock() {
+  const dock = $('changeDock')
+  const turn = busy ? store.turns.at(-1) : null
+  const summary = turn && ['starting', 'inProgress'].includes(turn.status) ? fileSummary(turn, true) : null
+  dock.hidden = !summary
+  if (summary) dock.replaceChildren(summary)
+  else dock.replaceChildren()
 }
 function renderPlanDock() {
   const turn = busy ? store.turns.at(-1) : null
@@ -223,7 +281,8 @@ function processView(turn, active, nodes) {
   const key = `${turn.id}:process`
   const box = element('details', 'turn-process')
   box.open = processPreference.has(key) ? processPreference.get(key) : active
-  const summary = element('summary', 'turn-process-summary', active ? '正在处理…' : formatDuration(turn))
+  const summary = element('summary', 'turn-process-summary', active ? formatElapsed(turn.startedAt) : formatDuration(turn))
+  if (active && Number.isFinite(turn.startedAt)) box.dataset.startedAt = String(turn.startedAt)
   summary.onclick = () => { processPreference.set(key, !box.open) }
   box.append(summary)
   const body = element('div', 'turn-process-body')
@@ -248,6 +307,7 @@ function itemView(item, turn, forceFinal = false) {
 function render() {
   const list = $('messages'), follow = followMessages
   renderPlanDock()
+  renderChangeDock()
   if (!store.turns.length) { list.replaceChildren($('emptyTemplate').content.cloneNode(true)); turnNodes.clear(); updateNavigation(); return }
   list.querySelector('.empty')?.remove()
   if (!follow && turnNodes.size) {
@@ -272,17 +332,29 @@ function render() {
     const agentItems = (turn.items || []).filter(item => item.type === 'agentMessage')
     const explicitFinal = agentItems.some(item => item.raw?.phase === 'final_answer')
     const unphasedFallback = !explicitFinal && turn.status === 'completed' && agentItems.every(item => !item.raw?.phase) ? agentItems.at(-1) : null
+    const active = ['starting', 'inProgress'].includes(turn.status)
+    let commands = []
+    const flushCommands = () => {
+      if (!commands.length) return
+      processNodes.push(commandGroup(commands, turn))
+      commands = []
+    }
     for (const item of turn.items || []) {
+      if (item.type === 'commandExecution') {
+        if (item.status === 'inProgress' || !item.status) { flushCommands(); processNodes.push(commandView(item, turn)) }
+        else commands.push(item)
+        continue
+      }
+      flushCommands()
       if (item.type === 'agentMessage' && (item.raw?.phase === 'final_answer' || item === unphasedFallback)) { finalItems.push(item); continue }
       const node = itemView(item, turn); if (node) processNodes.push(node)
     }
-    const files = fileSummary(turn)
-    if (files) processNodes.push(files)
-    const active = ['starting', 'inProgress'].includes(turn.status)
-    if (active && busy && turn === store.turns.at(-1)) processNodes.push(element('div', 'working', stopping ? '◌  正在停止…' : '◌  DiCode 正在处理…'))
+    flushCommands()
+    if (active && busy && turn === store.turns.at(-1) && !processNodes.length) processNodes.push(element('div', 'working', stopping ? '◌  正在停止…' : '◌  DiCode 正在处理…'))
     const process = processView(turn, active, processNodes)
     if (process) content.append(process)
     for (const item of finalItems) content.append(itemView(item, turn, true))
+    if (!active) { const files = fileSummary(turn); if (files) content.append(files) }
     if (turn.status === 'completed' && !finalItems.length) content.append(element('div', 'turn-missing-answer', '未收到最终答复'))
     if (turn.status === 'interrupted') content.append(element('div', 'turn-interrupted', '已停止 · 可以继续提问'))
     if (turn.error) content.append(element('div', 'turn-error', turn.error.message || String(turn.error)))
@@ -426,20 +498,22 @@ function approvalView(message) {
   activeApproval = message
   const box = $('approval'), params = message.params || {}
   box.replaceChildren()
-  box.append(element('strong', '', message.method.includes('command') ? '批准执行命令' : '批准修改文件'))
+  box.append(element('div', 'approval-heading', message.method.includes('command') ? '▣  终端' : '▤  文件变更'))
   box.append(element('div', 'approval-reason', params.reason ? `原因：${params.reason}` : 'Codex 未提供具体审批原因'))
   if (params.cwd) box.append(element('div', 'approval-meta', `工作目录：${params.cwd}`))
-  box.append(element('pre', '', params.command || JSON.stringify(params, null, 2)))
+  box.append(element('pre', 'approval-command', params.command || JSON.stringify(params, null, 2)))
   const actions = element('div', 'approval-actions')
-  const labels = { accept: '允许本次', acceptForSession: '允许本次会话', decline: '拒绝', cancel: '取消' }
-  for (const decision of params.availableDecisions || ['accept', 'decline']) {
-    const value = typeof decision === 'string' ? decision : decision.decision
-    if (!value) continue
-    actions.append(button(labels[value] || value, () => {
+  const labels = { accept: '允许本次', acceptForSession: '本次会话均允许', decline: '拒绝', cancel: '取消' }
+  const decisions = (params.availableDecisions || ['accept', 'decline']).map(entry => typeof entry === 'string' ? entry : entry.decision).filter(Boolean)
+  for (const value of ['decline', 'cancel', 'acceptForSession', 'accept', ...decisions]) {
+    if (!decisions.includes(value) || actions.querySelector(`[data-decision="${value}"]`)) continue
+    const action = button(labels[value] || value, () => {
       post('approve', { id: message.id, decision: value })
       activeApproval = null; box.hidden = true
       if (approvalQueue.length) approvalView(approvalQueue.shift())
-    }, value.startsWith('accept') ? 'primary' : ''))
+    }, value === 'accept' ? 'approval-accept' : value === 'acceptForSession' ? 'approval-session' : 'approval-deny')
+    action.dataset.decision = value
+    actions.append(action)
   }
   box.append(actions); box.hidden = false
   requestAnimationFrame(() => { if (followMessages) scrollToBottom(); updateNavigation() })
@@ -638,3 +712,9 @@ document.addEventListener('click', event => {
 post('ready')
 render()
 updateComposer()
+window.setInterval(() => {
+  for (const process of document.querySelectorAll('.turn-process[data-started-at]')) {
+    const summary = process.querySelector('.turn-process-summary')
+    if (summary) summary.textContent = formatElapsed(Number(process.dataset.startedAt))
+  }
+}, 1000)

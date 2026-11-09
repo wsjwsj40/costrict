@@ -19,15 +19,13 @@
     <div id="approval" hidden></div>
     <section id="userInput" class="user-input" hidden aria-label="回答 DiCode 的问题"></section>
     <div id="planDock" class="plan-dock" hidden></div>
+    <div id="changeDock" class="change-dock" hidden></div>
     <div class="composer-shell">
       <div class="composer">
-        <div class="composer-title"><span class="composer-spark">✦</span><span>向 DiCode 提问</span></div>
-        <textarea id="prompt" rows="2" placeholder="描述问题、修改需求或下一步…" aria-label="输入问题"></textarea>
+        <textarea id="prompt" rows="2" placeholder="询问后续修改…" aria-label="输入问题"></textarea>
         <div class="composer-bottom">
-          <div class="model-control"><button id="modelPicker" type="button" aria-label="选择模型" aria-haspopup="listbox" aria-expanded="false"><span class="model-spark">◈</span><span id="modelLabel">选择模型</span><span class="chevron">⌄</span></button><div id="modelMenu" role="listbox" hidden></div></div>
-          <select id="model" hidden aria-label="模型"></select>
           <div class="permission-control">
-            <button id="permissionPicker" type="button" aria-label="选择授权模式" aria-haspopup="menu" aria-expanded="false"><span id="permissionGlyph" class="permission-glyph">◇</span><span id="permissionLabel">请求授权</span><span class="chevron">⌄</span></button>
+            <button id="permissionPicker" type="button" aria-label="选择授权模式" aria-haspopup="menu" aria-expanded="false"><span id="permissionGlyph" class="permission-glyph">✋</span><span id="permissionLabel">请求授权</span><span class="chevron">⌄</span></button>
             <div id="permissionMenu" role="menu" hidden></div>
           </div>
           <select id="permissionMode" hidden aria-label="DiCode 授权模式">
@@ -35,7 +33,8 @@
             <option value="auto">自动授权</option>
             <option value="full">完全访问</option>
           </select>
-          <span class="input-hint">Enter 发送</span>
+          <div class="model-control"><button id="modelPicker" type="button" aria-label="选择模型" aria-haspopup="listbox" aria-expanded="false"><span id="modelLabel">选择模型</span><span class="chevron">⌄</span></button><div id="modelMenu" role="listbox" hidden></div></div>
+          <select id="model" hidden aria-label="模型"></select>
           <button id="send" class="send-button" title="发送" aria-label="发送">↑</button>
           <button id="stop" class="stop-button" hidden title="停止当前任务" aria-label="停止当前任务">■</button>
           <button id="stopping" class="stopping-button" hidden disabled aria-label="正在停止">···</button>
