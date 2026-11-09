@@ -46,7 +46,8 @@ function updateComposer() {
   $('stop').hidden = !busy || stopping
   $('stopping').hidden = !busy || !stopping
   $('send').disabled = !($('prompt').value.trim() && $('model').value)
-  $('permissionMode').disabled = busy
+  $('permissionPicker').disabled = busy
+  if (busy) closePermissionMenu()
 }
 function resizePrompt() { const input = $('prompt'); input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 180)}px` }
 function nearBottom() { const e = $('messages'); return e.scrollHeight - e.scrollTop - e.clientHeight < 70 }
@@ -286,8 +287,7 @@ function setState(state) {
   updateComposer()
   if (stopping) setStatus('正在停止当前任务…', 'warning')
   $('workspace').textContent = state.workspace || '未打开工作区'
-  $('permissionMode').value = state.permissionMode || 'request'
-  $('permissionMode').title = ({ request: '只读沙箱；修改文件或越界操作时请求授权', auto: '工作区内自动执行；越过沙箱边界时请求授权', full: '无 Codex 沙箱和审批限制' })[$('permissionMode').value]
+  renderPermissionPicker(state.permissionMode || 'request')
   const previous = $('model').value
   $('model').replaceChildren()
   for (const model of state.models || []) { const option = document.createElement('option'); option.value = model.id; option.textContent = model.name || model.id; $('model').append(option) }
@@ -341,13 +341,45 @@ function renderModelPicker(models) {
     menu.append(entry)
   }
 }
+const permissionChoices = {
+  request: { label: '请求授权', icon: '◇', detail: '只读查看；修改文件时请求授权' },
+  auto: { label: '自动授权', icon: '✦', detail: '工作区内自动执行；越界时请求授权' },
+  full: { label: '完全访问', icon: '⚠', detail: '不使用 Codex 沙箱和命令审批' },
+}
+function closePermissionMenu() {
+  $('permissionMenu').hidden = true
+  $('permissionPicker').setAttribute('aria-expanded', 'false')
+}
+function renderPermissionPicker(mode) {
+  const selected = permissionChoices[mode] || permissionChoices.request
+  $('permissionMode').value = mode
+  $('permissionLabel').textContent = selected.label
+  $('permissionGlyph').textContent = selected.icon
+  $('permissionPicker').dataset.mode = mode
+  $('permissionPicker').title = selected.detail
+  const menu = $('permissionMenu')
+  menu.replaceChildren(element('div', 'permission-menu-heading', '执行权限'))
+  for (const [key, choice] of Object.entries(permissionChoices)) {
+    const entry = button('', () => { closePermissionMenu(); if (key !== mode) post('setPermissionMode', { mode: key }); $('permissionPicker').focus() }, `permission-option ${key === mode ? 'selected' : ''}`)
+    entry.dataset.mode = key
+    entry.setAttribute('role', 'menuitemradio')
+    entry.setAttribute('aria-checked', String(key === mode))
+    const copy = element('span', 'permission-option-copy')
+    copy.append(element('strong', '', choice.label), element('small', '', choice.detail))
+    entry.append(element('span', 'permission-option-icon', choice.icon), copy)
+    if (key === mode) entry.append(element('span', 'permission-option-check', '✓'))
+    menu.append(entry)
+  }
+}
 function approvalView(message) {
   if (activeApproval) { approvalQueue.push(message); return }
   activeApproval = message
   const box = $('approval'), params = message.params || {}
   box.replaceChildren()
   box.append(element('strong', '', message.method.includes('command') ? '批准执行命令' : '批准修改文件'))
-  box.append(element('pre', '', params.command || params.reason || JSON.stringify(params, null, 2)))
+  box.append(element('div', 'approval-reason', params.reason ? `原因：${params.reason}` : 'Codex 未提供具体审批原因'))
+  if (params.cwd) box.append(element('div', 'approval-meta', `工作目录：${params.cwd}`))
+  box.append(element('pre', '', params.command || JSON.stringify(params, null, 2)))
   const actions = element('div', 'approval-actions')
   const labels = { accept: '允许本次', acceptForSession: '允许本次会话', decline: '拒绝', cancel: '取消' }
   for (const decision of params.availableDecisions || ['accept', 'decline']) {
@@ -465,6 +497,7 @@ window.addEventListener('message', event => {
   if (msg.type === 'state') setState(msg)
   if (msg.type === 'history') { store.restore(msg.snapshot); const latest = store.turns.at(-1); if (!busy && latest && ['starting', 'inProgress'].includes(latest.status)) { latest.status = 'interrupted'; setStatus('已停止 · 可以继续提问', 'warning') } turnNodes.clear(); $('messages').replaceChildren(); visibleTurnLimit = 30; followMessages = true; for (const turn of store.turns) dirtyTurns.add(turn.id); schedule() }
   if (msg.type === 'notice') setStatus(msg.message, 'working')
+  if (msg.type === 'permissionModeRejected') renderPermissionPicker(msg.mode || 'request')
   if (msg.type === 'error') { awaitingHostBusy = false; setStatus(`错误：${msg.message}`, 'error'); const turn = store.turns.at(-1); if (turn && busy) { turn.error = { message: msg.message }; turn.status = 'failed'; dirtyTurns.add(turn.id); schedule() } }
   if (msg.type === 'stopped') { awaitingHostBusy = false; busy = false; stopping = false; updateComposer(); setStatus(msg.message || '已停止，可以继续提问', 'warning'); const turn = store.turns.at(-1); if (turn) { turn.status = 'interrupted'; dirtyTurns.add(turn.id); schedule() } }
   if (msg.type === 'approval') approvalView(msg)
@@ -505,7 +538,12 @@ $('loginButton').onclick = () => post('login')
 $('logout').onclick = () => { store.reset(); visibleTurnLimit = 30; followMessages = true; render(); post('logout') }
 $('newThread').onclick = () => { if (!busy) { store.reset(); visibleTurnLimit = 30; followMessages = true; render(); post('newThread') } }
 $('threadsButton').onclick = () => { $('threadList').hidden = !$('threadList').hidden }
-$('permissionMode').onchange = () => post('setPermissionMode', { mode: $('permissionMode').value })
+$('permissionPicker').onclick = () => {
+  const menu = $('permissionMenu')
+  menu.hidden = !menu.hidden
+  $('permissionPicker').setAttribute('aria-expanded', String(!menu.hidden))
+  if (!menu.hidden) menu.querySelector('.permission-option.selected')?.focus()
+}
 $('send').onclick = () => {
   const text = $('prompt').value.trim(), model = $('model').value
   if (!text || !model || busy) return
@@ -542,8 +580,11 @@ document.getElementById('modelMenu').addEventListener('keydown', event => {
   const index = options.indexOf(document.activeElement)
   options[(index + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length]?.focus()
 })
-document.addEventListener('keydown', event => { if (event.key === 'Escape') { $('modelMenu').hidden = true; $('modelPicker').setAttribute('aria-expanded', 'false') } })
-document.addEventListener('click', event => { if (!$('modelPicker').contains(event.target) && !$('modelMenu').contains(event.target)) { $('modelMenu').hidden = true; $('modelPicker').setAttribute('aria-expanded', 'false') } })
+document.addEventListener('keydown', event => { if (event.key === 'Escape') { $('modelMenu').hidden = true; $('modelPicker').setAttribute('aria-expanded', 'false'); closePermissionMenu() } })
+document.addEventListener('click', event => {
+  if (!$('modelPicker').contains(event.target) && !$('modelMenu').contains(event.target)) { $('modelMenu').hidden = true; $('modelPicker').setAttribute('aria-expanded', 'false') }
+  if (!$('permissionPicker').contains(event.target) && !$('permissionMenu').contains(event.target)) closePermissionMenu()
+})
 post('ready')
 render()
 updateComposer()

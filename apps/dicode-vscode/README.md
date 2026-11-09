@@ -10,6 +10,8 @@ Version 0.2.5 keeps the same thread for follow-up questions after completion or 
 
 The composer has three Codex-native permission modes. 请求授权 uses `read-only` with `on-request`, 自动授权 uses `workspace-write` with `on-request`, and 完全访问 uses `danger-full-access` with `never`. The first mode is the default. The selected mode applies to the next turn, including when continuing an existing thread. Full access requires a modal confirmation and is reset when the extension or workspace changes. After the first completed turn, the extension asks the existing DiCode Responses bridge to generate a short title; this request has no tools and does not enter the conversation. Previously saved titles copied from the first prompt are updated when their thread is loaded.
 
+On Windows, DiCode asks Codex to prefer the native MXC sandbox when the device supports it. Approval cards show the reason and working directory supplied by Codex, so a sandbox startup failure can be distinguished from a policy prompt. Dismissing the full-access confirmation keeps the previous mode without reporting an extension error.
+
 Version 0.2.6 adds ordinary Agent planning guidance: use the built-in `update_plan` tool for substantive multi-step work, update statuses as work progresses, and skip plans for simple tasks. Actual plan events still depend on the selected model and gateway tool-call support.
 
 Version 0.2.7 keeps the correct user message pinned after jumping to it. When Codex requests user input, the sidebar shows its choices and a custom answer field above the composer, sends the answer through the app-server request, and continues the same turn. The card clears when the request resolves or the turn stops.

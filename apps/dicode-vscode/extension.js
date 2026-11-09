@@ -23,7 +23,7 @@ const PERMISSION_MODES = {
 }
 
 class CodexClient {
-	constructor(binary, baseUrl, token, instructionsPath, onEvent, powerShellPath) {
+	constructor(binary, baseUrl, token, instructionsPath, onEvent, powerShellPath, platform = process.platform) {
 		this.onEvent = onEvent
 		this.nextId = 1
 		this.pending = new Map()
@@ -40,6 +40,7 @@ class CodexClient {
 				"features.default_mode_request_user_input=true",
 				"-c",
 				"tools.update_plan.enabled=true",
+				...(platform === "win32" ? ["-c", "features.prefer_mxc=true"] : []),
 				"-c",
 				'model_provider="dicode"',
 				"-c",
@@ -643,11 +644,19 @@ class DicodeView {
 			if (!Object.hasOwn(PERMISSION_MODES, mode)) throw new Error("无效的权限模式")
 			if (mode === "full" && this.permissionMode !== "full") {
 				if (!this.workspace) throw new Error("请先打开工作区")
-				const chosen = await vscode.window.showWarningMessage(
-					"完全访问将关闭 Codex 的沙箱和命令审批。DiCode 可按当前用户权限读取和修改工作区外文件、运行命令并访问网络。确定为当前插件会话启用吗？",
-					{ modal: true }, "启用完全访问",
-				)
-				if (chosen !== "启用完全访问") { await this.postState(); return }
+				let chosen
+				try {
+					chosen = await vscode.window.showWarningMessage(
+						"完全访问将关闭 Codex 的沙箱和命令审批。DiCode 可按当前用户权限读取和修改工作区外文件、运行命令并访问网络。确定为当前插件会话启用吗？",
+						{ modal: true }, "启用完全访问",
+					)
+				} catch (error) {
+					this.output.appendLine(`Permission dialog closed: ${String(error)}`)
+				}
+				if (chosen !== "启用完全访问") {
+					this.post({ type: "permissionModeRejected", mode: this.permissionMode })
+					return
+				}
 			}
 			this.permissionMode = mode
 			this.fullAccessWorkspace = mode === "full" ? this.workspace : null

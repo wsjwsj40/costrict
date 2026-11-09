@@ -29,7 +29,7 @@ function rpc(view, method, params) { view.onCodexEvent({ type: 'rpc', message: {
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 
 test('Codex permission modes apply to each turn and full access needs explicit confirmation', async () => {
-  const { view, vscode } = makeView()
+  const { view, vscode, posted } = makeView()
   const calls = []
   view.ensureClient = async () => ({ request: async (method, params) => { calls.push({ method, params }); return { turn: { id: 't' } } } })
   await view.send('查看项目', 'm')
@@ -42,6 +42,11 @@ test('Codex permission modes apply to each turn and full access needs explicit c
   vscode.window.showWarningMessage = async () => undefined
   await view.handle({ type: 'setPermissionMode', mode: 'full' })
   assert.equal(view.permissionMode, 'auto')
+  assert.equal(posted.at(-1).type, 'permissionModeRejected')
+  vscode.window.showWarningMessage = async () => { throw new Error('dialog dismissed') }
+  await view.handle({ type: 'setPermissionMode', mode: 'full' })
+  assert.equal(view.permissionMode, 'auto')
+  assert.equal(posted.at(-1).type, 'permissionModeRejected')
   vscode.window.showWarningMessage = async () => '启用完全访问'
   await view.handle({ type: 'setPermissionMode', mode: 'full' })
   await view.send('继续', 'm')

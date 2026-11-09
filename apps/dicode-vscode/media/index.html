@@ -25,7 +25,11 @@
         <div class="composer-bottom">
           <div class="model-control"><button id="modelPicker" type="button" aria-label="选择模型" aria-haspopup="listbox" aria-expanded="false"><span class="model-spark">◈</span><span id="modelLabel">选择模型</span><span class="chevron">⌄</span></button><div id="modelMenu" role="listbox" hidden></div></div>
           <select id="model" hidden aria-label="模型"></select>
-          <select id="permissionMode" class="permission-mode" aria-label="DiCode 授权模式" title="选择 Codex 执行权限">
+          <div class="permission-control">
+            <button id="permissionPicker" type="button" aria-label="选择授权模式" aria-haspopup="menu" aria-expanded="false"><span id="permissionGlyph" class="permission-glyph">◇</span><span id="permissionLabel">请求授权</span><span class="chevron">⌄</span></button>
+            <div id="permissionMenu" role="menu" hidden></div>
+          </div>
+          <select id="permissionMode" hidden aria-label="DiCode 授权模式">
             <option value="request">请求授权</option>
             <option value="auto">自动授权</option>
             <option value="full">完全访问</option>

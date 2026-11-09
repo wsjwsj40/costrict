@@ -134,6 +134,8 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 @keyframes pulse { 50% { opacity: .55; } }
 #approval { flex: none; display: flex; flex-direction: column; max-height: 40vh; margin: 0 12px 8px; padding: 10px; border: 1px solid var(--yellow); border-left: 3px solid var(--yellow); border-radius: 7px; background: color-mix(in srgb, var(--yellow) 6%, var(--surface)); font-size: 12px; }
 #approval > strong { flex: none; }
+#approval .approval-reason { flex: none; margin: 5px 0 0; color: var(--vscode-foreground); line-height: 1.4; }
+#approval .approval-meta { flex: none; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
 #approval pre { flex: 1; min-height: 0; white-space: pre-wrap; overflow: auto; max-height: min(100px, 15vh); }
 .approval-actions { flex: none; display: flex; gap: 5px; flex-wrap: wrap; }
 .user-input { flex: none; max-height: min(58vh, 480px); overflow-y: auto; margin: 0 10px 8px; padding: 12px; border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--border)); border-radius: 11px; background: var(--surface); box-shadow: 0 5px 18px var(--vscode-widget-shadow, #0002); }
@@ -170,9 +172,23 @@ textarea { display: block; width: 100%; min-height: 48px; max-height: 180px; res
 textarea::placeholder { color: var(--vscode-input-placeholderForeground, var(--muted)); }
 .composer-bottom { display: flex; align-items: center; gap: 7px; min-height: 29px; }
 .model-control { position: relative; min-width: 0; max-width: 70%; }
-.permission-mode { flex: none; max-width: 95px; padding: 4px 3px; border: 1px solid var(--border); border-radius: 6px; background: var(--vscode-dropdown-background, var(--surface)); color: var(--vscode-foreground); font: inherit; font-size: 10px; cursor: pointer; }
-.permission-mode:focus-visible { outline: 1px solid var(--vscode-focusBorder, var(--brand)); }
-.permission-mode:disabled { opacity: .6; cursor: default; }
+.permission-control { position: relative; flex: none; }
+#permissionPicker { display: flex; align-items: center; gap: 5px; height: 27px; max-width: 110px; padding: 3px 7px; border: 1px solid color-mix(in srgb, var(--brand) 19%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--brand) 6%, var(--surface)); color: var(--vscode-foreground); font-size: 10px; white-space: nowrap; }
+#permissionPicker:hover, #permissionPicker[aria-expanded="true"] { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 11%, var(--surface)); }
+#permissionPicker[data-mode="full"] { border-color: color-mix(in srgb, var(--red) 38%, var(--border)); background: color-mix(in srgb, var(--red) 9%, var(--surface)); }
+.permission-glyph { font-size: 13px; color: var(--brand); }
+#permissionPicker[data-mode="full"] .permission-glyph { color: var(--red); }
+#permissionMenu { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 12; width: min(270px, calc(100vw - 24px)); padding: 5px; border: 1px solid var(--border); border-radius: 11px; background: var(--vscode-dropdown-background, var(--surface)); box-shadow: 0 8px 24px var(--vscode-widget-shadow, #0005); }
+.permission-menu-heading { padding: 6px 8px 7px; color: var(--muted); font-size: 10px; font-weight: 600; }
+.permission-option { display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 8px; text-align: left; border-radius: 8px; }
+.permission-option:hover, .permission-option.selected { background: color-mix(in srgb, var(--brand) 10%, var(--surface)); }
+.permission-option[data-mode="full"]:hover, .permission-option[data-mode="full"].selected { background: color-mix(in srgb, var(--red) 9%, var(--surface)); }
+.permission-option-icon { width: 19px; flex: none; color: var(--brand); font-size: 15px; text-align: center; }
+.permission-option[data-mode="full"] .permission-option-icon { color: var(--red); }
+.permission-option-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.permission-option-copy strong { font-size: 11px; font-weight: 650; }
+.permission-option-copy small { color: var(--muted); font-size: 10px; line-height: 1.35; }
+.permission-option-check { margin-left: auto; color: var(--brand); font-size: 12px; }
 #modelPicker { display: flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; padding: 4px 7px; border: 1px solid color-mix(in srgb, var(--brand) 20%, var(--border)); border-radius: 6px; color: var(--vscode-foreground); background: color-mix(in srgb, var(--brand) 6%, var(--surface)); font-size: 11px; }
 #modelPicker:hover { border-color: var(--brand); }
 .model-spark { color: var(--brand); font-size: 12px; }
