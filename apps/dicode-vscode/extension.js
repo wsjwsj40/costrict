@@ -23,7 +23,7 @@ const PERMISSION_MODES = {
 }
 
 class CodexClient {
-	constructor(binary, baseUrl, token, instructionsPath, onEvent, powerShellPath, platform = process.platform) {
+	constructor(binary, baseUrl, token, instructionsPath, onEvent, powerShellPath, platform = process.platform, windowsSandboxFallback = "unelevated") {
 		this.onEvent = onEvent
 		this.nextId = 1
 		this.pending = new Map()
@@ -40,7 +40,9 @@ class CodexClient {
 				"features.default_mode_request_user_input=true",
 				"-c",
 				"tools.update_plan.enabled=true",
-				...(platform === "win32" ? ["-c", "features.prefer_mxc=true"] : []),
+				// MXC is preferred when available; the legacy sandbox prevents every
+				// ordinary command from requiring approval on older Windows hosts.
+				...(platform === "win32" ? ["-c", "features.prefer_mxc=true", "-c", `windows.sandbox=${JSON.stringify(windowsSandboxFallback)}`] : []),
 				"-c",
 				'model_provider="dicode"',
 				"-c",
@@ -329,7 +331,9 @@ class DicodeView {
 			const [binary, powerShellPath] = await Promise.all([this.ensureBinary(), process.platform === "win32" ? this.ensurePowerShell() : Promise.resolve(null)])
 			const client = new CodexClient(binary, `${this.serverUrl}/codex/v1`, token, this.instructionsPath, (event) => {
 				if (this.client === client) this.onCodexEvent(event)
-			}, powerShellPath)
+			}, powerShellPath, process.platform, process.platform === "win32"
+				? vscode.workspace.getConfiguration("dicodeCodex").get("windowsSandboxFallback", "unelevated")
+				: "unelevated")
 			this.client = client
 			try {
 				await client.initialize(EXTENSION_VERSION)

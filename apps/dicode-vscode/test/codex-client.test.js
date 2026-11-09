@@ -39,7 +39,7 @@ test('Codex app-server starts with interactive input and plan tools enabled', as
   client.dispose()
 })
 
-test('Windows Codex prefers its native MXC sandbox', () => {
+test('Windows Codex prefers MXC and enables a legacy sandbox fallback', () => {
   const originalLoad = Module._load
   const proc = new EventEmitter()
   proc.exitCode = null; proc.killed = false
@@ -57,5 +57,9 @@ test('Windows Codex prefers its native MXC sandbox', () => {
   try { delete require.cache[require.resolve('../extension')]; ({ CodexClient } = require('../extension')) } finally { Module._load = originalLoad }
   const client = new CodexClient('codex', 'https://example.test', 'token', 'instructions.md', () => {}, null, 'win32')
   assert.ok(args.includes('features.prefer_mxc=true'))
+  assert.ok(args.includes('windows.sandbox="unelevated"'))
   client.dispose()
+  const elevated = new CodexClient('codex', 'https://example.test', 'token', 'instructions.md', () => {}, null, 'win32', 'elevated')
+  assert.ok(args.includes('windows.sandbox="elevated"'))
+  elevated.dispose()
 })
