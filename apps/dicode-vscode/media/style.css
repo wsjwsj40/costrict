@@ -173,27 +173,28 @@ textarea::placeholder { color: var(--vscode-input-placeholderForeground, var(--m
 .composer-bottom { display: flex; align-items: center; gap: 7px; min-height: 29px; }
 .model-control { position: relative; min-width: 0; max-width: 70%; }
 .permission-control { position: relative; flex: none; }
-#permissionPicker { display: flex; align-items: center; gap: 5px; height: 27px; max-width: 110px; padding: 3px 7px; border: 1px solid color-mix(in srgb, var(--brand) 19%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--brand) 6%, var(--surface)); color: var(--vscode-foreground); font-size: 10px; white-space: nowrap; }
+#permissionPicker { display: flex; align-items: center; gap: 6px; height: 29px; max-width: 126px; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--brand) 19%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--brand) 6%, var(--surface)); color: var(--vscode-foreground); font-family: var(--vscode-font-family, system-ui, sans-serif); font-size: calc(var(--vscode-font-size, 13px) * .92); font-weight: 500; line-height: 1.2; white-space: nowrap; }
 #permissionPicker:hover, #permissionPicker[aria-expanded="true"] { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 11%, var(--surface)); }
 #permissionPicker[data-mode="full"] { border-color: color-mix(in srgb, var(--red) 38%, var(--border)); background: color-mix(in srgb, var(--red) 9%, var(--surface)); }
-.permission-glyph { font-size: 13px; color: var(--brand); }
+.permission-glyph { flex: none; font-size: 14px; color: var(--brand); }
 #permissionPicker[data-mode="full"] .permission-glyph { color: var(--red); }
 #permissionMenu { position: absolute; right: 0; bottom: calc(100% + 8px); z-index: 12; width: min(270px, calc(100vw - 24px)); padding: 5px; border: 1px solid var(--border); border-radius: 11px; background: var(--vscode-dropdown-background, var(--surface)); box-shadow: 0 8px 24px var(--vscode-widget-shadow, #0005); }
-.permission-menu-heading { padding: 6px 8px 7px; color: var(--muted); font-size: 10px; font-weight: 600; }
+.permission-menu-heading { padding: 6px 8px 7px; color: var(--muted); font-size: 11px; font-weight: 600; }
 .permission-option { display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 8px; text-align: left; border-radius: 8px; }
 .permission-option:hover, .permission-option.selected { background: color-mix(in srgb, var(--brand) 10%, var(--surface)); }
 .permission-option[data-mode="full"]:hover, .permission-option[data-mode="full"].selected { background: color-mix(in srgb, var(--red) 9%, var(--surface)); }
 .permission-option-icon { width: 19px; flex: none; color: var(--brand); font-size: 15px; text-align: center; }
 .permission-option[data-mode="full"] .permission-option-icon { color: var(--red); }
 .permission-option-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.permission-option-copy strong { font-size: 11px; font-weight: 650; }
-.permission-option-copy small { color: var(--muted); font-size: 10px; line-height: 1.35; }
+.permission-option-copy strong { font-family: var(--vscode-font-family, system-ui, sans-serif); font-size: calc(var(--vscode-font-size, 13px) * .92); font-weight: 600; line-height: 1.3; }
+.permission-option-copy small { color: var(--muted); font-family: var(--vscode-font-family, system-ui, sans-serif); font-size: calc(var(--vscode-font-size, 13px) * .85); line-height: 1.4; }
 .permission-option-check { margin-left: auto; color: var(--brand); font-size: 12px; }
-#modelPicker { display: flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; padding: 4px 7px; border: 1px solid color-mix(in srgb, var(--brand) 20%, var(--border)); border-radius: 6px; color: var(--vscode-foreground); background: color-mix(in srgb, var(--brand) 6%, var(--surface)); font-size: 11px; }
+#modelPicker { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; height: 29px; padding: 3px 8px; border: 1px solid color-mix(in srgb, var(--brand) 20%, var(--border)); border-radius: 8px; color: var(--vscode-foreground); background: color-mix(in srgb, var(--brand) 6%, var(--surface)); font-family: var(--vscode-font-family, system-ui, sans-serif); font-size: calc(var(--vscode-font-size, 13px) * .92); font-weight: 500; line-height: 1.2; }
 #modelPicker:hover { border-color: var(--brand); }
-.model-spark { color: var(--brand); font-size: 12px; }
+.model-spark { flex: none; color: var(--brand); font-size: 13px; }
 #modelLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chevron { color: var(--muted); }
+.chevron { display: grid; place-items: center; flex: none; width: 11px; height: 11px; margin-left: auto; color: transparent; font-size: 0; line-height: 0; }
+.chevron::after { content: ""; width: 6px; height: 6px; border-right: 1.5px solid var(--muted); border-bottom: 1.5px solid var(--muted); transform: translateY(-1px) rotate(45deg); }
 #modelMenu { position: absolute; left: 0; bottom: calc(100% + 7px); z-index: 10; width: max(210px, 100%); max-width: min(310px, 85vw); max-height: 240px; overflow-y: auto; padding: 5px; border: 1px solid var(--border); border-radius: 8px; background: var(--vscode-dropdown-background, var(--surface)); box-shadow: 0 5px 18px var(--vscode-widget-shadow, #0003); }
 .model-menu-heading { color: var(--muted); font-size: 10px; padding: 5px 7px; }
 .model-search { display: block; width: calc(100% - 8px); margin: 3px 4px 6px; padding: 6px 7px; border: 1px solid var(--border); border-radius: 5px; outline: none; color: var(--vscode-input-foreground); background: var(--vscode-input-background); font: inherit; font-size: 11px; }
