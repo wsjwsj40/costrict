@@ -3,7 +3,7 @@ class ConversationStore {
   constructor() { this.reset() }
   reset() { this.threadId = null; this.turns = []; this.items = new Map(); this.sequence = 0; this.pendingTurn = null }
   begin(text) {
-    const turn = { id: `local-${++this.sequence}`, user: text, status: 'starting', items: [], plan: null, diff: '', error: null }
+    const turn = { id: `local-${++this.sequence}`, user: text, status: 'starting', startedAt: Date.now(), completedAt: null, items: [], plan: null, diff: '', error: null }
     this.turns.push(turn); this.pendingTurn = turn.id; return turn
   }
   turn(id, create = true) {
@@ -16,7 +16,7 @@ class ConversationStore {
         for (const item of turn.items) { this.items.delete(`${oldId}:${item.id}`); item.turnId = id; this.items.set(`${id}:${item.id}`, item) }
       }
     }
-    if (!turn && create) { turn = { id: id || `local-${++this.sequence}`, user: '', status: 'inProgress', items: [], plan: null, diff: '', error: null }; this.turns.push(turn) }
+    if (!turn && create) { turn = { id: id || `local-${++this.sequence}`, user: '', status: 'inProgress', startedAt: Date.now(), completedAt: null, items: [], plan: null, diff: '', error: null }; this.turns.push(turn) }
     return turn
   }
   item(turn, id, type = 'unknown') {
@@ -33,9 +33,11 @@ class ConversationStore {
     const turn = this.turn(params.turnId || params.turn?.id || this.turns.at(-1)?.id)
     if (method === 'turn/started') {
       turn.status = params.turn?.status || 'inProgress'
+      turn.startedAt ||= Date.now()
       this.threadId = params.threadId || this.threadId
     } else if (method === 'turn/completed') {
       turn.status = params.turn?.status || 'completed'; turn.error = params.turn?.error || null
+      turn.completedAt ||= Date.now()
       if (turn.status === 'interrupted' || turn.status === 'failed') {
         for (const item of turn.items) if (item.status === 'inProgress') item.status = turn.status
       }

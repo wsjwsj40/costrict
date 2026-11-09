@@ -36,6 +36,8 @@ let recentPromptId = null
 let userScrollUntil = 0
 let visibleTurnLimit = 30
 const openDetails = new Set()
+const processPreference = new Map()
+let floatingPlanExpanded = false, floatingPlanSignature = ''
 const turnNodes = new Map(), dirtyTurns = new Set()
 function post(type, extra = {}) { vscode.postMessage({ type, ...extra }) }
 function element(tag, className = '', text = '') { const e = document.createElement(tag); e.className = className; e.textContent = text; return e }
@@ -191,9 +193,55 @@ function planView(plan) {
   }
   return box
 }
-function itemView(item, turn) {
+function formatDuration(turn) {
+  if (!Number.isFinite(turn.startedAt) || !Number.isFinite(turn.completedAt)) return '过程'
+  const seconds = Math.max(0, Math.round((turn.completedAt - turn.startedAt) / 1000))
+  if (seconds < 60) return `用时${seconds}秒`
+  const minutes = Math.floor(seconds / 60), remainder = seconds % 60
+  return `用时${minutes}分${String(remainder).padStart(2, '0')}秒`
+}
+function renderFloatingPlan() {
+  const turn = busy ? store.turns.at(-1) : null
+  const plan = turn && ['starting', 'inProgress'].includes(turn.status) ? turn.plan : null
+  const host = $('floatingPlan')
+  if (!plan?.steps?.length) { host.hidden = true; floatingPlanSignature = ''; return }
+  host.hidden = false
+  const signature = JSON.stringify([turn.id, plan, floatingPlanExpanded])
+  if (signature === floatingPlanSignature) return
+  floatingPlanSignature = signature
+  const completed = plan.steps.filter(step => step.status === 'completed').length
+  const current = plan.steps.find(step => step.status === 'inProgress') || plan.steps.find(step => step.status !== 'completed')
+  const heading = button('', () => { floatingPlanExpanded = !floatingPlanExpanded; floatingPlanSignature = ''; renderFloatingPlan() }, 'floating-plan-toggle')
+  heading.type = 'button'
+  heading.setAttribute('aria-expanded', String(floatingPlanExpanded))
+  heading.append(element('span', 'floating-plan-icon', '☷'), element('span', 'floating-plan-title', floatingPlanExpanded ? '执行计划' : current?.step || `${completed}项已完成`), element('span', 'floating-plan-count', `${completed}/${plan.steps.length}`), element('span', 'floating-plan-chevron', floatingPlanExpanded ? '⌃' : '⌄'))
+  host.replaceChildren(heading)
+  if (floatingPlanExpanded) {
+    const list = element('ol', 'floating-plan-steps')
+    for (const step of plan.steps) {
+      const status = step.status || 'pending'
+      list.append(element('li', `floating-plan-step ${status}`, `${status === 'completed' ? '✓' : status === 'inProgress' ? '◉' : '○'}  ${step.step || step.text || ''}`))
+    }
+    host.append(list)
+  }
+}
+function processView(turn, active, nodes) {
+  if (!nodes.length) return turn.startedAt && !active ? element('div', 'turn-duration', formatDuration(turn)) : null
+  const key = `${turn.id}:process`
+  const box = element('details', 'turn-process')
+  box.open = processPreference.has(key) ? processPreference.get(key) : active
+  const summary = element('summary', 'turn-process-summary', active ? '正在处理…' : formatDuration(turn))
+  summary.onclick = () => { processPreference.set(key, !box.open) }
+  box.append(summary)
+  const body = element('div', 'turn-process-body')
+  body.append(...nodes)
+  box.append(body)
+  return box
+}
+function itemView(item, turn, forceFinal = false) {
+  if (['userMessage', 'functionCallOutput', 'plan'].includes(item.type)) return null
   if (item.type === 'agentMessage') {
-    const final = item.raw?.phase === 'final_answer'
+    const final = forceFinal || item.raw?.phase === 'final_answer'
     const box = element('article', `agent ${final ? 'final-answer' : 'commentary-answer'}`)
     if (final) box.append(element('div', 'agent-heading', '✦  DiCode · 答复'))
     box.append(markdownView(item.text)); return box
@@ -201,10 +249,12 @@ function itemView(item, turn) {
   if (item.type === 'reasoning') return item.summary ? detail(`${turn.id}:${item.id}`, '◌  思考摘要', markdownView(item.summary), 'reasoning status-completed') : null
   if (item.type === 'commandExecution') return commandView(item, turn)
   if (item.type === 'fileChange') return fileItem(item, turn)
+  if (!['mcpToolCall', 'dynamicToolCall', 'webSearch', 'imageView', 'collabToolCall', 'contextCompaction'].includes(item.type)) return null
   return toolView(item, turn)
 }
 function render() {
   const list = $('messages'), follow = followMessages
+  renderFloatingPlan()
   if (!store.turns.length) { list.replaceChildren($('emptyTemplate').content.cloneNode(true)); turnNodes.clear(); updateNavigation(); return }
   list.querySelector('.empty')?.remove()
   if (!follow && turnNodes.size) {
@@ -225,17 +275,24 @@ function render() {
     section.dataset.turnId = turn.id
     if (turn.user) { const user = element('div', 'user-message'); user.append(element('div', 'speaker', '你'), markdownView(turn.user)); section.append(user) }
     const content = element('div', 'turn-content')
-    const finalItems = []
+    const processNodes = [], finalItems = []
+    const agentItems = (turn.items || []).filter(item => item.type === 'agentMessage')
+    const explicitFinal = agentItems.some(item => item.raw?.phase === 'final_answer')
+    const unphasedFallback = !explicitFinal && turn.status === 'completed' && agentItems.every(item => !item.raw?.phase) ? agentItems.at(-1) : null
     for (const item of turn.items || []) {
-      if (item.type === 'agentMessage' && item.raw?.phase === 'final_answer') { finalItems.push(item); continue }
-      const node = itemView(item, turn); if (node) content.append(node)
+      if (item.type === 'agentMessage' && (item.raw?.phase === 'final_answer' || item === unphasedFallback)) { finalItems.push(item); continue }
+      const node = itemView(item, turn); if (node) processNodes.push(node)
     }
     const plan = planView(turn.plan)
-    if (plan) content.append(plan)
+    if (plan) processNodes.push(plan)
     const files = fileSummary(turn)
-    if (files) content.append(files)
-    for (const item of finalItems) content.append(itemView(item, turn))
-    if ((turn.status === 'inProgress' || turn.status === 'starting') && busy && turn === store.turns.at(-1)) content.append(element('div', 'working', stopping ? '◌  正在停止…' : '◌  DiCode 正在处理…'))
+    if (files) processNodes.push(files)
+    const active = ['starting', 'inProgress'].includes(turn.status)
+    if (active && busy && turn === store.turns.at(-1)) processNodes.push(element('div', 'working', stopping ? '◌  正在停止…' : '◌  DiCode 正在处理…'))
+    const process = processView(turn, active, processNodes)
+    if (process) content.append(process)
+    for (const item of finalItems) content.append(itemView(item, turn, true))
+    if (turn.status === 'completed' && !finalItems.length) content.append(element('div', 'turn-missing-answer', '未收到最终答复'))
     if (turn.status === 'interrupted') content.append(element('div', 'turn-interrupted', '已停止 · 可以继续提问'))
     if (turn.error) content.append(element('div', 'turn-error', turn.error.message || String(turn.error)))
     section.append(content)
@@ -275,9 +332,11 @@ function setState(state) {
     const terminal = state.lastTurn?.status
     if (['completed', 'interrupted', 'failed'].includes(terminal) && (!state.lastTurn.id || state.lastTurn.id === latest.id || latest.id.startsWith('local-'))) {
       latest.status = terminal
+      latest.completedAt ||= Date.now()
       latest.error = state.lastTurn.error || null
     } else if (latest.status === 'starting' || latest.status === 'inProgress') {
       latest.status = 'interrupted'
+      latest.completedAt ||= Date.now()
     }
     if (latest.status === 'completed') setStatus('已完成 · 可以继续提问', 'success')
     else if (latest.status === 'interrupted') setStatus('已停止 · 可以继续提问', 'warning')
@@ -495,11 +554,11 @@ function clearUserInputs() {
 window.addEventListener('message', event => {
   const msg = event.data
   if (msg.type === 'state') setState(msg)
-  if (msg.type === 'history') { store.restore(msg.snapshot); const latest = store.turns.at(-1); if (!busy && latest && ['starting', 'inProgress'].includes(latest.status)) { latest.status = 'interrupted'; setStatus('已停止 · 可以继续提问', 'warning') } turnNodes.clear(); $('messages').replaceChildren(); visibleTurnLimit = 30; followMessages = true; for (const turn of store.turns) dirtyTurns.add(turn.id); schedule() }
+  if (msg.type === 'history') { store.restore(msg.snapshot); const latest = store.turns.at(-1); if (!busy && latest && ['starting', 'inProgress'].includes(latest.status)) { latest.status = 'interrupted'; latest.completedAt ||= Date.now(); setStatus('已停止 · 可以继续提问', 'warning') } turnNodes.clear(); $('messages').replaceChildren(); visibleTurnLimit = 30; followMessages = true; for (const turn of store.turns) dirtyTurns.add(turn.id); schedule() }
   if (msg.type === 'notice') setStatus(msg.message, 'working')
   if (msg.type === 'permissionModeRejected') renderPermissionPicker(msg.mode || 'request')
-  if (msg.type === 'error') { awaitingHostBusy = false; setStatus(`错误：${msg.message}`, 'error'); const turn = store.turns.at(-1); if (turn && busy) { turn.error = { message: msg.message }; turn.status = 'failed'; dirtyTurns.add(turn.id); schedule() } }
-  if (msg.type === 'stopped') { awaitingHostBusy = false; busy = false; stopping = false; updateComposer(); setStatus(msg.message || '已停止，可以继续提问', 'warning'); const turn = store.turns.at(-1); if (turn) { turn.status = 'interrupted'; dirtyTurns.add(turn.id); schedule() } }
+  if (msg.type === 'error') { awaitingHostBusy = false; setStatus(`错误：${msg.message}`, 'error'); const turn = store.turns.at(-1); if (turn && busy) { turn.error = { message: msg.message }; turn.status = 'failed'; turn.completedAt ||= Date.now(); dirtyTurns.add(turn.id); schedule() } }
+  if (msg.type === 'stopped') { awaitingHostBusy = false; busy = false; stopping = false; updateComposer(); setStatus(msg.message || '已停止，可以继续提问', 'warning'); const turn = store.turns.at(-1); if (turn) { turn.status = 'interrupted'; turn.completedAt ||= Date.now(); dirtyTurns.add(turn.id); schedule() } }
   if (msg.type === 'approval') approvalView(msg)
   if (msg.type === 'approvalsCleared') { activeApproval = null; approvalQueue.length = 0; $('approval').hidden = true }
   if (msg.type === 'userInputRequest') enqueueUserInput(msg)

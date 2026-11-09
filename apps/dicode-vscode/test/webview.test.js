@@ -30,6 +30,7 @@ test('sidebar renders mixed app-server events and real approval decisions', asyn
   emit({ type: 'rpc', method: 'turn/diff/updated', params: { turnId: 't', diff: 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b' } })
   emit({ type: 'rpc', method: 'item/agentMessage/delta', params: { turnId: 't', itemId: 'a', delta: '# 完成\n`src/a.ts:12`\n```ts\nconst n = 1\n```\n<script>alert(1)</script>' } })
   await tick()
+  assert.equal(doc.getElementById('floatingPlan').hidden, false)
   assert.match(doc.getElementById('messages').textContent, /搜索代码/)
   assert.match(doc.getElementById('messages').textContent, /1 个文件变更/)
   assert.equal(doc.querySelectorAll('.plan-step').length, 1)
@@ -48,7 +49,42 @@ test('sidebar renders mixed app-server events and real approval decisions', asyn
   assert.equal(sent.at(-1).decision, 'accept')
   emit({ type: 'rpc', method: 'turn/completed', params: { turnId: 't', turn: { status: 'completed' } } })
   await tick()
+  assert.equal(doc.getElementById('floatingPlan').hidden, true)
   assert.equal(doc.querySelectorAll('.turn').length, 1)
+  dom.window.close()
+})
+
+test('completed turn folds muted activity behind elapsed time and keeps final answer separate', async () => {
+  const { dom, emit, doc } = setup()
+  emit({ type: 'state', loggedIn: true, busy: true, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
+    id: 'turn', user: '修复问题', status: 'inProgress', startedAt: 1000, completedAt: null,
+    plan: { steps: [{ step: '检查代码', status: 'inProgress' }, { step: '验证结果', status: 'pending' }] },
+    items: [
+      { id: 'cmd', type: 'commandExecution', status: 'completed', raw: { command: 'Get-ChildItem' }, output: 'file.txt' },
+      { id: 'reason', type: 'reasoning', status: 'completed', summary: '检查代码结构', raw: {} },
+      { id: 'note', type: 'agentMessage', status: 'completed', text: '正在检查', raw: { phase: 'commentary' } },
+      { id: 'final', type: 'agentMessage', status: 'inProgress', text: '已修复', raw: { phase: 'final_answer' } },
+    ],
+  }] } })
+  await tick()
+  assert.equal(doc.getElementById('floatingPlan').hidden, false)
+  assert.match(doc.getElementById('floatingPlan').textContent, /检查代码/)
+  doc.querySelector('.floating-plan-toggle').click()
+  assert.equal(doc.querySelectorAll('.floating-plan-step').length, 2)
+  assert.equal(doc.querySelector('.turn-process').open, true)
+  emit({ type: 'rpc', method: 'turn/completed', params: { turnId: 'turn', turn: { id: 'turn', status: 'completed' } } })
+  await tick()
+  assert.equal(doc.getElementById('floatingPlan').hidden, true)
+  const process = doc.querySelector('.turn-process')
+  assert.equal(process.open, false)
+  assert.match(process.querySelector('summary').textContent, /^用时/)
+  assert.match(process.textContent, /Get-ChildItem/)
+  assert.match(process.textContent, /检查代码结构/)
+  assert.match(process.textContent, /正在检查/)
+  assert.equal(doc.querySelectorAll('.turn-content > .final-answer').length, 1)
+  assert.equal(doc.querySelector('.turn-content > .final-answer').textContent.includes('已修复'), true)
+  assert.equal(doc.querySelectorAll('.turn-content > .commentary-answer').length, 0)
   dom.window.close()
 })
 

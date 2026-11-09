@@ -26,6 +26,8 @@ test('command output, failure and long log survive snapshot and restore', () => 
   const restored = new ConversationStore(); restored.restore(s.snapshot())
   assert.equal(restored.turns[0].items[0].raw.exitCode, 1)
   assert.equal(restored.turns[0].error.message, 'test failed')
+  assert.ok(restored.turns[0].startedAt > 0)
+  assert.ok(restored.turns[0].completedAt >= restored.turns[0].startedAt)
 })
 
 test('plan and cumulative multi-file diff update in place', () => {
