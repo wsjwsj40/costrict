@@ -47,17 +47,6 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .thread-empty { padding: 8px; color: var(--muted); font-size: 11px; }
 .conversation-area { position: relative; flex: 1; min-height: 0; }
 #messages { height: 100%; min-height: 0; overflow-y: auto; overflow-anchor: none; padding: 16px 12px 25px; }
-.conversation-area:has(.floating-plan:not([hidden])) #messages { padding-top: 72px; }
-.floating-plan { position: absolute; top: 9px; left: 12px; right: 12px; z-index: 3; max-height: min(42vh, 280px); overflow: hidden; border: 1px solid color-mix(in srgb, var(--purple) 30%, var(--border)); border-radius: 10px; background: var(--surface); box-shadow: 0 4px 14px var(--vscode-widget-shadow, #0003); }
-.floating-plan-toggle { width: 100%; display: flex; align-items: center; gap: 7px; padding: 9px 10px; text-align: left; }
-.floating-plan-icon { color: var(--purple); font-size: 15px; }
-.floating-plan-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 600; }
-.floating-plan-count { color: var(--muted); font-size: 10px; }
-.floating-plan-chevron { color: var(--muted); }
-.floating-plan-steps { max-height: min(34vh, 230px); overflow-y: auto; margin: 0; padding: 6px 11px 9px; list-style: none; border-top: 1px solid var(--border); }
-.floating-plan-step { padding: 4px 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
-.floating-plan-step.inProgress { color: var(--blue); font-weight: 600; }
-.floating-plan-step.completed { color: var(--green); }
 .back-to-bottom { position: absolute; right: 16px; bottom: 12px; z-index: 2; padding: 7px 11px; border: 1px solid var(--border); border-radius: 18px; background: var(--vscode-editor-background); box-shadow: 0 2px 9px var(--vscode-widget-shadow, #0003); color: var(--brand); font-size: 11px; }
 .back-to-bottom:hover { background: var(--vscode-toolbar-hoverBackground); }
 .show-earlier { display: block; margin: 0 auto 15px; padding: 6px 11px; border: 1px solid var(--border); border-radius: 16px; color: var(--brand); background: var(--surface); font-size: 11px; }
@@ -148,11 +137,16 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .diff .added { background: var(--vscode-diffEditor-insertedLineBackground, #184d2a40); color: var(--green); }
 .diff .deleted { background: var(--vscode-diffEditor-removedLineBackground, #69252540); color: var(--red); }
 .diff .hunk { color: var(--brand); }
-.plan { border-left: 2px solid var(--purple); padding: 4px 0 4px 10px; font-size: 12px; background: color-mix(in srgb, var(--purple) 4%, transparent); }
-.plan .section-title { color: var(--purple); }
-.plan-step { padding: 3px 0; color: var(--muted); }
-.plan-step.inProgress { color: var(--blue); }
-.plan-step.completed { color: var(--green); }
+.plan-dock { flex: none; margin: 0 10px 7px; max-height: min(34vh, 280px); overflow: hidden; border: 1px solid color-mix(in srgb, var(--purple) 30%, var(--border)); border-radius: 9px; background: var(--surface); box-shadow: 0 2px 8px var(--vscode-widget-shadow, #0002); }
+.plan-dock-toggle { width: 100%; display: flex; align-items: center; gap: 7px; padding: 8px 10px; text-align: left; }
+.plan-dock-icon { color: var(--purple); font-size: 15px; }
+.plan-dock-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 600; }
+.plan-dock-count { color: var(--muted); font-size: 10px; }
+.plan-dock-chevron { color: var(--muted); }
+.plan-dock-steps { max-height: min(26vh, 210px); overflow-y: auto; margin: 0; padding: 6px 11px 9px; list-style: none; border-top: 1px solid var(--border); }
+.plan-dock-step { padding: 4px 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.plan-dock-step.inProgress { color: var(--blue); font-weight: 600; }
+.plan-dock-step.completed { color: var(--green); }
 .reasoning summary { font-style: italic; }
 .working { color: var(--blue); font-size: 11px; animation: pulse 1.5s ease-in-out infinite; }
 .turn-interrupted { color: var(--yellow); font-size: 11px; }

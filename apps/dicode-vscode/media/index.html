@@ -14,10 +14,11 @@
     <button id="recentPrompt" class="recent-prompt" hidden type="button" aria-label="跳转到当前提问"><span class="recent-prompt-icon">↥</span><span class="recent-prompt-copy"><span class="recent-prompt-label">当前提问 · 点击定位</span><span id="recentPromptText" class="recent-prompt-text"></span></span></button>
     <div class="toolbar"><span class="workspace-pill"><span class="workspace-dot"></span><span id="workspace"></span></span><button id="logout" title="退出登录">退出</button></div>
     <nav id="threadList" hidden aria-label="最近会话"></nav>
-    <div class="conversation-area"><div id="floatingPlan" class="floating-plan" hidden></div><div id="messages" aria-live="polite"></div><button id="backToBottom" class="back-to-bottom" hidden type="button">↓ 回到底部</button></div>
+    <div class="conversation-area"><div id="messages" aria-live="polite"></div><button id="backToBottom" class="back-to-bottom" hidden type="button">↓ 回到底部</button></div>
     <template id="emptyTemplate"><div class="empty"><div class="spark">✳</div><h2>从一个问题开始</h2><p>描述任务，DiCode 会在工作区中逐步完成。</p></div></template>
     <div id="approval" hidden></div>
     <section id="userInput" class="user-input" hidden aria-label="回答 DiCode 的问题"></section>
+    <div id="planDock" class="plan-dock" hidden></div>
     <div class="composer-shell">
       <div class="composer">
         <div class="composer-title"><span class="composer-spark">✦</span><span>向 DiCode 提问</span></div>

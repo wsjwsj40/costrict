@@ -37,7 +37,7 @@ let userScrollUntil = 0
 let visibleTurnLimit = 30
 const openDetails = new Set()
 const processPreference = new Map()
-let floatingPlanExpanded = false, floatingPlanSignature = ''
+let planDockExpanded = false, planDockSignature = '', planDockTurnId = null
 const turnNodes = new Map(), dirtyTurns = new Set()
 function post(type, extra = {}) { vscode.postMessage({ type, ...extra }) }
 function element(tag, className = '', text = '') { const e = document.createElement(tag); e.className = className; e.textContent = text; return e }
@@ -182,17 +182,6 @@ function toolView(item, turn) {
   body.append(element('pre', 'tool-json', data), button('复制详情', () => navigator.clipboard.writeText(data), 'subtle'))
   return detail(`${turn.id}:${item.id}`, `◇  ${title} · ${statusText(item)} ${descriptor ? '· ' + descriptor : ''}`, body, `tool-card status-${item.status || 'inProgress'}`)
 }
-function planView(plan) {
-  if (!plan?.steps?.length) return null
-  const box = element('section', 'plan')
-  box.append(element('div', 'section-title', '执行计划'))
-  if (plan.explanation) box.append(element('p', 'muted', plan.explanation))
-  for (const step of plan.steps) {
-    const status = step.status || 'pending'
-    box.append(element('div', `plan-step ${status}`, `${status === 'completed' ? '✓' : status === 'inProgress' ? '◉' : '○'}  ${step.step || step.text || ''}`))
-  }
-  return box
-}
 function formatDuration(turn) {
   if (!Number.isFinite(turn.startedAt) || !Number.isFinite(turn.completedAt)) return '过程'
   const seconds = Math.max(0, Math.round((turn.completedAt - turn.startedAt) / 1000))
@@ -200,27 +189,28 @@ function formatDuration(turn) {
   const minutes = Math.floor(seconds / 60), remainder = seconds % 60
   return `用时${minutes}分${String(remainder).padStart(2, '0')}秒`
 }
-function renderFloatingPlan() {
+function renderPlanDock() {
   const turn = busy ? store.turns.at(-1) : null
   const plan = turn && ['starting', 'inProgress'].includes(turn.status) ? turn.plan : null
-  const host = $('floatingPlan')
-  if (!plan?.steps?.length) { host.hidden = true; floatingPlanSignature = ''; return }
+  const host = $('planDock')
+  if (!plan?.steps?.length) { host.hidden = true; planDockSignature = ''; return }
+  if (planDockTurnId !== turn.id) { planDockTurnId = turn.id; planDockExpanded = false }
   host.hidden = false
-  const signature = JSON.stringify([turn.id, plan, floatingPlanExpanded])
-  if (signature === floatingPlanSignature) return
-  floatingPlanSignature = signature
+  const signature = JSON.stringify([turn.id, plan, planDockExpanded])
+  if (signature === planDockSignature) return
+  planDockSignature = signature
   const completed = plan.steps.filter(step => step.status === 'completed').length
   const current = plan.steps.find(step => step.status === 'inProgress') || plan.steps.find(step => step.status !== 'completed')
-  const heading = button('', () => { floatingPlanExpanded = !floatingPlanExpanded; floatingPlanSignature = ''; renderFloatingPlan() }, 'floating-plan-toggle')
+  const heading = button('', () => { planDockExpanded = !planDockExpanded; planDockSignature = ''; renderPlanDock() }, 'plan-dock-toggle')
   heading.type = 'button'
-  heading.setAttribute('aria-expanded', String(floatingPlanExpanded))
-  heading.append(element('span', 'floating-plan-icon', '☷'), element('span', 'floating-plan-title', floatingPlanExpanded ? '执行计划' : current?.step || `${completed}项已完成`), element('span', 'floating-plan-count', `${completed}/${plan.steps.length}`), element('span', 'floating-plan-chevron', floatingPlanExpanded ? '⌃' : '⌄'))
+  heading.setAttribute('aria-expanded', String(planDockExpanded))
+  heading.append(element('span', 'plan-dock-icon', '☷'), element('span', 'plan-dock-title', planDockExpanded ? '执行计划' : current?.step || `${completed}项已完成`), element('span', 'plan-dock-count', `${completed}/${plan.steps.length}`), element('span', 'plan-dock-chevron', planDockExpanded ? '⌃' : '⌄'))
   host.replaceChildren(heading)
-  if (floatingPlanExpanded) {
-    const list = element('ol', 'floating-plan-steps')
+  if (planDockExpanded) {
+    const list = element('ol', 'plan-dock-steps')
     for (const step of plan.steps) {
       const status = step.status || 'pending'
-      list.append(element('li', `floating-plan-step ${status}`, `${status === 'completed' ? '✓' : status === 'inProgress' ? '◉' : '○'}  ${step.step || step.text || ''}`))
+      list.append(element('li', `plan-dock-step ${status}`, `${status === 'completed' ? '✓' : status === 'inProgress' ? '◉' : '○'}  ${step.step || step.text || ''}`))
     }
     host.append(list)
   }
@@ -254,7 +244,7 @@ function itemView(item, turn, forceFinal = false) {
 }
 function render() {
   const list = $('messages'), follow = followMessages
-  renderFloatingPlan()
+  renderPlanDock()
   if (!store.turns.length) { list.replaceChildren($('emptyTemplate').content.cloneNode(true)); turnNodes.clear(); updateNavigation(); return }
   list.querySelector('.empty')?.remove()
   if (!follow && turnNodes.size) {
@@ -283,8 +273,6 @@ function render() {
       if (item.type === 'agentMessage' && (item.raw?.phase === 'final_answer' || item === unphasedFallback)) { finalItems.push(item); continue }
       const node = itemView(item, turn); if (node) processNodes.push(node)
     }
-    const plan = planView(turn.plan)
-    if (plan) processNodes.push(plan)
     const files = fileSummary(turn)
     if (files) processNodes.push(files)
     const active = ['starting', 'inProgress'].includes(turn.status)
