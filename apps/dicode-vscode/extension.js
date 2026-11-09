@@ -7,6 +7,7 @@ const { ensureCodexInstalled } = require("./codexInstaller")
 const { ensurePowerShellInstalled, powerShellEnv } = require("./powerShellInstaller")
 const { beforeFromUnifiedDiff } = require("./diff")
 const { ConversationStore } = require("./media/conversation")
+const { generateThreadTitle } = require("./threadTitle")
 const EXTENSION_VERSION = require("./package.json").version
 
 const TOKEN_KEY = "dicodeCodex.tokens"
@@ -14,6 +15,12 @@ const CLIENT_KEY = "dicodeCodex.machineId"
 const THREAD_KEY = "dicodeCodex.thread"
 const HISTORY_KEY = "dicodeCodex.history"
 const THREADS_KEY = "dicodeCodex.threads"
+const PERMISSION_KEY = "dicodeCodex.permissionMode"
+const PERMISSION_MODES = {
+	request: { sandbox: "read-only", sandboxPolicy: { type: "readOnly" }, approvalPolicy: "on-request" },
+	auto: { sandbox: "workspace-write", sandboxPolicy: { type: "workspaceWrite", networkAccess: false }, approvalPolicy: "on-request" },
+	full: { sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" }, approvalPolicy: "never" },
+}
 
 class CodexClient {
 	constructor(binary, baseUrl, token, instructionsPath, onEvent, powerShellPath) {
@@ -157,9 +164,13 @@ class DicodeView {
 		this.instructions = fs.readFileSync(this.instructionsPath, "utf8")
 		this.conversation = new ConversationStore()
 		this.threads = context.globalState.get(THREADS_KEY, [])
+		const savedPermission = context.workspaceState?.get(PERMISSION_KEY)
+		this.permissionMode = savedPermission === "auto" ? "auto" : "request"
+		this.fullAccessWorkspace = null
+		this.titleJobs = new Set()
 		const savedHistory = context.globalState.get(HISTORY_KEY)
 		if (!this.threads.length && savedHistory?.threadId)
-			this.threads = [{ id: savedHistory.threadId, cwd: savedHistory.cwd, title: savedHistory.snapshot?.turns?.[0]?.user || "历史会话", updatedAt: Date.now(), snapshot: savedHistory.snapshot }]
+			this.threads = [{ id: savedHistory.threadId, cwd: savedHistory.cwd, title: savedHistory.snapshot?.turns?.[0]?.user ? "正在生成标题…" : "历史会话", updatedAt: Date.now(), snapshot: savedHistory.snapshot }]
 		const current = this.threads.find((thread) => thread.id === this.threadId && thread.cwd === this.workspace)
 		if (current?.snapshot) this.conversation.restore(current.snapshot)
 		this.output = vscode.window.createOutputChannel("DiCode Codex")
@@ -207,6 +218,7 @@ class DicodeView {
 		this.postState()
 	}
 	async postState() {
+		if (this.permissionMode === "full" && this.fullAccessWorkspace !== this.workspace) this.permissionMode = "request"
 		const version = (this.stateVersion = (this.stateVersion || 0) + 1)
 		const lastTurn = this.conversation.turns.at(-1)
 		const state = {
@@ -216,6 +228,7 @@ class DicodeView {
 			stopping: this.stopping,
 			lastTurn: lastTurn ? { id: lastTurn.id, status: lastTurn.status, error: lastTurn.error } : null,
 			threadId: this.threadId,
+			permissionMode: this.permissionMode,
 			workspace: this.workspace || "",
 			models: this.models || [],
 			threads: this.threads.filter((thread) => thread.cwd === this.workspace).map(({ id, title, updatedAt }) => ({ id, title, updatedAt })),
@@ -305,6 +318,7 @@ class DicodeView {
 		const response = await this.json(`${this.serverUrl}/ai-gateway/api/v1/models`, token)
 		this.models = (response.data || []).filter((item) => item.id && item.id.toLowerCase() !== "auto")
 		await this.postState()
+		if (this.threadId) this.maybeGenerateTitle(this.threadId, this.models[0]?.id)
 	}
 	async ensureClient() {
 		const token = await this.accessToken()
@@ -401,6 +415,8 @@ class DicodeView {
 			this.inputRequests.delete(requestId)
 			this.post({ type: "rpc", method: message.method, params: message.params })
 		} else if (message.method === "turn/completed") {
+			const completedThreadId = this.threadId
+			const completedModel = this.activeModel
 			clearTimeout(this.stopTimer)
 			this.stopping = false
 			this.interruptSent = false
@@ -412,6 +428,7 @@ class DicodeView {
 			}
 			this.clearInputRequests()
 			this.persistHistory()
+			if (message.params?.turn?.status === "completed") this.maybeGenerateTitle(completedThreadId, completedModel)
 			this.busy = false
 			this.turnId = null
 			this.post({ type: "rpc", method: message.method, params: message.params })
@@ -506,16 +523,39 @@ class DicodeView {
 		const snapshot = this.conversation.snapshot()
 		while (snapshot.turns.length > 1 && JSON.stringify(snapshot).length > 2_000_000) snapshot.turns.shift()
 		const previous = this.threads.find((thread) => thread.id === this.threadId && thread.cwd === this.workspace)
-		const title = previous?.title || (typeof snapshot.turns?.[0]?.user === "string" ? snapshot.turns[0].user.slice(0, 60) || "新会话" : "新会话")
+		const title = previous?.title || "正在生成标题…"
 		this.threads = [{ id: this.threadId, cwd: this.workspace, title, updatedAt: Date.now(), snapshot }, ...this.threads.filter((thread) => thread.id !== this.threadId || thread.cwd !== this.workspace)].slice(0, 20)
 		this.context.globalState.update(THREADS_KEY, this.threads)
 		this.postState()
+	}
+	async maybeGenerateTitle(threadId, model) {
+		const thread = this.threads.find((entry) => entry.id === threadId)
+		if (!thread || !model || this.titleJobs.has(threadId)) return
+		const userText = thread.snapshot?.turns?.[0]?.user
+		if (!userText || !["正在生成标题…", userText.slice(0, 60)].includes(thread.title)) return
+		const firstAnswer = thread.snapshot.turns[0].items?.filter((item) => item.type === "agentMessage").at(-1)?.text || ""
+		const titleContext = `用户需求：${userText.slice(0, 900)}${firstAnswer ? `\n处理结果：${firstAnswer.slice(0, 300)}` : ""}`
+		this.titleJobs.add(threadId)
+		try {
+			const title = await generateThreadTitle(`${this.serverUrl}/codex/v1/responses`, await this.accessToken(), model, titleContext)
+			const current = this.threads.find((entry) => entry.id === threadId)
+			if (title && current && ["正在生成标题…", userText.slice(0, 60)].includes(current.title)) {
+				current.title = title
+				await this.context.globalState.update(THREADS_KEY, this.threads)
+				this.postState()
+			}
+		} catch (error) {
+			this.output.appendLine(`Title generation failed: ${error.message}`)
+		} finally {
+			this.titleJobs.delete(threadId)
+		}
 	}
 	async send(text, model) {
 		if (this.busy) throw new Error("当前任务仍在执行")
 		if (!text) throw new Error("请输入任务")
 		if (!this.workspace) throw new Error("请先打开工作区")
 		if (!this.models?.some((item) => item.id === model)) throw new Error("请选择可用模型")
+		this.activeModel = model
 		this.busy = true
 		const runId = ++this.runSequence
 		this.activeRunId = runId
@@ -539,11 +579,12 @@ class DicodeView {
 			if (this.activeRunId !== runId) return
 			if (this.stopping) return this.recoverStoppedTurn("已取消")
 			if (!this.threadId) {
+				const permission = PERMISSION_MODES[this.permissionMode]
 				const started = await client.request("thread/start", {
 					model,
 					cwd: this.workspace,
-					approvalPolicy: "on-request",
-					sandbox: "workspace-write",
+					approvalPolicy: permission.approvalPolicy,
+					sandbox: permission.sandbox,
 					baseInstructions: this.instructions,
 				})
 				this.threadId = started.thread.id
@@ -558,6 +599,10 @@ class DicodeView {
 				threadId: this.threadId,
 				cwd: this.workspace,
 				model,
+				approvalPolicy: PERMISSION_MODES[this.permissionMode].approvalPolicy,
+				sandboxPolicy: this.permissionMode === "auto"
+					? { ...PERMISSION_MODES.auto.sandboxPolicy, writableRoots: [this.workspace] }
+					: PERMISSION_MODES[this.permissionMode].sandboxPolicy,
 				input: [{ type: "text", text }],
 			})
 			if (this.activeRunId === runId && this.busy) {
@@ -590,6 +635,24 @@ class DicodeView {
 		}
 		if (message.type === "models") {
 			await this.loadModels()
+			return
+		}
+		if (message.type === "setPermissionMode") {
+			if (this.busy) throw new Error("请在当前任务结束后切换权限")
+			const mode = message.mode
+			if (!Object.hasOwn(PERMISSION_MODES, mode)) throw new Error("无效的权限模式")
+			if (mode === "full" && this.permissionMode !== "full") {
+				if (!this.workspace) throw new Error("请先打开工作区")
+				const chosen = await vscode.window.showWarningMessage(
+					"完全访问将关闭 Codex 的沙箱和命令审批。DiCode 可按当前用户权限读取和修改工作区外文件、运行命令并访问网络。确定为当前插件会话启用吗？",
+					{ modal: true }, "启用完全访问",
+				)
+				if (chosen !== "启用完全访问") { await this.postState(); return }
+			}
+			this.permissionMode = mode
+			this.fullAccessWorkspace = mode === "full" ? this.workspace : null
+			await this.context.workspaceState?.update(PERMISSION_KEY, mode === "full" ? "request" : mode)
+			await this.postState()
 			return
 		}
 		if (message.type === "logout") {
@@ -634,6 +697,7 @@ class DicodeView {
 			await this.context.globalState.update(THREAD_KEY, { id: this.threadId, cwd: this.workspace })
 			await this.postState()
 			this.post({ type: "history", snapshot: this.conversation.snapshot() })
+			this.maybeGenerateTitle(this.threadId, this.models?.[0]?.id)
 			return
 		}
 		if (message.type === "send") {

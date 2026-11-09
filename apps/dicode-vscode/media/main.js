@@ -46,6 +46,7 @@ function updateComposer() {
   $('stop').hidden = !busy || stopping
   $('stopping').hidden = !busy || !stopping
   $('send').disabled = !($('prompt').value.trim() && $('model').value)
+  $('permissionMode').disabled = busy
 }
 function resizePrompt() { const input = $('prompt'); input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 180)}px` }
 function nearBottom() { const e = $('messages'); return e.scrollHeight - e.scrollTop - e.clientHeight < 70 }
@@ -285,6 +286,8 @@ function setState(state) {
   updateComposer()
   if (stopping) setStatus('正在停止当前任务…', 'warning')
   $('workspace').textContent = state.workspace || '未打开工作区'
+  $('permissionMode').value = state.permissionMode || 'request'
+  $('permissionMode').title = ({ request: '只读沙箱；修改文件或越界操作时请求授权', auto: '工作区内自动执行；越过沙箱边界时请求授权', full: '无 Codex 沙箱和审批限制' })[$('permissionMode').value]
   const previous = $('model').value
   $('model').replaceChildren()
   for (const model of state.models || []) { const option = document.createElement('option'); option.value = model.id; option.textContent = model.name || model.id; $('model').append(option) }
@@ -502,6 +505,7 @@ $('loginButton').onclick = () => post('login')
 $('logout').onclick = () => { store.reset(); visibleTurnLimit = 30; followMessages = true; render(); post('logout') }
 $('newThread').onclick = () => { if (!busy) { store.reset(); visibleTurnLimit = 30; followMessages = true; render(); post('newThread') } }
 $('threadsButton').onclick = () => { $('threadList').hidden = !$('threadList').hidden }
+$('permissionMode').onchange = () => post('setPermissionMode', { mode: $('permissionMode').value })
 $('send').onclick = () => {
   const text = $('prompt').value.trim(), model = $('model').value
   if (!text || !model || busy) return

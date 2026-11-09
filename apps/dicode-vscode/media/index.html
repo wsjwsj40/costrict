@@ -25,6 +25,11 @@
         <div class="composer-bottom">
           <div class="model-control"><button id="modelPicker" type="button" aria-label="选择模型" aria-haspopup="listbox" aria-expanded="false"><span class="model-spark">◈</span><span id="modelLabel">选择模型</span><span class="chevron">⌄</span></button><div id="modelMenu" role="listbox" hidden></div></div>
           <select id="model" hidden aria-label="模型"></select>
+          <select id="permissionMode" class="permission-mode" aria-label="DiCode 授权模式" title="选择 Codex 执行权限">
+            <option value="request">请求授权</option>
+            <option value="auto">自动授权</option>
+            <option value="full">完全访问</option>
+          </select>
           <span class="input-hint">Enter 发送</span>
           <button id="send" class="send-button" title="发送" aria-label="发送">↑</button>
           <button id="stop" class="stop-button" hidden title="停止当前任务" aria-label="停止当前任务">■</button>

@@ -23,10 +23,33 @@ function makeView() {
   view.view = { webview: { postMessage: message => posted.push(message) } }
   view.models = [{ id: 'm' }]
   view.loadedThreadId = 'thread'
-  return { view, posted }
+  return { view, posted, vscode }
 }
 function rpc(view, method, params) { view.onCodexEvent({ type: 'rpc', message: { method, params } }) }
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
+
+test('Codex permission modes apply to each turn and full access needs explicit confirmation', async () => {
+  const { view, vscode } = makeView()
+  const calls = []
+  view.ensureClient = async () => ({ request: async (method, params) => { calls.push({ method, params }); return { turn: { id: 't' } } } })
+  await view.send('查看项目', 'm')
+  assert.deepEqual(calls.at(-1).params.sandboxPolicy, { type: 'readOnly' })
+  view.busy = false
+  await view.handle({ type: 'setPermissionMode', mode: 'auto' })
+  await view.send('修改项目', 'm')
+  assert.equal(calls.at(-1).params.sandboxPolicy.type, 'workspaceWrite')
+  view.busy = false
+  vscode.window.showWarningMessage = async () => undefined
+  await view.handle({ type: 'setPermissionMode', mode: 'full' })
+  assert.equal(view.permissionMode, 'auto')
+  vscode.window.showWarningMessage = async () => '启用完全访问'
+  await view.handle({ type: 'setPermissionMode', mode: 'full' })
+  await view.send('继续', 'm')
+  assert.equal(calls.at(-1).params.approvalPolicy, 'never')
+  assert.deepEqual(calls.at(-1).params.sandboxPolicy, { type: 'dangerFullAccess' })
+  view.busy = false
+  view.dispose()
+})
 
 test('user input server request responds to the current turn and clears on resolution or stop', async () => {
   const { view, posted } = makeView()

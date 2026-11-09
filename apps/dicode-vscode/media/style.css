@@ -170,6 +170,9 @@ textarea { display: block; width: 100%; min-height: 48px; max-height: 180px; res
 textarea::placeholder { color: var(--vscode-input-placeholderForeground, var(--muted)); }
 .composer-bottom { display: flex; align-items: center; gap: 7px; min-height: 29px; }
 .model-control { position: relative; min-width: 0; max-width: 70%; }
+.permission-mode { flex: none; max-width: 95px; padding: 4px 3px; border: 1px solid var(--border); border-radius: 6px; background: var(--vscode-dropdown-background, var(--surface)); color: var(--vscode-foreground); font: inherit; font-size: 10px; cursor: pointer; }
+.permission-mode:focus-visible { outline: 1px solid var(--vscode-focusBorder, var(--brand)); }
+.permission-mode:disabled { opacity: .6; cursor: default; }
 #modelPicker { display: flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; padding: 4px 7px; border: 1px solid color-mix(in srgb, var(--brand) 20%, var(--border)); border-radius: 6px; color: var(--vscode-foreground); background: color-mix(in srgb, var(--brand) 6%, var(--surface)); font-size: 11px; }
 #modelPicker:hover { border-color: var(--brand); }
 .model-spark { color: var(--brand); font-size: 12px; }

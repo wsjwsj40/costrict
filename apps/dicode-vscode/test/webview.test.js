@@ -66,6 +66,20 @@ test('recent threads can be selected and history replaces the visible conversati
   dom.window.close()
 })
 
+test('permission selector follows host state and sends mode changes', () => {
+  const { dom, sent, emit, doc } = setup()
+  emit({ type: 'state', loggedIn: true, busy: false, permissionMode: 'auto', models: [] })
+  const selector = doc.getElementById('permissionMode')
+  assert.equal(selector.value, 'auto')
+  selector.value = 'full'
+  selector.dispatchEvent(new dom.window.Event('change'))
+  assert.equal(sent.at(-1).type, 'setPermissionMode')
+  assert.equal(sent.at(-1).mode, 'full')
+  emit({ type: 'state', loggedIn: true, busy: false, permissionMode: 'auto', models: [] })
+  assert.equal(selector.value, 'auto')
+  dom.window.close()
+})
+
 test('model picker and stop state let the user continue after interruption', async () => {
   const { dom, sent, emit, doc } = setup()
   emit({ type: 'state', version: 1, loggedIn: true, busy: false, threadId: 'thread', workspace: '/repo', models: [{ id: 'm1', name: '快速模型' }, { id: 'm2', name: '推理模型' }] })
