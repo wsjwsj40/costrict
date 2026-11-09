@@ -189,6 +189,12 @@ function formatDuration(turn) {
   const minutes = Math.floor(seconds / 60), remainder = seconds % 60
   return `用时${minutes}分${String(remainder).padStart(2, '0')}秒`
 }
+function planWave() {
+  const wave = element('span', 'plan-wave')
+  wave.setAttribute('aria-hidden', 'true')
+  for (let i = 0; i < 3; i++) wave.append(element('span', 'plan-wave-dot'))
+  return wave
+}
 function renderPlanDock() {
   const turn = busy ? store.turns.at(-1) : null
   const plan = turn && ['starting', 'inProgress'].includes(turn.status) ? turn.plan : null
@@ -204,13 +210,17 @@ function renderPlanDock() {
   const heading = button('', () => { planDockExpanded = !planDockExpanded; planDockSignature = ''; renderPlanDock() }, 'plan-dock-toggle')
   heading.type = 'button'
   heading.setAttribute('aria-expanded', String(planDockExpanded))
-  heading.append(element('span', 'plan-dock-icon', '☷'), element('span', 'plan-dock-title', planDockExpanded ? '执行计划' : current?.step || `${completed}项已完成`), element('span', 'plan-dock-count', `${completed}/${plan.steps.length}`), element('span', 'plan-dock-chevron', planDockExpanded ? '⌃' : '⌄'))
+  heading.append(element('span', 'plan-dock-icon', '☷'), element('span', 'plan-dock-title', planDockExpanded ? '执行计划' : current?.step || `${completed}项已完成`))
+  if (!planDockExpanded && current?.status === 'inProgress') heading.append(planWave())
+  heading.append(element('span', 'plan-dock-count', `${completed}/${plan.steps.length}`), element('span', 'plan-dock-chevron', planDockExpanded ? '⌃' : '⌄'))
   host.replaceChildren(heading)
   if (planDockExpanded) {
     const list = element('ol', 'plan-dock-steps')
     for (const step of plan.steps) {
       const status = step.status || 'pending'
-      list.append(element('li', `plan-dock-step ${status}`, `${status === 'completed' ? '✓' : status === 'inProgress' ? '◉' : '○'}  ${step.step || step.text || ''}`))
+      const row = element('li', `plan-dock-step ${status}`, `${status === 'completed' ? '✓' : status === 'inProgress' ? '◉' : '○'}  ${step.step || step.text || ''}`)
+      if (status === 'inProgress') row.append(planWave())
+      list.append(row)
     }
     host.append(list)
   }
@@ -236,7 +246,7 @@ function itemView(item, turn, forceFinal = false) {
     if (final) box.append(element('div', 'agent-heading', '✦  DiCode · 答复'))
     box.append(markdownView(item.text)); return box
   }
-  if (item.type === 'reasoning') return item.summary ? detail(`${turn.id}:${item.id}`, '◌  思考摘要', markdownView(item.summary), 'reasoning status-completed') : null
+  if (item.type === 'reasoning') return null
   if (item.type === 'commandExecution') return commandView(item, turn)
   if (item.type === 'fileChange') return fileItem(item, turn)
   if (!['mcpToolCall', 'dynamicToolCall', 'webSearch', 'imageView', 'collabToolCall', 'contextCompaction'].includes(item.type)) return null

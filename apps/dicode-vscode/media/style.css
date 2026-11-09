@@ -147,7 +147,11 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .plan-dock-step { padding: 4px 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
 .plan-dock-step.inProgress { color: var(--blue); font-weight: 600; }
 .plan-dock-step.completed { color: var(--green); }
-.reasoning summary { font-style: italic; }
+.plan-wave { display: inline-flex; align-items: center; gap: 2px; flex: none; margin-left: 4px; vertical-align: middle; }
+.plan-wave-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--blue); animation: plan-wave 1.2s ease-in-out infinite; }
+.plan-wave-dot:nth-child(2) { animation-delay: 0.16s; }
+.plan-wave-dot:nth-child(3) { animation-delay: 0.32s; }
+@keyframes plan-wave { 0%, 60%, 100% { transform: translateY(0); opacity: 0.45; } 30% { transform: translateY(-3px); opacity: 1; } }
 .working { color: var(--blue); font-size: 11px; animation: pulse 1.5s ease-in-out infinite; }
 .turn-interrupted { color: var(--yellow); font-size: 11px; }
 .turn-error { color: var(--red); font-size: 11px; }
@@ -237,4 +241,4 @@ textarea::placeholder { color: var(--vscode-input-placeholderForeground, var(--m
 .status-line[data-kind="warning"] .status-dot { background: var(--yellow); }
 .status-line[data-kind="error"] .status-dot { background: var(--red); }
 @media (max-width: 250px) { .brand-sub, .input-hint { display: none; } .model-control { max-width: calc(100% - 38px); } }
-@media (prefers-reduced-motion: reduce) { .working, .status-line[data-kind="working"] .status-dot { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .working, .status-line[data-kind="working"] .status-dot, .plan-wave-dot { animation: none; } }
