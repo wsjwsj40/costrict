@@ -143,9 +143,7 @@ function commandTitle(raw) {
 }
 function stripAnsi(text) { return String(text || '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '') }
 function commandPreview(command) {
-  const singleLine = String(command || '').replace(/\s+/g, ' ').trim()
-  const chars = Array.from(singleLine)
-  return chars.length > 56 ? `${chars.slice(0, 56).join('').trimEnd()}...` : singleLine
+  return String(command || '').replace(/\s+/g, ' ').trim()
 }
 function commandView(item, turn) {
   const raw = item.raw || {}, body = element('div', 'activity-body')
@@ -169,12 +167,17 @@ function activityKind(entry) {
 }
 function activityTitle(entries) {
   const counts = { edit: 0, command: 0, search: 0, webSearch: 0 }
-  for (const entry of entries) counts[activityKind(entry)]++
+  const running = { edit: false, command: false, search: false, webSearch: false }
+  for (const entry of entries) {
+    const kind = activityKind(entry)
+    counts[kind]++
+    if (!entry.item.status || entry.item.status === 'inProgress') running[kind] = true
+  }
   const parts = []
-  if (counts.edit) parts.push(`已编辑 ${counts.edit} 个文件`)
-  if (counts.command) parts.push(`已执行 ${counts.command} 条命令`)
-  if (counts.search) parts.push(`已搜索代码 ${counts.search} 次`)
-  if (counts.webSearch) parts.push(`已搜索网页 ${counts.webSearch} 次`)
+  if (counts.edit) parts.push(`${running.edit ? '正在编辑' : '已编辑'} ${counts.edit} 个文件`)
+  if (counts.command) parts.push(`${running.command ? '正在执行' : '已执行'} ${counts.command} 条命令`)
+  if (counts.search) parts.push(`${running.search ? '正在搜索代码' : '已搜索代码'} ${counts.search} 次`)
+  if (counts.webSearch) parts.push(`${running.webSearch ? '正在搜索网页' : '已搜索网页'} ${counts.webSearch} 次`)
   return parts.join('、')
 }
 function activityEntryView(entry, turn) {
@@ -184,7 +187,9 @@ function activityEntryView(entry, turn) {
 function activityGroup(entries, turn) {
   const group = element('details', 'command-group')
   const key = `${turn.id}:activities:${entries[0].item.id}`
-  group.open = commandGroupPreference.get(key) || false
+  group.open = commandGroupPreference.has(key)
+    ? commandGroupPreference.get(key)
+    : entries.some(entry => !entry.item.status || entry.item.status === 'inProgress')
   group.ontoggle = () => {
     requestAnimationFrame(() => { if (followMessages) scrollToBottom(); updateNavigation() })
   }
@@ -397,15 +402,12 @@ function render() {
         const entries = item.type === 'fileChange' && item.raw?.changes?.length
           ? item.raw.changes.map((change, index) => ({ item, change, index }))
           : [{ item }]
-        if (item.status === 'inProgress' || !item.status) {
-          flushActivities()
-          for (const entry of entries) processNodes.push(activityEntryView(entry, turn))
-        } else activities.push(...entries)
+        activities.push(...entries)
         continue
       }
-      flushActivities()
-      if (item.type === 'agentMessage' && (item.raw?.phase === 'final_answer' || item === unphasedFallback)) { finalItems.push(item); continue }
-      const node = itemView(item, turn); if (node) processNodes.push(node)
+      if (item.type === 'agentMessage' && (item.raw?.phase === 'final_answer' || item === unphasedFallback)) { flushActivities(); finalItems.push(item); continue }
+      const node = itemView(item, turn)
+      if (node) { flushActivities(); processNodes.push(node) }
     }
     flushActivities()
     if (active && busy && turn === store.turns.at(-1) && !processNodes.length) processNodes.push(element('div', 'working', stopping ? '◌  正在停止…' : '◌  DiCode 正在处理…'))
@@ -499,6 +501,7 @@ function renderModelPicker(models) {
   if (models.length > 5) {
     const search = document.createElement('input')
     search.className = 'model-search'
+    search.size = 1
     search.placeholder = '搜索模型…'
     search.setAttribute('aria-label', '搜索模型')
     search.oninput = () => {
@@ -539,8 +542,11 @@ function positionPickerMenu(picker, menu, preferredWidth) {
   const viewportWidth = document.documentElement.clientWidth || window.innerWidth
   const viewportHeight = document.documentElement.clientHeight || window.innerHeight
   const anchor = picker.getBoundingClientRect()
-  const width = Math.min(preferredWidth, Math.max(0, viewportWidth - margin * 2))
-  menu.style.width = `${width}px`
+  const limit = Math.max(0, viewportWidth - margin * 2)
+  menu.style.width = menu.id === 'modelMenu' ? 'max-content' : `${Math.min(preferredWidth, limit)}px`
+  const width = menu.id === 'modelMenu'
+    ? Math.min(menu.getBoundingClientRect().width || 160, limit)
+    : Math.min(preferredWidth, limit)
   const left = menu.id === 'modelMenu' ? anchor.right - width : anchor.left
   menu.style.left = `${Math.max(margin, Math.min(left, viewportWidth - margin - width))}px`
   const above = Math.max(0, anchor.top - gap - margin)

@@ -125,9 +125,55 @@ test('consecutive commands share a collapsible list and retain their output', as
   assert.equal(group.querySelectorAll('.command-card').length, 2)
   assert.ok(group.querySelector('.command-group-icon svg'))
   assert.ok(group.querySelector('.command-card .activity-icon svg'))
+  assert.equal(group.querySelector('.command-group-icon svg path').getAttribute('d'), group.querySelector('.command-card .activity-icon svg path').getAttribute('d'))
   assert.match(group.textContent, /Get-Content README\.md/)
   assert.match(group.textContent, /README\.md/)
   assert.equal(doc.querySelector('.turn-process').open, false)
+  dom.window.close()
+})
+
+test('four consecutive commands stay in one group across pending and invisible events', async () => {
+  const { dom, emit, doc } = setup()
+  emit({ type: 'state', loggedIn: true, busy: true, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
+    id: 'turn', status: 'inProgress', startedAt: Date.now() - 1000,
+    items: [
+      { id: 'one', type: 'commandExecution', status: 'completed', raw: { command: 'pwd' } },
+      { id: 'output', type: 'functionCallOutput', status: 'completed', raw: {} },
+      { id: 'two', type: 'commandExecution', status: 'completed', raw: { command: 'ls' } },
+      { id: 'reason', type: 'reasoning', status: 'completed', raw: {} },
+      { id: 'three', type: 'commandExecution', status: 'inProgress', raw: { command: 'npm test' } },
+      { id: 'four', type: 'commandExecution', status: 'inProgress', raw: { command: 'git status' } },
+    ],
+  }] } })
+  await tick()
+  const groups = doc.querySelectorAll('.command-group')
+  assert.equal(groups.length, 1)
+  assert.equal(groups[0].querySelectorAll('.command-card').length, 4)
+  assert.equal(groups[0].open, true)
+  assert.match(groups[0].querySelector('.command-group-label').textContent, /正在执行 4 条命令/)
+  dom.window.close()
+})
+
+test('visible commentary separates adjacent activity groups', async () => {
+  const { dom, emit, doc } = setup()
+  emit({ type: 'state', loggedIn: true, busy: false, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
+    id: 'turn', status: 'completed', startedAt: 1000, completedAt: 3000,
+    items: [
+      { id: 'one', type: 'commandExecution', status: 'completed', raw: { command: 'pwd' } },
+      { id: 'two', type: 'commandExecution', status: 'completed', raw: { command: 'ls' } },
+      { id: 'note', type: 'agentMessage', status: 'completed', text: '继续检查', raw: { phase: 'commentary' } },
+      { id: 'three', type: 'commandExecution', status: 'completed', raw: { command: 'npm test' } },
+      { id: 'four', type: 'commandExecution', status: 'completed', raw: { command: 'git status' } },
+    ],
+  }] } })
+  await tick()
+  const groups = doc.querySelectorAll('.command-group')
+  assert.equal(groups.length, 2)
+  assert.equal(groups[0].querySelectorAll('.command-card').length, 2)
+  assert.equal(groups[1].querySelectorAll('.command-card').length, 2)
+  assert.match(groups[0].nextElementSibling.textContent, /继续检查/)
   dom.window.close()
 })
 
@@ -145,7 +191,8 @@ test('running commands shimmer, editing shows changes, and completion keeps a fi
   }] } })
   await tick()
   assert.match(doc.querySelector('.turn-process-summary').textContent, /^正在处理/)
-  assert.equal(doc.querySelector('.command-group'), null)
+  assert.equal(doc.querySelector('.command-group').open, true)
+  assert.match(doc.querySelector('.command-group-label').textContent, /正在编辑 1 个文件、正在执行 2 条命令/)
   assert.match(doc.querySelector('.command-card.status-completed').textContent, /rg --files/)
   assert.match(doc.querySelector('.command-card.status-inProgress').textContent, /正在运行 npm test/)
   assert.equal(doc.querySelectorAll('.command-card.status-inProgress .running-shimmer').length, 1)
@@ -202,7 +249,7 @@ test('a single search activity renders directly without a redundant group', asyn
   dom.window.close()
 })
 
-test('single and grouped command headings use one-line previews while details keep full commands', async () => {
+test('command headings keep full single-line text for responsive CSS clipping while details keep original commands', async () => {
   const { dom, emit, doc } = setup()
   const longCommand = `rg --files ${'src/very-long-directory/'.repeat(5)}`
   const multilineCommand = 'npm test\n-- --runInBand'
@@ -219,7 +266,7 @@ test('single and grouped command headings use one-line previews while details ke
   assert.equal(single.querySelector('.activity-label').textContent, '已运行 npm test -- --runInBand')
   assert.equal(single.querySelector('.command-text').textContent, multilineCommand)
   const grouped = doc.querySelector('[data-turn-id="grouped"] .command-card')
-  assert.match(grouped.querySelector('.activity-label').textContent, /^已运行 rg --files .*\.\.\.$/)
+  assert.equal(grouped.querySelector('.activity-label').textContent, `已运行 ${longCommand}`)
   assert.equal(grouped.querySelector('.command-text').textContent, longCommand)
   dom.window.close()
 })
@@ -316,19 +363,20 @@ test('picker menus stay inside a narrow sidebar and reposition on resize', () =>
   modelPicker.getBoundingClientRect = () => ({ left: 145, right: 205, top: 260, bottom: 289 })
   Object.defineProperty(permissionMenu, 'scrollHeight', { configurable: true, value: 190 })
   Object.defineProperty(modelMenu, 'scrollHeight', { configurable: true, value: 220 })
+  modelMenu.getBoundingClientRect = () => ({ width: 150 })
   permissionPicker.click()
   assert.equal(permissionMenu.style.width, '204px')
   assert.equal(permissionMenu.style.left, '8px')
   assert.equal(permissionMenu.style.top, '63px')
   modelPicker.click()
   assert.equal(permissionMenu.hidden, true)
-  assert.equal(modelMenu.style.width, '204px')
-  assert.equal(modelMenu.style.left, '8px')
+  assert.equal(modelMenu.style.width, 'max-content')
+  assert.equal(modelMenu.style.left, '55px')
   assert.equal(modelMenu.style.top, '33px')
   Object.defineProperty(doc.documentElement, 'clientWidth', { configurable: true, value: 280 })
   dom.window.dispatchEvent(new dom.window.Event('resize'))
-  assert.equal(modelMenu.style.width, '264px')
-  assert.equal(modelMenu.style.left, '8px')
+  assert.equal(modelMenu.style.width, 'max-content')
+  assert.equal(modelMenu.style.left, '55px')
   dom.window.close()
 })
 
