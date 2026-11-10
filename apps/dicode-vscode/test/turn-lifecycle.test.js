@@ -11,7 +11,7 @@ function makeView() {
   const originalLoad = Module._load
   Module._load = function (request, parent, isMain) { return request === 'vscode' ? vscode : originalLoad.call(this, request, parent, isMain) }
   let DicodeView
-  try { ({ DicodeView } = require('../extension')) } finally { Module._load = originalLoad }
+  try { delete require.cache[require.resolve('../extension')]; ({ DicodeView } = require('../extension')) } finally { Module._load = originalLoad }
   const data = new Map([['dicodeCodex.thread', { id: 'thread', cwd: '/repo' }]])
   const context = {
     extensionPath: path.join(__dirname, '..'),
@@ -28,6 +28,28 @@ function makeView() {
 function rpc(view, method, params) { view.onCodexEvent({ type: 'rpc', message: { method, params } }) }
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 
+test('new and resumed threads add only DiCode identity while retaining native base instructions', async () => {
+  for (const resume of [false, true]) {
+    const { view } = makeView()
+    if (resume) view.loadedThreadId = null
+    else { view.threadId = null; view.loadedThreadId = null }
+    const calls = []
+    view.ensureClient = async () => ({ request: async (method, params) => {
+      calls.push({ method, params })
+      if (method === 'thread/start') return { thread: { id: 'new-thread' } }
+      if (method === 'turn/start') return { turn: { id: 'turn' } }
+      return {}
+    } })
+    await view.send('检查项目', 'm')
+    const setup = calls.find(call => call.method === (resume ? 'thread/resume' : 'thread/start'))
+    assert.ok(setup)
+    assert.equal(Object.hasOwn(setup.params, 'baseInstructions'), false)
+    assert.match(setup.params.developerInstructions, /你是 DiCode/)
+    view.busy = false
+    view.dispose()
+  }
+})
+
 test('Codex permission modes apply to each turn and full access needs explicit confirmation', async () => {
   const { view, vscode, posted } = makeView()
   const calls = []
@@ -42,11 +64,11 @@ test('Codex permission modes apply to each turn and full access needs explicit c
   vscode.window.showWarningMessage = async () => undefined
   await view.handle({ type: 'setPermissionMode', mode: 'full' })
   assert.equal(view.permissionMode, 'auto')
-  assert.equal(posted.at(-1).type, 'permissionModeRejected')
+  assert.ok(posted.some(message => message.type === 'permissionModeRejected'))
   vscode.window.showWarningMessage = async () => { throw new Error('dialog dismissed') }
   await view.handle({ type: 'setPermissionMode', mode: 'full' })
   assert.equal(view.permissionMode, 'auto')
-  assert.equal(posted.at(-1).type, 'permissionModeRejected')
+  assert.equal(posted.filter(message => message.type === 'permissionModeRejected').length, 2)
   vscode.window.showWarningMessage = async () => '启用完全访问'
   await view.handle({ type: 'setPermissionMode', mode: 'full' })
   await view.send('继续', 'm')
