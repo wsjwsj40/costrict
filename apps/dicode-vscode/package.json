@@ -2,7 +2,7 @@
 	"name": "dicode-codex",
 	"displayName": "DiCode",
 	"description": "DiCode coding agent powered by the unmodified Codex CLI",
-	"version": "0.2.19",
+	"version": "0.2.20",
 	"publisher": "atad-apts",
 	"repository": {
 		"type": "git",
@@ -52,7 +52,10 @@
 				},
 				"dicodeCodex.windowsSandboxFallback": {
 					"type": "string",
-					"enum": ["unelevated", "elevated"],
+					"enum": [
+						"unelevated",
+						"elevated"
+					],
 					"default": "unelevated",
 					"description": "Codex Windows sandbox fallback when MXC is unavailable. Elevated requires administrator provisioning; unelevated has weaker network isolation."
 				}

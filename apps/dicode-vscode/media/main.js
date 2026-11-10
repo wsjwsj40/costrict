@@ -145,7 +145,7 @@ function commandGroup(items, turn) {
   }
   const summary = element('summary', 'command-group-summary')
   summary.onclick = () => { commandGroupPreference.set(key, !group.open) }
-  summary.append(element('span', 'command-group-icon', '⌘'), element('span', '', '已运行命令'), element('span', 'command-group-chevron', '⌄'))
+  summary.append(element('span', 'command-group-icon', '⌘'), element('span', '', '已运行命令'), element('span', 'command-group-chevron'))
   const list = element('div', 'command-group-list')
   for (const item of items) list.append(commandView(item, turn))
   group.append(summary, list)
@@ -462,6 +462,7 @@ function renderModelPicker(models) {
     entry.title = model.name || model.id
     menu.append(entry)
   }
+  if (!menu.hidden) positionPickerMenu($('modelPicker'), menu, 310)
 }
 const permissionChoices = {
   request: { label: '请求授权', icon: '◇', detail: '只读查看；修改文件时请求授权' },
@@ -471,6 +472,28 @@ const permissionChoices = {
 function closePermissionMenu() {
   $('permissionMenu').hidden = true
   $('permissionPicker').setAttribute('aria-expanded', 'false')
+}
+function positionPickerMenu(picker, menu, preferredWidth) {
+  const margin = 8, gap = 7
+  const viewportWidth = document.documentElement.clientWidth || window.innerWidth
+  const viewportHeight = document.documentElement.clientHeight || window.innerHeight
+  const anchor = picker.getBoundingClientRect()
+  const width = Math.min(preferredWidth, Math.max(0, viewportWidth - margin * 2))
+  menu.style.width = `${width}px`
+  const left = menu.id === 'modelMenu' ? anchor.right - width : anchor.left
+  menu.style.left = `${Math.max(margin, Math.min(left, viewportWidth - margin - width))}px`
+  const above = Math.max(0, anchor.top - gap - margin)
+  const below = Math.max(0, viewportHeight - anchor.bottom - gap - margin)
+  const preferredHeight = Math.min(menu.scrollHeight, menu.id === 'modelMenu' ? 240 : viewportHeight - margin * 2)
+  const openAbove = above >= preferredHeight || above >= below
+  const available = openAbove ? above : below
+  const height = Math.min(preferredHeight, available)
+  menu.style.maxHeight = `${available}px`
+  menu.style.top = `${openAbove ? anchor.top - gap - height : anchor.bottom + gap}px`
+}
+function repositionPickerMenus() {
+  if (!$('permissionMenu').hidden) positionPickerMenu($('permissionPicker'), $('permissionMenu'), 270)
+  if (!$('modelMenu').hidden) positionPickerMenu($('modelPicker'), $('modelMenu'), 310)
 }
 function renderPermissionPicker(mode) {
   const selected = permissionChoices[mode] || permissionChoices.request
@@ -492,6 +515,7 @@ function renderPermissionPicker(mode) {
     if (key === mode) entry.append(element('span', 'permission-option-check', '✓'))
     menu.append(entry)
   }
+  if (!menu.hidden) positionPickerMenu($('permissionPicker'), menu, 270)
 }
 function approvalView(message) {
   if (activeApproval) { approvalQueue.push(message); return }
@@ -666,7 +690,12 @@ $('permissionPicker').onclick = () => {
   const menu = $('permissionMenu')
   menu.hidden = !menu.hidden
   $('permissionPicker').setAttribute('aria-expanded', String(!menu.hidden))
-  if (!menu.hidden) menu.querySelector('.permission-option.selected')?.focus()
+  if (!menu.hidden) {
+    $('modelMenu').hidden = true
+    $('modelPicker').setAttribute('aria-expanded', 'false')
+    positionPickerMenu($('permissionPicker'), menu, 270)
+    menu.querySelector('.permission-option.selected')?.focus()
+  }
 }
 $('send').onclick = () => {
   const text = $('prompt').value.trim(), model = $('model').value
@@ -695,8 +724,14 @@ $('modelPicker').onclick = () => {
   const menu = $('modelMenu')
   menu.hidden = !menu.hidden
   $('modelPicker').setAttribute('aria-expanded', String(!menu.hidden))
-  if (!menu.hidden) (menu.querySelector('.model-search') || menu.querySelector('.model-option'))?.focus()
+  if (!menu.hidden) {
+    closePermissionMenu()
+    positionPickerMenu($('modelPicker'), menu, 310)
+    const firstOption = menu.querySelector('.model-search') || menu.querySelector('.model-option')
+    firstOption?.focus()
+  }
 }
+window.addEventListener('resize', repositionPickerMenus)
 document.getElementById('modelMenu').addEventListener('keydown', event => {
   if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return
   event.preventDefault()
