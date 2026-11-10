@@ -192,7 +192,7 @@ test('running commands shimmer, editing shows changes, and completion keeps a fi
   await tick()
   assert.match(doc.querySelector('.turn-process-summary').textContent, /^正在处理/)
   assert.equal(doc.querySelector('.command-group').open, true)
-  assert.match(doc.querySelector('.command-group-label').textContent, /正在编辑 1 个文件、正在执行 2 条命令/)
+  assert.match(doc.querySelector('.command-group-label').textContent, /正在编辑 1 个文件、正在执行 1 条命令、已搜索代码 1 次/)
   assert.match(doc.querySelector('.command-card.status-completed').textContent, /rg --files/)
   assert.match(doc.querySelector('.command-card.status-inProgress').textContent, /正在运行 npm test/)
   assert.equal(doc.querySelectorAll('.command-card.status-inProgress .running-shimmer').length, 1)
@@ -245,7 +245,24 @@ test('a single search activity renders directly without a redundant group', asyn
   await tick()
   assert.equal(doc.querySelector('.command-group'), null)
   assert.equal(doc.querySelectorAll('.command-card').length, 1)
-  assert.match(doc.querySelector('.command-card').textContent, /rg login/)
+  assert.match(doc.querySelector('.command-card summary').textContent, /已搜索代码 rg login/)
+  dom.window.close()
+})
+
+test('local rg search is labelled as search even when Codex omits command actions', async () => {
+  const { dom, emit, doc } = setup()
+  emit({ type: 'state', loggedIn: true, busy: false, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
+    id: 'turn', status: 'completed', startedAt: 1000, completedAt: 3000,
+    items: [
+      { id: 'search', type: 'commandExecution', status: 'completed', raw: { command: 'rg -n login src' }, output: 'src/a.js:1:login' },
+      { id: 'build', type: 'commandExecution', status: 'completed', raw: { command: 'npm run build' }, output: 'ok' },
+    ],
+  }] } })
+  await tick()
+  assert.match(doc.querySelector('.command-group-label').textContent, /已搜索代码 1 次/)
+  assert.match(doc.querySelector('.command-group-label').textContent, /已执行 1 条命令/)
+  assert.match(doc.querySelector('.command-card summary').textContent, /已搜索代码 rg -n login src/)
   dom.window.close()
 })
 
@@ -266,7 +283,7 @@ test('command headings keep full single-line text for responsive CSS clipping wh
   assert.equal(single.querySelector('.activity-label').textContent, '已运行 npm test -- --runInBand')
   assert.equal(single.querySelector('.command-text').textContent, multilineCommand)
   const grouped = doc.querySelector('[data-turn-id="grouped"] .command-card')
-  assert.equal(grouped.querySelector('.activity-label').textContent, `已运行 ${longCommand}`)
+  assert.equal(grouped.querySelector('.activity-label').textContent, `已搜索代码 ${longCommand}`)
   assert.equal(grouped.querySelector('.command-text').textContent, longCommand)
   dom.window.close()
 })

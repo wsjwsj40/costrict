@@ -133,11 +133,16 @@ function statusText(item) {
   const status = item.status || 'inProgress'
   return ({ inProgress: '运行中', completed: '完成', failed: '失败', interrupted: '已停止', declined: '已拒绝' })[status] || status
 }
+function isSearchCommand(raw) {
+  const actions = raw.commandActions || []
+  if (actions.some(action => /search/i.test(typeof action === 'string' ? action : action.type || action.kind || ''))) return true
+  return /^\s*(?:rg|grep|git\s+grep|Select-String)\b/i.test(raw.command || '')
+}
 function commandTitle(raw) {
   const actions = raw.commandActions || []
   const types = actions.map(a => typeof a === 'string' ? a : a.type || a.kind)
   if (types.some(x => /read/i.test(x))) return '读取文件'
-  if (types.some(x => /search/i.test(x))) return '搜索代码'
+  if (isSearchCommand(raw)) return '搜索代码'
   if (types.some(x => /list/i.test(x))) return '列出文件'
   return '执行命令'
 }
@@ -155,7 +160,7 @@ function commandView(item, turn) {
   if (item.output) {
     body.append(element('div', 'muted', '输出'), element('pre', 'command-output', stripAnsi(item.output)), button('复制输出', () => navigator.clipboard.writeText(stripAnsi(item.output)), 'subtle'))
   }
-  const label = `⌘  ${running ? '正在运行' : '已运行'} ${commandPreview(cmd) || commandTitle(raw)}`
+  const label = `⌘  ${isSearchCommand(raw) ? (running ? '正在搜索代码' : '已搜索代码') : (running ? '正在运行' : '已运行')} ${commandPreview(cmd) || commandTitle(raw)}`
   const card = detail(`${turn.id}:${item.id}`, label, body, `command-card status-${item.status || 'inProgress'}`)
   if (running) card.querySelector('.activity-label')?.classList.add('running-shimmer')
   return card
@@ -163,7 +168,7 @@ function commandView(item, turn) {
 function activityKind(entry) {
   if (entry.item.type === 'fileChange') return 'edit'
   if (entry.item.type === 'webSearch') return 'webSearch'
-  return (entry.item.raw?.commandActions || []).some(action => /search/i.test(typeof action === 'string' ? action : action.type || action.kind || '')) ? 'search' : 'command'
+  return isSearchCommand(entry.item.raw || {}) ? 'search' : 'command'
 }
 function activityTitle(entries) {
   const counts = { edit: 0, command: 0, search: 0, webSearch: 0 }
