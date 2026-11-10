@@ -23,7 +23,7 @@ const PERMISSION_MODES = {
 }
 
 class CodexClient {
-	constructor(binary, baseUrl, token, onEvent, powerShellPath, platform = process.platform, windowsSandboxFallback = "unelevated") {
+	constructor(binary, baseUrl, token, instructionsPath, onEvent, powerShellPath, platform = process.platform, windowsSandboxFallback = "unelevated") {
 		this.onEvent = onEvent
 		this.nextId = 1
 		this.pending = new Map()
@@ -34,6 +34,8 @@ class CodexClient {
 				"app-server",
 				"--listen",
 				"stdio://",
+				"-c",
+				`model_instructions_file=${JSON.stringify(instructionsPath)}`,
 				"-c",
 				"features.default_mode_request_user_input=true",
 				"-c",
@@ -161,7 +163,8 @@ class DicodeView {
 		this.activeRunId = null
 		this.approvals = new Map()
 		this.inputRequests = new Map()
-		this.instructions = fs.readFileSync(path.join(context.extensionPath, "dicode-instructions.md"), "utf8")
+		this.instructionsPath = path.join(context.extensionPath, "dicode-instructions.md")
+		this.instructions = fs.readFileSync(this.instructionsPath, "utf8")
 		this.conversation = new ConversationStore()
 		this.threads = context.globalState.get(THREADS_KEY, [])
 		const savedPermission = context.workspaceState?.get(PERMISSION_KEY)
@@ -327,7 +330,7 @@ class DicodeView {
 		if (this.client) return this.client
 		const pending = (async () => {
 			const [binary, powerShellPath] = await Promise.all([this.ensureBinary(), process.platform === "win32" ? this.ensurePowerShell() : Promise.resolve(null)])
-			const client = new CodexClient(binary, `${this.serverUrl}/codex/v1`, token, (event) => {
+			const client = new CodexClient(binary, `${this.serverUrl}/codex/v1`, token, this.instructionsPath, (event) => {
 				if (this.client === client) this.onCodexEvent(event)
 			}, powerShellPath, process.platform, process.platform === "win32"
 				? vscode.workspace.getConfiguration("dicodeCodex").get("windowsSandboxFallback", "unelevated")
@@ -573,7 +576,7 @@ class DicodeView {
 			if (this.stopping) return this.recoverStoppedTurn("已取消")
 			if (this.threadId && this.loadedThreadId !== this.threadId) {
 				try {
-					await client.request("thread/resume", { threadId: this.threadId, excludeTurns: true, developerInstructions: this.instructions })
+					await client.request("thread/resume", { threadId: this.threadId, excludeTurns: true, baseInstructions: this.instructions })
 				} catch (error) {
 					throw new Error(`无法恢复当前会话：${error.message}`)
 				}
@@ -588,7 +591,7 @@ class DicodeView {
 					cwd: this.workspace,
 					approvalPolicy: permission.approvalPolicy,
 					sandbox: permission.sandbox,
-					developerInstructions: this.instructions,
+					baseInstructions: this.instructions,
 				})
 				this.threadId = started.thread.id
 				this.loadedThreadId = this.threadId
