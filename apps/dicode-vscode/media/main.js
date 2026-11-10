@@ -103,10 +103,31 @@ function detail(key, label, body, className = '') {
   d.ontoggle = () => { if (d.open) openDetails.add(key); else openDetails.delete(key); requestAnimationFrame(() => { if (followMessages) scrollToBottom(); updateNavigation() }) }
   const summary = element('summary')
   const match = /^([⌘▤◇◌])\s+(.*)$/.exec(label)
-  if (match) summary.append(element('span', 'activity-icon', match[1]), element('span', 'activity-label', match[2]))
+  if (match) {
+    const icon = element('span', 'activity-icon', match[1])
+    if (match[1] === '⌘') icon.replaceChildren(activityIcon('terminal'))
+    if (match[1] === '▤') icon.replaceChildren(activityIcon('edit'))
+    summary.append(icon, element('span', 'activity-label', match[2]))
+  }
   else summary.textContent = label
   d.append(summary, body)
   return d
+}
+function activityIcon(kind) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', '0 0 16 16')
+  svg.setAttribute('width', '14')
+  svg.setAttribute('height', '14')
+  svg.setAttribute('fill', 'none')
+  svg.setAttribute('stroke', 'currentColor')
+  svg.setAttribute('stroke-width', '1.35')
+  svg.setAttribute('stroke-linecap', 'round')
+  svg.setAttribute('stroke-linejoin', 'round')
+  svg.setAttribute('aria-hidden', 'true')
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  path.setAttribute('d', kind === 'edit' ? 'M3 11.5 2.5 14l2.5-.5 8.1-8.1-2-2L3 11.5Zm7.2-8.1 1.4-1.4a1.4 1.4 0 0 1 2 2l-1.4 1.4' : 'M2 3.2h12v9.6H2zM4.5 6l2.2 2-2.2 2M8.5 10h3')
+  svg.append(path)
+  return svg
 }
 function statusText(item) {
   const status = item.status || 'inProgress'
@@ -121,6 +142,11 @@ function commandTitle(raw) {
   return '执行命令'
 }
 function stripAnsi(text) { return String(text || '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '') }
+function commandPreview(command) {
+  const singleLine = String(command || '').replace(/\s+/g, ' ').trim()
+  const chars = Array.from(singleLine)
+  return chars.length > 56 ? `${chars.slice(0, 56).join('').trimEnd()}...` : singleLine
+}
 function commandView(item, turn) {
   const raw = item.raw || {}, body = element('div', 'activity-body')
   const cmd = raw.command || ''
@@ -131,23 +157,44 @@ function commandView(item, turn) {
   if (item.output) {
     body.append(element('div', 'muted', '输出'), element('pre', 'command-output', stripAnsi(item.output)), button('复制输出', () => navigator.clipboard.writeText(stripAnsi(item.output)), 'subtle'))
   }
-  const label = `⌘  ${running ? '正在运行' : '已运行'} ${cmd || commandTitle(raw)}`
+  const label = `⌘  ${running ? '正在运行' : '已运行'} ${commandPreview(cmd) || commandTitle(raw)}`
   const card = detail(`${turn.id}:${item.id}`, label, body, `command-card status-${item.status || 'inProgress'}`)
   if (running) card.querySelector('.activity-label')?.classList.add('running-shimmer')
   return card
 }
-function commandGroup(items, turn) {
+function activityKind(entry) {
+  if (entry.item.type === 'fileChange') return 'edit'
+  if (entry.item.type === 'webSearch') return 'webSearch'
+  return (entry.item.raw?.commandActions || []).some(action => /search/i.test(typeof action === 'string' ? action : action.type || action.kind || '')) ? 'search' : 'command'
+}
+function activityTitle(entries) {
+  const counts = { edit: 0, command: 0, search: 0, webSearch: 0 }
+  for (const entry of entries) counts[activityKind(entry)]++
+  const parts = []
+  if (counts.edit) parts.push(`已编辑 ${counts.edit} 个文件`)
+  if (counts.command) parts.push(`已执行 ${counts.command} 条命令`)
+  if (counts.search) parts.push(`已搜索代码 ${counts.search} 次`)
+  if (counts.webSearch) parts.push(`已搜索网页 ${counts.webSearch} 次`)
+  return parts.join('、')
+}
+function activityEntryView(entry, turn) {
+  if (entry.item.type === 'fileChange') return fileItem(entry.item, turn, entry.change, entry.index)
+  return itemView(entry.item, turn)
+}
+function activityGroup(entries, turn) {
   const group = element('details', 'command-group')
-  const key = `${turn.id}:commands:${items[0].id}`
+  const key = `${turn.id}:activities:${entries[0].item.id}`
   group.open = commandGroupPreference.get(key) || false
   group.ontoggle = () => {
     requestAnimationFrame(() => { if (followMessages) scrollToBottom(); updateNavigation() })
   }
   const summary = element('summary', 'command-group-summary')
   summary.onclick = () => { commandGroupPreference.set(key, !group.open) }
-  summary.append(element('span', 'command-group-icon', '⌘'), element('span', '', '已运行命令'), element('span', 'command-group-chevron'))
+  const icon = element('span', 'command-group-icon')
+  icon.append(activityIcon(entries.some(entry => activityKind(entry) === 'edit') ? 'edit' : 'terminal'))
+  summary.append(icon, element('span', 'command-group-label', activityTitle(entries)), element('span', 'command-group-chevron'))
   const list = element('div', 'command-group-list')
-  for (const item of items) list.append(commandView(item, turn))
+  for (const entry of entries) list.append(activityEntryView(entry, turn))
   group.append(summary, list)
   return group
 }
@@ -202,8 +249,8 @@ function fileSummary(turn, compact = false) {
   root.append(toggle)
   return root
 }
-function fileItem(item, turn) {
-  const changes = item.raw?.changes || []
+function fileItem(item, turn, singleChange, index = 0) {
+  const changes = singleChange ? [singleChange] : item.raw?.changes || []
   const running = item.status === 'inProgress'
   const body = element('div', 'activity-body')
   for (const change of changes) {
@@ -213,8 +260,14 @@ function fileItem(item, turn) {
     body.append(row)
     if (change.diff && path) body.append(button('在编辑器中比较', () => post('openDiff', { path, diff: change.diff }), 'subtle'), diffLines(change.diff))
   }
-  const label = `▤  ${running ? '正在编辑文件' : '已编辑文件'}${changes.length ? ` · ${changes.map(change => change.path || change.filePath).filter(Boolean).join('、')}` : ''}`
-  const card = detail(`${turn.id}:${item.id}`, label, body, `file-card status-${item.status || 'inProgress'}`)
+  const file = changes[0]
+  const path = file?.path || file?.filePath
+  const stats = file?.diff && path ? parseDiff(file.diff.startsWith('diff --git ') ? file.diff : `diff --git a/${path} b/${path}\n${file.diff}`) : []
+  const added = stats.reduce((count, entry) => count + entry.additions, 0)
+  const deleted = stats.reduce((count, entry) => count + entry.deletions, 0)
+  const counts = stats.length ? ` +${added} -${deleted}` : ''
+  const label = `▤  ${running ? '正在编辑文件' : '已编辑文件'}${changes.length ? ` · ${changes.map(change => change.path || change.filePath).filter(Boolean).join('、')}` : ''}${counts}`
+  const card = detail(`${turn.id}:${item.id}:${index}`, label, body, `file-card status-${item.status || 'inProgress'}`)
   if (running) card.querySelector('.activity-label')?.classList.add('running-shimmer')
   return card
 }
@@ -333,23 +386,28 @@ function render() {
     const explicitFinal = agentItems.some(item => item.raw?.phase === 'final_answer')
     const unphasedFallback = !explicitFinal && turn.status === 'completed' && agentItems.every(item => !item.raw?.phase) ? agentItems.at(-1) : null
     const active = ['starting', 'inProgress'].includes(turn.status)
-    let commands = []
-    const flushCommands = () => {
-      if (!commands.length) return
-      processNodes.push(commandGroup(commands, turn))
-      commands = []
+    let activities = []
+    const flushActivities = () => {
+      if (activities.length === 1) processNodes.push(activityEntryView(activities[0], turn))
+      else if (activities.length > 1) processNodes.push(activityGroup(activities, turn))
+      activities = []
     }
     for (const item of turn.items || []) {
-      if (item.type === 'commandExecution') {
-        if (item.status === 'inProgress' || !item.status) { flushCommands(); processNodes.push(commandView(item, turn)) }
-        else commands.push(item)
+      if (['commandExecution', 'fileChange', 'webSearch'].includes(item.type)) {
+        const entries = item.type === 'fileChange' && item.raw?.changes?.length
+          ? item.raw.changes.map((change, index) => ({ item, change, index }))
+          : [{ item }]
+        if (item.status === 'inProgress' || !item.status) {
+          flushActivities()
+          for (const entry of entries) processNodes.push(activityEntryView(entry, turn))
+        } else activities.push(...entries)
         continue
       }
-      flushCommands()
+      flushActivities()
       if (item.type === 'agentMessage' && (item.raw?.phase === 'final_answer' || item === unphasedFallback)) { finalItems.push(item); continue }
       const node = itemView(item, turn); if (node) processNodes.push(node)
     }
-    flushCommands()
+    flushActivities()
     if (active && busy && turn === store.turns.at(-1) && !processNodes.length) processNodes.push(element('div', 'working', stopping ? '◌  正在停止…' : '◌  DiCode 正在处理…'))
     const process = processView(turn, active, processNodes)
     if (process) content.append(process)
@@ -432,7 +490,10 @@ function setState(state) {
 }
 function renderModelPicker(models) {
   const selected = models.find(model => model.id === $('model').value)
-  $('modelLabel').textContent = selected?.name || selected?.id || '选择模型'
+  const label = selected?.name || selected?.id || '选择模型'
+  $('modelLabel').textContent = label
+  $('modelPicker').title = label
+  $('modelPicker').setAttribute('aria-label', selected ? `选择模型，当前：${label}` : '选择模型')
   const menu = $('modelMenu')
   menu.replaceChildren(element('div', 'model-menu-heading', '选择模型'))
   if (models.length > 5) {

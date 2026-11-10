@@ -15,10 +15,11 @@
   --red: var(--vscode-charts-red, #e36d6d);
   --code: var(--vscode-textCodeBlock-background, #242424);
   --soft-surface: color-mix(in srgb, var(--vscode-foreground) 5%, var(--surface));
+  --edge: color-mix(in srgb, var(--vscode-foreground) 22%, var(--surface));
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
-body { margin: 0; height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
+body { margin: 0; height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; border-right: 1px solid var(--edge); }
 [hidden] { display: none !important; }
 button { cursor: pointer; border: 0; color: inherit; background: transparent; border-radius: 7px; padding: 6px 9px; font: inherit; }
 button:hover { background: var(--vscode-toolbar-hoverBackground); }
@@ -48,7 +49,7 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .thread-empty { padding: 8px; color: var(--muted); font-size: 11px; }
 .conversation-area { position: relative; flex: 1; min-height: 0; }
 #messages { height: 100%; min-height: 0; overflow-y: auto; overflow-anchor: none; padding: 18px 20px 34px; }
-.back-to-bottom { position: absolute; right: 16px; bottom: 12px; z-index: 2; padding: 7px 11px; border: 1px solid var(--border); border-radius: 18px; background: var(--vscode-editor-background); box-shadow: 0 2px 9px var(--vscode-widget-shadow, #0003); color: var(--brand); font-size: 11px; }
+.back-to-bottom { position: absolute; left: 50%; bottom: 12px; z-index: 2; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; transform: translateX(-50%); border: 1px solid var(--edge); border-radius: 50%; background: var(--vscode-editor-background); box-shadow: 0 2px 9px var(--vscode-widget-shadow, #0003); color: var(--vscode-foreground); font-size: 18px; line-height: 1; }
 .back-to-bottom:hover { background: var(--vscode-toolbar-hoverBackground); }
 .show-earlier { display: block; margin: 0 auto 15px; padding: 6px 11px; border: 1px solid var(--border); border-radius: 16px; color: var(--brand); background: var(--surface); font-size: 11px; }
 .recent-prompt { display: flex; align-items: center; gap: 9px; width: calc(100% - 32px); margin: 3px 16px 0; padding: 7px 9px; text-align: left; border: 1px solid var(--border); background: var(--soft-surface); }
@@ -118,6 +119,7 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .activity summary::after { content: '›'; margin-left: auto; color: var(--muted); }
 .activity[open] summary::after { content: '⌄'; }
 .activity-icon { display: inline-grid; place-items: center; width: 18px; height: 18px; flex: none; border-radius: 5px; color: var(--activity-color); background: color-mix(in srgb, var(--activity-color) 12%, transparent); }
+.activity-icon svg, .command-group-icon svg { display: block; }
 .activity-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-card { --activity-color: var(--purple); }
 .file-card { --activity-color: var(--green); }
@@ -134,14 +136,15 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .command-group-summary { display: flex; align-items: center; gap: 7px; width: fit-content; max-width: 100%; padding: 2px 0 7px; cursor: pointer; list-style: none; font-size: 12px; }
 .command-group-summary::-webkit-details-marker { display: none; }
 .command-group-summary:hover { color: var(--vscode-foreground); }
-.command-group-icon { font-family: var(--vscode-editor-font-family, monospace); font-size: 14px; }
+.command-group-icon { display: grid; place-items: center; width: 16px; height: 16px; flex: none; }
+.command-group-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .command-group-chevron, .chevron { display: grid; place-items: center; flex: none; width: 12px; height: 12px; color: var(--muted); }
 .command-group-chevron::after, .chevron::after { content: ''; display: block; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-1px) rotate(45deg); }
 .command-group[open] .command-group-chevron::after { transform: translateY(1px) rotate(225deg); }
-.command-group-list { padding: 1px 0 0 1px; }
-.turn-process-body .command-card { border: 0; border-radius: 0; margin: 0; background: transparent; }
+.command-group-list { min-width: 0; padding: 1px 0 0 1px; }
+.turn-process-body .command-card { width: 100%; min-width: 0; border: 0; border-radius: 0; margin: 0; background: transparent; }
 .turn-process-body .command-card.status-inProgress, .turn-process-body .file-card.status-inProgress { --activity-color: var(--muted); }
-.turn-process-body .command-card > summary { padding: 4px 0; gap: 6px; color: var(--muted); font-size: 11px; }
+.turn-process-body .command-card > summary { width: 100%; padding: 4px 0; gap: 6px; color: var(--muted); font-size: 11px; }
 .turn-process-body .command-card > summary:hover { color: var(--vscode-foreground); }
 .turn-process-body .command-card .activity-icon { width: 15px; height: 15px; border: 1px solid currentColor; border-radius: 3px; background: transparent; font-size: 10px; }
 .turn-process-body .command-card .activity-label { flex: 1; }
@@ -230,14 +233,14 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .user-input-actions { position: sticky; bottom: -12px; display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 10px 0 0; border-top: 1px solid var(--border); background: var(--surface); }
 .user-input-error { margin-right: auto; color: var(--red); font-size: 11px; }
 .composer-shell { flex: none; padding: 7px 12px 8px; background: var(--surface); }
-.composer { position: relative; border: 1px solid var(--border); background: var(--soft-surface); border-radius: 21px; padding: 13px 12px 8px; transition: border-color .15s; }
+.composer { position: relative; border: 1px solid var(--edge); background: var(--soft-surface); border-radius: 21px; padding: 13px 12px 8px; transition: border-color .15s; }
 .composer:focus-within { border-color: var(--vscode-focusBorder, var(--brand)); }
 .composer-title { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 600; margin-bottom: 5px; }
 .composer-spark { color: var(--brand); font-size: 14px; }
 textarea { display: block; width: 100%; min-height: 49px; max-height: 180px; resize: none; border: 0; outline: 0 !important; background: transparent; color: var(--vscode-input-foreground, var(--vscode-foreground)); font: inherit; line-height: 1.45; overflow-y: auto; }
 textarea::placeholder { color: var(--vscode-input-placeholderForeground, var(--muted)); }
 .composer-bottom { display: flex; align-items: center; gap: 5px; min-height: 32px; }
-.model-control { position: relative; min-width: 0; max-width: 45%; margin-left: auto; }
+.model-control { position: relative; min-width: 0; max-width: min(33%, 122px); margin-left: auto; }
 .permission-control { position: relative; flex: 0 1 auto; min-width: 0; }
 #permissionPicker { display: flex; align-items: center; gap: 6px; height: 29px; max-width: 118px; padding: 3px 5px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-family: var(--vscode-font-family, system-ui, sans-serif); font-size: 11px; font-weight: 500; line-height: 1.2; white-space: nowrap; }
 #permissionPicker:hover, #permissionPicker[aria-expanded="true"] { background: color-mix(in srgb, var(--vscode-foreground) 7%, transparent); color: var(--vscode-foreground); }
@@ -256,10 +259,10 @@ textarea::placeholder { color: var(--vscode-input-placeholderForeground, var(--m
 .permission-option-copy strong { font-family: var(--vscode-font-family, system-ui, sans-serif); font-size: calc(var(--vscode-font-size, 13px) * .92); font-weight: 600; line-height: 1.3; }
 .permission-option-copy small { color: var(--muted); font-family: var(--vscode-font-family, system-ui, sans-serif); font-size: calc(var(--vscode-font-size, 13px) * .85); line-height: 1.4; }
 .permission-option-check { margin-left: auto; color: var(--brand); font-size: 12px; }
-#modelPicker { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; height: 29px; padding: 3px 6px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font-family: var(--vscode-font-family, system-ui, sans-serif); font-size: 11px; font-weight: 500; line-height: 1.2; }
+#modelPicker { display: flex; align-items: center; gap: 6px; min-width: 0; width: 100%; max-width: 100%; height: 29px; padding: 3px 6px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font-family: var(--vscode-font-family, system-ui, sans-serif); font-size: 11px; font-weight: 500; line-height: 1.2; }
 #modelPicker:hover { color: var(--vscode-foreground); background: color-mix(in srgb, var(--vscode-foreground) 7%, transparent); }
 .model-spark { flex: none; color: var(--brand); font-size: 13px; }
-#modelLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#modelLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #modelMenu { position: fixed; z-index: 10; width: min(310px, calc(100vw - 16px)); overflow-y: auto; padding: 5px; border: 1px solid var(--border); border-radius: 8px; background: var(--vscode-dropdown-background, var(--surface)); box-shadow: 0 5px 18px var(--vscode-widget-shadow, #0003); }
 .model-menu-heading { color: var(--muted); font-size: 10px; padding: 5px 7px; }
 .model-search { display: block; width: calc(100% - 8px); margin: 3px 4px 6px; padding: 6px 7px; border: 1px solid var(--border); border-radius: 5px; outline: none; color: var(--vscode-input-foreground); background: var(--vscode-input-background); font: inherit; font-size: 11px; }
@@ -281,5 +284,5 @@ textarea::placeholder { color: var(--vscode-input-placeholderForeground, var(--m
 .status-line[data-kind="success"] .status-dot { background: var(--green); }
 .status-line[data-kind="warning"] .status-dot { background: var(--yellow); }
 .status-line[data-kind="error"] .status-dot { background: var(--red); }
-@media (max-width: 250px) { .brand-sub { display: none; } .model-control { max-width: 35%; } #permissionPicker { max-width: 96px; } }
+@media (max-width: 250px) { .brand-sub { display: none; } #permissionPicker { max-width: 96px; } }
 @media (prefers-reduced-motion: reduce) { .working, .status-line[data-kind="working"] .status-dot { animation: none; } .plan-shimmer, .running-shimmer { animation: none; background: none; -webkit-text-fill-color: currentColor; } }

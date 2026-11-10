@@ -121,8 +121,10 @@ test('consecutive commands share a collapsible list and retain their output', as
   const group = doc.querySelector('.command-group')
   assert.ok(group)
   assert.equal(group.open, false)
-  assert.match(group.querySelector('summary').textContent, /已运行命令/)
+  assert.match(group.querySelector('summary').textContent, /已执行 2 条命令/)
   assert.equal(group.querySelectorAll('.command-card').length, 2)
+  assert.ok(group.querySelector('.command-group-icon svg'))
+  assert.ok(group.querySelector('.command-card .activity-icon svg'))
   assert.match(group.textContent, /Get-Content README\.md/)
   assert.match(group.textContent, /README\.md/)
   assert.equal(doc.querySelector('.turn-process').open, false)
@@ -143,7 +145,8 @@ test('running commands shimmer, editing shows changes, and completion keeps a fi
   }] } })
   await tick()
   assert.match(doc.querySelector('.turn-process-summary').textContent, /^正在处理/)
-  assert.match(doc.querySelector('.command-group-summary').textContent, /已运行命令/)
+  assert.equal(doc.querySelector('.command-group'), null)
+  assert.match(doc.querySelector('.command-card.status-completed').textContent, /rg --files/)
   assert.match(doc.querySelector('.command-card.status-inProgress').textContent, /正在运行 npm test/)
   assert.equal(doc.querySelectorAll('.command-card.status-inProgress .running-shimmer').length, 1)
   assert.match(doc.querySelector('.file-card.status-inProgress').textContent, /正在编辑文件/)
@@ -160,6 +163,64 @@ test('running commands shimmer, editing shows changes, and completion keeps a fi
   assert.match(doc.querySelector('.turn-content > .file-summary').textContent, /src\/a.js/)
   doc.querySelector('.file-summary-row').click()
   assert.equal(sent.at(-1).type, 'openDiff')
+  dom.window.close()
+})
+
+test('mixed edits and commands use a content-based group with separate file rows', async () => {
+  const { dom, emit, doc } = setup()
+  const diff = path => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n@@ -1 +1 @@\n-old\n+new`
+  emit({ type: 'state', loggedIn: true, busy: false, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
+    id: 'turn', status: 'completed', startedAt: 1000, completedAt: 3000,
+    items: [
+      { id: 'edit', type: 'fileChange', status: 'completed', raw: { changes: [{ path: 'a.js', diff: diff('a.js') }, { path: 'b.js', diff: diff('b.js') }] } },
+      { id: 'command', type: 'commandExecution', status: 'completed', raw: { command: 'npm test' }, output: 'ok' },
+    ],
+  }] } })
+  await tick()
+  const group = doc.querySelector('.command-group')
+  assert.match(group.querySelector('.command-group-label').textContent, /已编辑 2 个文件、已执行 1 条命令/)
+  assert.equal(group.querySelectorAll('.file-card').length, 2)
+  assert.equal(group.querySelectorAll('.command-card').length, 1)
+  assert.match(group.querySelector('.file-card').textContent, /a\.js \+1 -1/)
+  assert.ok(group.querySelector('.file-card .activity-icon svg'))
+  assert.ok(group.querySelector('.command-card .activity-icon svg'))
+  dom.window.close()
+})
+
+test('a single search activity renders directly without a redundant group', async () => {
+  const { dom, emit, doc } = setup()
+  emit({ type: 'state', loggedIn: true, busy: false, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
+    id: 'turn', status: 'completed', startedAt: 1000, completedAt: 3000,
+    items: [{ id: 'search', type: 'commandExecution', status: 'completed', raw: { command: 'rg login', commandActions: [{ type: 'search' }] }, output: 'login.js' }],
+  }] } })
+  await tick()
+  assert.equal(doc.querySelector('.command-group'), null)
+  assert.equal(doc.querySelectorAll('.command-card').length, 1)
+  assert.match(doc.querySelector('.command-card').textContent, /rg login/)
+  dom.window.close()
+})
+
+test('single and grouped command headings use one-line previews while details keep full commands', async () => {
+  const { dom, emit, doc } = setup()
+  const longCommand = `rg --files ${'src/very-long-directory/'.repeat(5)}`
+  const multilineCommand = 'npm test\n-- --runInBand'
+  emit({ type: 'state', loggedIn: true, busy: false, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: [
+    { id: 'single', status: 'completed', startedAt: 1000, completedAt: 2000, items: [{ id: 'one', type: 'commandExecution', status: 'completed', raw: { command: multilineCommand } }] },
+    { id: 'grouped', status: 'completed', startedAt: 3000, completedAt: 4000, items: [
+      { id: 'two', type: 'commandExecution', status: 'completed', raw: { command: longCommand } },
+      { id: 'three', type: 'commandExecution', status: 'completed', raw: { command: 'pwd' } },
+    ] },
+  ] } })
+  await tick()
+  const single = doc.querySelector('[data-turn-id="single"] .command-card')
+  assert.equal(single.querySelector('.activity-label').textContent, '已运行 npm test -- --runInBand')
+  assert.equal(single.querySelector('.command-text').textContent, multilineCommand)
+  const grouped = doc.querySelector('[data-turn-id="grouped"] .command-card')
+  assert.match(grouped.querySelector('.activity-label').textContent, /^已运行 rg --files .*\.\.\.$/)
+  assert.equal(grouped.querySelector('.command-text').textContent, longCommand)
   dom.window.close()
 })
 
@@ -201,6 +262,7 @@ test('model picker and stop state let the user continue after interruption', asy
   assert.equal(doc.getElementById('modelMenu').hidden, false)
   doc.querySelectorAll('.model-option')[1].click()
   assert.equal(doc.getElementById('modelLabel').textContent, '推理模型')
+  assert.equal(doc.getElementById('modelPicker').title, '推理模型')
   doc.getElementById('prompt').value = '第一问'
   doc.getElementById('prompt').dispatchEvent(new dom.window.Event('input'))
   doc.getElementById('send').click()
@@ -297,6 +359,8 @@ test('streaming follows the bottom until the user scrolls up, and recent prompt 
   await tick()
   assert.equal(list.scrollTop, 100)
   assert.equal(doc.getElementById('backToBottom').hidden, false)
+  assert.equal(doc.getElementById('backToBottom').getAttribute('aria-label'), '回到底部')
+  assert.equal(doc.getElementById('backToBottom').textContent, '↓')
   doc.getElementById('recentPrompt').click()
   assert.equal(scrolledTo.node.className, 'user-message')
   assert.equal(scrolledTo.options.block, 'start')
