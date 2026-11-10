@@ -133,18 +133,19 @@ function statusText(item) {
   const status = item.status || 'inProgress'
   return ({ inProgress: '运行中', completed: '完成', failed: '失败', interrupted: '已停止', declined: '已拒绝' })[status] || status
 }
-function isSearchCommand(raw) {
-  const actions = raw.commandActions || []
-  if (actions.some(action => /search/i.test(typeof action === 'string' ? action : action.type || action.kind || ''))) return true
-  return /^\s*(?:rg|grep|git\s+grep|Select-String)\b/i.test(raw.command || '')
+function commandKind(raw) {
+  const types = (raw.commandActions || []).map(action => typeof action === 'string' ? action : action?.type || action?.kind)
+  if (types.includes('search')) return 'search'
+  if (types.includes('read')) return 'read'
+  if (types.includes('listFiles') || types.includes('list')) return 'list'
+  const command = raw.command || ''
+  if (/(?:^|[\s;&|])(?:rg\s+--files\b|Get-ChildItem\b|\bgci\b)/i.test(command)) return 'list'
+  if (/(?:^|[\s;&|])(?:rg|grep|git\s+grep|Select-String)\b/i.test(command)) return 'search'
+  if (/(?:^|[\s;&|])(?:Get-Content|gc)\b/i.test(command)) return 'read'
+  return 'command'
 }
 function commandTitle(raw) {
-  const actions = raw.commandActions || []
-  const types = actions.map(a => typeof a === 'string' ? a : a.type || a.kind)
-  if (types.some(x => /read/i.test(x))) return '读取文件'
-  if (isSearchCommand(raw)) return '搜索代码'
-  if (types.some(x => /list/i.test(x))) return '列出文件'
-  return '执行命令'
+  return ({ search: '搜索代码', read: '读取文件', list: '列出文件', command: '执行命令' })[commandKind(raw)]
 }
 function stripAnsi(text) { return String(text || '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '') }
 function commandPreview(command) {
@@ -160,19 +161,21 @@ function commandView(item, turn) {
   if (item.output) {
     body.append(element('div', 'muted', '输出'), element('pre', 'command-output', stripAnsi(item.output)), button('复制输出', () => navigator.clipboard.writeText(stripAnsi(item.output)), 'subtle'))
   }
-  const label = `⌘  ${isSearchCommand(raw) ? (running ? '正在搜索代码' : '已搜索代码') : (running ? '正在运行' : '已运行')} ${commandPreview(cmd) || commandTitle(raw)}`
+  const action = commandTitle(raw)
+  const verb = ({ search: running ? '正在搜索代码' : '已搜索代码', read: running ? '正在读取文件' : '已读取文件', list: running ? '正在列出文件' : '已列出文件', command: running ? '正在运行' : '已运行' })[commandKind(raw)]
+  const label = `⌘  ${verb} ${commandPreview(cmd) || action}`
   const card = detail(`${turn.id}:${item.id}`, label, body, `command-card status-${item.status || 'inProgress'}`)
   if (running) card.querySelector('.activity-label')?.classList.add('running-shimmer')
   return card
 }
 function activityKind(entry) {
-  if (entry.item.type === 'fileChange') return 'edit'
+  if (['fileChange', 'detectedFileChange'].includes(entry.item.type)) return 'edit'
   if (entry.item.type === 'webSearch') return 'webSearch'
-  return isSearchCommand(entry.item.raw || {}) ? 'search' : 'command'
+  return commandKind(entry.item.raw || {})
 }
 function activityTitle(entries) {
-  const counts = { edit: 0, command: 0, search: 0, webSearch: 0 }
-  const running = { edit: false, command: false, search: false, webSearch: false }
+  const counts = { edit: 0, command: 0, search: 0, read: 0, list: 0, webSearch: 0 }
+  const running = { edit: false, command: false, search: false, read: false, list: false, webSearch: false }
   for (const entry of entries) {
     const kind = activityKind(entry)
     counts[kind]++
@@ -182,11 +185,13 @@ function activityTitle(entries) {
   if (counts.edit) parts.push(`${running.edit ? '正在编辑' : '已编辑'} ${counts.edit} 个文件`)
   if (counts.command) parts.push(`${running.command ? '正在执行' : '已执行'} ${counts.command} 条命令`)
   if (counts.search) parts.push(`${running.search ? '正在搜索代码' : '已搜索代码'} ${counts.search} 次`)
+  if (counts.read) parts.push(`${running.read ? '正在读取文件' : '已读取文件'} ${counts.read} 次`)
+  if (counts.list) parts.push(`${running.list ? '正在列出文件' : '已列出文件'} ${counts.list} 次`)
   if (counts.webSearch) parts.push(`${running.webSearch ? '正在搜索网页' : '已搜索网页'} ${counts.webSearch} 次`)
   return parts.join('、')
 }
 function activityEntryView(entry, turn) {
-  if (entry.item.type === 'fileChange') return fileItem(entry.item, turn, entry.change, entry.index)
+  if (['fileChange', 'detectedFileChange'].includes(entry.item.type)) return fileItem(entry.item, turn, entry.change, entry.index)
   return itemView(entry.item, turn)
 }
 function activityGroup(entries, turn) {
@@ -228,6 +233,10 @@ function changedFiles(turn) {
     files = [...new Map(files.map(file => [file.path, file])).values()]
   }
   return files
+}
+function detectedFileChanges(turn) {
+  if ((turn.items || []).some(item => item.type === 'fileChange')) return []
+  return parseDiff(turn.diff)
 }
 function fileSummary(turn, compact = false) {
   const files = changedFiles(turn)
@@ -276,7 +285,8 @@ function fileItem(item, turn, singleChange, index = 0) {
   const added = stats.reduce((count, entry) => count + entry.additions, 0)
   const deleted = stats.reduce((count, entry) => count + entry.deletions, 0)
   const counts = stats.length ? ` +${added} -${deleted}` : ''
-  const label = `▤  ${running ? '正在编辑文件' : '已编辑文件'}${changes.length ? ` · ${changes.map(change => change.path || change.filePath).filter(Boolean).join('、')}` : ''}${counts}`
+  const action = item.type === 'detectedFileChange' ? '检测到文件变更' : running ? '正在编辑文件' : '已编辑文件'
+  const label = `▤  ${action}${changes.length ? ` · ${changes.map(change => change.path || change.filePath).filter(Boolean).join('、')}` : ''}${counts}`
   const card = detail(`${turn.id}:${item.id}:${index}`, label, body, `file-card status-${item.status || 'inProgress'}`)
   if (running) card.querySelector('.activity-label')?.classList.add('running-shimmer')
   return card
@@ -356,6 +366,7 @@ function processView(turn, active, nodes) {
 function itemView(item, turn, forceFinal = false) {
   if (['userMessage', 'functionCallOutput', 'plan'].includes(item.type)) return null
   if (item.type === 'agentMessage') {
+    if (!String(item.text || '').trim()) return null
     const final = forceFinal || item.raw?.phase === 'final_answer'
     const box = element('article', `agent ${final ? 'final-answer' : 'commentary-answer'}`)
     if (final) box.append(element('div', 'agent-heading', '✦  DiCode · 答复'))
@@ -397,6 +408,15 @@ function render() {
     const unphasedFallback = !explicitFinal && turn.status === 'completed' && agentItems.every(item => !item.raw?.phase) ? agentItems.at(-1) : null
     const active = ['starting', 'inProgress'].includes(turn.status)
     let activities = []
+    const detectedChanges = detectedFileChanges(turn)
+    let detectedChangesAdded = false
+    const appendDetectedChanges = () => {
+      if (detectedChangesAdded) return
+      detectedChangesAdded = true
+      for (const [index, change] of detectedChanges.entries()) {
+        activities.push({ item: { id: `detected-file-${index}`, type: 'detectedFileChange', status: 'completed', raw: { changes: [change] } }, change, index })
+      }
+    }
     const flushActivities = () => {
       if (activities.length === 1) processNodes.push(activityEntryView(activities[0], turn))
       else if (activities.length > 1) processNodes.push(activityGroup(activities, turn))
@@ -410,10 +430,11 @@ function render() {
         activities.push(...entries)
         continue
       }
-      if (item.type === 'agentMessage' && (item.raw?.phase === 'final_answer' || item === unphasedFallback)) { flushActivities(); finalItems.push(item); continue }
+      if (item.type === 'agentMessage' && (item.raw?.phase === 'final_answer' || item === unphasedFallback)) { appendDetectedChanges(); flushActivities(); finalItems.push(item); continue }
       const node = itemView(item, turn)
       if (node) { flushActivities(); processNodes.push(node) }
     }
+    appendDetectedChanges()
     flushActivities()
     if (active && busy && turn === store.turns.at(-1) && !processNodes.length) processNodes.push(element('div', 'working', stopping ? '◌  正在停止…' : '◌  DiCode 正在处理…'))
     const process = processView(turn, active, processNodes)

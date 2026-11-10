@@ -121,7 +121,7 @@ test('consecutive commands share a collapsible list and retain their output', as
   const group = doc.querySelector('.command-group')
   assert.ok(group)
   assert.equal(group.open, false)
-  assert.match(group.querySelector('summary').textContent, /已执行 2 条命令/)
+  assert.match(group.querySelector('summary').textContent, /已读取文件 1 次、已列出文件 1 次/)
   assert.equal(group.querySelectorAll('.command-card').length, 2)
   assert.ok(group.querySelector('.command-group-icon svg'))
   assert.ok(group.querySelector('.command-card .activity-icon svg'))
@@ -152,6 +152,70 @@ test('four consecutive commands stay in one group across pending and invisible e
   assert.equal(groups[0].querySelectorAll('.command-card').length, 4)
   assert.equal(groups[0].open, true)
   assert.match(groups[0].querySelector('.command-group-label').textContent, /正在执行 4 条命令/)
+  dom.window.close()
+})
+
+test('PowerShell file reads group with adjacent commands across empty commentary', async () => {
+  const { dom, emit, doc } = setup()
+  const read = String.raw`"c:\Users\wang.shijie11\AppData\Roaming\Code\pwsh.exe" -Command '$c = Get-Content -LiteralPath "D:\projects\test\game.js"; 70..160 | ForEach-Object { "$($_+1): $($c[$_])" }'`
+  emit({ type: 'state', loggedIn: true, busy: false, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
+    id: 'turn', status: 'completed', startedAt: 1000, completedAt: 3000,
+    items: [
+      { id: 'one', type: 'commandExecution', status: 'completed', raw: { command: read } },
+      { id: 'empty', type: 'agentMessage', status: 'completed', text: '', raw: { phase: 'commentary' } },
+      { id: 'two', type: 'commandExecution', status: 'completed', raw: { command: 'npm test' } },
+    ],
+  }] } })
+  await tick()
+  const group = doc.querySelector('.command-group')
+  assert.ok(group)
+  assert.equal(group.querySelectorAll('.command-card').length, 2)
+  assert.match(group.querySelector('.command-group-label').textContent, /已执行 1 条命令、已读取文件 1 次/)
+  assert.match(group.querySelector('.command-card summary').textContent, /已读取文件/)
+  assert.doesNotMatch(group.querySelector('.command-card summary').textContent, /已搜索代码/)
+  dom.window.close()
+})
+
+test('structured command actions take priority over command text when rendering', async () => {
+  const { dom, emit, doc } = setup()
+  emit({ type: 'state', loggedIn: true, busy: false, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
+    id: 'turn', status: 'completed', startedAt: 1000, completedAt: 3000,
+    items: [
+      { id: 'read', type: 'commandExecution', status: 'completed', raw: { command: 'rg something', commandActions: [{ type: 'read', path: 'game.js' }] } },
+      { id: 'list', type: 'commandExecution', status: 'completed', raw: { command: 'rg something', commandActions: [{ type: 'listFiles' }] } },
+      { id: 'search', type: 'commandExecution', status: 'completed', raw: { command: 'Get-Content game.js | Select-String needle', commandActions: [{ type: 'read' }, { type: 'search' }] } },
+    ],
+  }] } })
+  await tick()
+  const cards = doc.querySelectorAll('.command-card')
+  assert.match(cards[0].querySelector('.activity-label').textContent, /已读取文件/)
+  assert.match(cards[1].querySelector('.activity-label').textContent, /已列出文件/)
+  assert.match(cards[2].querySelector('.activity-label').textContent, /已搜索代码/)
+  assert.match(doc.querySelector('.command-group-label').textContent, /已搜索代码 1 次、已读取文件 1 次、已列出文件 1 次/)
+  dom.window.close()
+})
+
+test('shell edits show detected file changes when Codex emits only a diff', async () => {
+  const { dom, emit, doc } = setup()
+  const diff = 'diff --git a/game.js b/game.js\n--- a/game.js\n+++ b/game.js\n@@ -1 +1 @@\n-old\n+new'
+  emit({ type: 'state', loggedIn: true, busy: false, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
+    id: 'turn', status: 'completed', startedAt: 1000, completedAt: 3000, diff,
+    items: [
+      { id: 'one', type: 'commandExecution', status: 'completed', raw: { command: 'Get-Content game.js' } },
+      { id: 'two', type: 'commandExecution', status: 'completed', raw: { command: 'Set-Content game.js new' } },
+      { id: 'final', type: 'agentMessage', status: 'completed', text: '完成', raw: { phase: 'final_answer' } },
+    ],
+  }] } })
+  await tick()
+  const group = doc.querySelector('.command-group')
+  assert.ok(group)
+  assert.equal(group.querySelectorAll('.command-card').length, 2)
+  assert.equal(group.querySelectorAll('.file-card').length, 1)
+  assert.match(group.querySelector('.file-card summary').textContent, /检测到文件变更 · game\.js/)
+  assert.match(group.querySelector('.command-group-label').textContent, /已编辑 1 个文件、已执行 1 条命令、已读取文件 1 次/)
   dom.window.close()
 })
 
@@ -192,7 +256,7 @@ test('running commands shimmer, editing shows changes, and completion keeps a fi
   await tick()
   assert.match(doc.querySelector('.turn-process-summary').textContent, /^正在处理/)
   assert.equal(doc.querySelector('.command-group').open, true)
-  assert.match(doc.querySelector('.command-group-label').textContent, /正在编辑 1 个文件、正在执行 1 条命令、已搜索代码 1 次/)
+  assert.match(doc.querySelector('.command-group-label').textContent, /正在编辑 1 个文件、正在执行 1 条命令、已列出文件 1 次/)
   assert.match(doc.querySelector('.command-card.status-completed').textContent, /rg --files/)
   assert.match(doc.querySelector('.command-card.status-inProgress').textContent, /正在运行 npm test/)
   assert.equal(doc.querySelectorAll('.command-card.status-inProgress .running-shimmer').length, 1)
@@ -283,7 +347,7 @@ test('command headings keep full single-line text for responsive CSS clipping wh
   assert.equal(single.querySelector('.activity-label').textContent, '已运行 npm test -- --runInBand')
   assert.equal(single.querySelector('.command-text').textContent, multilineCommand)
   const grouped = doc.querySelector('[data-turn-id="grouped"] .command-card')
-  assert.equal(grouped.querySelector('.activity-label').textContent, `已搜索代码 ${longCommand}`)
+  assert.equal(grouped.querySelector('.activity-label').textContent, `已列出文件 ${longCommand}`)
   assert.equal(grouped.querySelector('.command-text').textContent, longCommand)
   dom.window.close()
 })
