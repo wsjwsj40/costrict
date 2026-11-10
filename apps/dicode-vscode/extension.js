@@ -22,8 +22,29 @@ const PERMISSION_MODES = {
 	full: { sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" }, approvalPolicy: "never" },
 }
 
+function modelCatalog(models, instructions) {
+	return { models: models.map((item, priority) => ({
+		slug: item.id,
+		display_name: item.name || item.id,
+		description: null,
+		supported_reasoning_levels: [],
+		shell_type: "unified_exec",
+		visibility: "list",
+		supported_in_api: true,
+		priority,
+		availability_nux: null,
+		upgrade: null,
+		model_messages: { instructions_template: instructions },
+		support_verbosity: false,
+		default_verbosity: null,
+		apply_patch_tool_type: "freeform",
+		truncation_policy: { mode: "bytes", limit: 10000 },
+		experimental_supported_tools: [],
+	})) }
+}
+
 class CodexClient {
-	constructor(binary, baseUrl, token, instructionsPath, onEvent, powerShellPath, platform = process.platform, windowsSandboxFallback = "unelevated") {
+	constructor(binary, baseUrl, token, instructionsPath, catalogPath, onEvent, powerShellPath, platform = process.platform, windowsSandboxFallback = "unelevated") {
 		this.onEvent = onEvent
 		this.nextId = 1
 		this.pending = new Map()
@@ -36,6 +57,8 @@ class CodexClient {
 				"stdio://",
 				"-c",
 				`model_instructions_file=${JSON.stringify(instructionsPath)}`,
+				"-c",
+				`model_catalog_json=${JSON.stringify(catalogPath)}`,
 				"-c",
 				"features.default_mode_request_user_input=true",
 				"-c",
@@ -330,7 +353,10 @@ class DicodeView {
 		if (this.client) return this.client
 		const pending = (async () => {
 			const [binary, powerShellPath] = await Promise.all([this.ensureBinary(), process.platform === "win32" ? this.ensurePowerShell() : Promise.resolve(null)])
-			const client = new CodexClient(binary, `${this.serverUrl}/codex/v1`, token, this.instructionsPath, (event) => {
+			const catalogPath = path.join(this.context.globalStorageUri.fsPath, "dicode-model-catalog.json")
+			fs.mkdirSync(path.dirname(catalogPath), { recursive: true })
+			fs.writeFileSync(catalogPath, JSON.stringify(modelCatalog(this.models, this.instructions)), { encoding: "utf8", mode: 0o600 })
+			const client = new CodexClient(binary, `${this.serverUrl}/codex/v1`, token, this.instructionsPath, catalogPath, (event) => {
 				if (this.client === client) this.onCodexEvent(event)
 			}, powerShellPath, process.platform, process.platform === "win32"
 				? vscode.workspace.getConfiguration("dicodeCodex").get("windowsSandboxFallback", "unelevated")
@@ -782,4 +808,4 @@ function activate(context) {
 		provider,
 	)
 }
-module.exports = { activate, CodexClient, DicodeView }
+module.exports = { activate, CodexClient, DicodeView, modelCatalog }
