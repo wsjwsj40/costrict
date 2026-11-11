@@ -47,7 +47,11 @@ test('Codex app-server starts with interactive input and plan tools enabled', as
   assert.equal(catalogModel.supports_reasoning_summaries, false)
   assert.equal(catalogModel.supports_parallel_tool_calls, false)
   assert.equal(catalogModel.model_messages.instructions_template, 'CLI default instructions')
-  assert.deepEqual(catalogModel.model_messages.tools, nativeModels[0].model_messages.tools)
+  assert.deepEqual(catalogModel.model_messages.tools.apply_patch, nativeModels[0].model_messages.tools.apply_patch)
+  const patchGuidance = catalogModel.model_messages.tools.functions_namespace_functions_description_prefixes.apply_patch
+  assert.ok(patchGuidance.includes('*** Add File: index.html\n+<!DOCTYPE html>'))
+  assert.ok(patchGuidance.includes('there is no write tool'))
+  assert.ok(Buffer.byteLength(patchGuidance, 'utf8') <= 256)
   assert.equal(modelCatalog([{ id: 'known-model' }], nativeModels).models[0].base_instructions, 'CLI model instructions')
   await client.initialize('0.2.8')
   assert.deepEqual(writes.map(message => message.method), ['initialize', 'initialized'])

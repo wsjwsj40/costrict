@@ -41,6 +41,8 @@ function nativeInstructions(model) {
 	return model?.model_messages?.instructions_template || model?.base_instructions || ""
 }
 
+const PATCH_TOOL_GUIDANCE = "Use only apply_patch for this tool (there is no write tool). Send raw patch text, not JSON or a code fence. Example:\n*** Begin Patch\n*** Add File: index.html\n+<!DOCTYPE html>\n+<html></html>\n*** End Patch\nEvery added file line starts with +."
+
 function modelCatalog(models, nativeModels) {
 	// Codex rejects custom model entries without a base template, so reuse the
 	// template bundled with the exact CLI binary that will run this catalog.
@@ -61,7 +63,17 @@ function modelCatalog(models, nativeModels) {
 			priority,
 			availability_nux: null,
 			upgrade: null,
-			model_messages: { ...native.model_messages, instructions_template: instructions },
+			model_messages: {
+				...native.model_messages,
+				instructions_template: instructions,
+				tools: {
+					...native.model_messages?.tools,
+					functions_namespace_functions_description_prefixes: {
+						...native.model_messages?.tools?.functions_namespace_functions_description_prefixes,
+						apply_patch: PATCH_TOOL_GUIDANCE,
+					},
+				},
+			},
 			base_instructions: instructions,
 			supports_reasoning_summaries: false,
 			supports_parallel_tool_calls: false,
@@ -498,6 +510,7 @@ class DicodeView {
 			this.inputRequests.delete(requestId)
 			this.post({ type: "rpc", method: message.method, params: message.params })
 		} else if (message.method === "turn/completed") {
+			this.output.appendLine(`[Codex turn] completed status=${message.params?.turn?.status || "unknown"} error=${message.params?.turn?.error?.message || "none"}`)
 			const completedThreadId = this.threadId
 			const completedModel = this.activeModel
 			clearTimeout(this.stopTimer)
@@ -517,7 +530,8 @@ class DicodeView {
 			this.post({ type: "rpc", method: message.method, params: message.params })
 			this.postState()
 		} else if (message.method === "error") {
-			this.post({ type: "error", message: message.params.error?.message || "Codex error" })
+			this.output.appendLine(`[Codex error] ${message.params?.error?.message || "Codex error"}`)
+			this.post({ type: "error", message: message.params?.error?.message || "Codex error" })
 		} else if (/^(turn\/|item\/)/.test(message.method || "")) {
 			if (message.method === "turn/started" && this.busy) {
 				this.turnId = message.params?.turn?.id || this.turnId
