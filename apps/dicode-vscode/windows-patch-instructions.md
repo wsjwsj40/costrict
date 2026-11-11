@@ -28,4 +28,4 @@ $updated = $content.Replace($old, 'export const ready = false')
 [System.IO.File]::WriteAllText($file, $updated, [System.Text.UTF8Encoding]::new($false))
 ```
 
-删除文件用 `Remove-Item -LiteralPath $file`，先确认路径属于当前工作区。完成后读取修改处并运行相关检查。文件变更会由 Codex 的 `turn/diff/updated` 或 `fileChange` 事件呈现在对话中，不需要为了生成编辑事件再次调用补丁包装器。
+删除文件用 `Remove-Item -LiteralPath $file`，先确认路径属于当前工作区。完成后读取修改处并运行相关检查。DiCode 会比较工作区文件的前后内容，在对话中展示实际产生的编辑；不需要为了生成编辑事件再次调用补丁包装器。

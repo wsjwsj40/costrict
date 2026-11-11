@@ -7,6 +7,7 @@ const fs = require("node:fs")
 const { ensureCodexInstalled } = require("./codexInstaller")
 const { ensurePowerShellInstalled, powerShellEnv } = require("./powerShellInstaller")
 const { beforeFromUnifiedDiff } = require("./diff")
+const { scanWorkspace, workspaceChanges } = require("./workspaceChanges")
 const { ConversationStore } = require("./media/conversation")
 const { generateThreadTitle } = require("./threadTitle")
 const EXTENSION_VERSION = require("./package.json").version
@@ -249,6 +250,9 @@ class DicodeView {
 		this.output = vscode.window.createOutputChannel("DiCode Codex")
 		this.beforeDocuments = new Map()
 		this.afterDocuments = new Map()
+		this.changeSnapshot = null
+		this.changeWorkspace = null
+		this.changeSequence = 0
 	}
 	get serverUrl() {
 		return vscode.workspace.getConfiguration("dicodeCodex").get("serverUrl").replace(/\/$/, "")
@@ -472,6 +476,8 @@ class DicodeView {
 			return
 		}
 		if (event.type === "error") {
+			this.captureWorkspaceChanges("connection-error", this.turnId)
+			this.changeSnapshot = null
 			this.output.appendLine(`[Codex error] ${event.message}`)
 			this.output.show?.(true)
 			clearTimeout(this.stopTimer)
@@ -510,6 +516,8 @@ class DicodeView {
 			this.inputRequests.delete(requestId)
 			this.post({ type: "rpc", method: message.method, params: message.params })
 		} else if (message.method === "turn/completed") {
+			this.captureWorkspaceChanges("turn", message.params?.turnId)
+			this.changeSnapshot = null
 			this.output.appendLine(`[Codex turn] completed status=${message.params?.turn?.status || "unknown"} error=${message.params?.turn?.error?.message || "none"}`)
 			const completedThreadId = this.threadId
 			const completedModel = this.activeModel
@@ -543,7 +551,23 @@ class DicodeView {
 			this.conversation.receive(message.method, params)
 			this.scheduleHistory()
 			this.post({ type: "rpc", method: message.method, params })
+			if (message.method === "item/completed" && params?.item?.type === "commandExecution") this.captureWorkspaceChanges(params.item.id, params.turnId)
+			if (message.method === "item/completed" && params?.item?.type === "fileChange" && this.changeSnapshot && this.workspace === this.changeWorkspace) this.changeSnapshot = scanWorkspace(this.workspace, this.changeSnapshot.files)
 		}
+	}
+	captureWorkspaceChanges(sourceId, turnId) {
+		if (!this.changeSnapshot || this.workspace !== this.changeWorkspace) return
+		const after = scanWorkspace(this.changeWorkspace, this.changeSnapshot.files)
+		const changes = workspaceChanges(this.changeSnapshot, after)
+		this.changeSnapshot = after
+		if (!changes.length) return
+		const params = {
+			turnId: turnId || this.turnId || this.conversation.turns.at(-1)?.id,
+			item: { id: `workspace-change-${++this.changeSequence}-${sourceId || "command"}`, type: "fileChange", source: "dicodeWorkspaceScan", status: "completed", changes },
+		}
+		this.conversation.receive("item/completed", params)
+		this.scheduleHistory()
+		this.post({ type: "rpc", method: "item/completed", params })
 	}
 	clearInputRequests() {
 		if (!this.inputRequests.size) return
@@ -592,6 +616,8 @@ class DicodeView {
 	}
 	recoverStoppedTurn(reason = "未收到结束通知，已重连 Agent") {
 		if (!this.busy || !this.stopping) return
+		this.captureWorkspaceChanges("stopped", this.turnId)
+		this.changeSnapshot = null
 		clearTimeout(this.stopTimer)
 		this.busy = false
 		this.stopping = false
@@ -696,6 +722,12 @@ class DicodeView {
 			if (this.stopping) return this.recoverStoppedTurn("已取消")
 			this.conversation.threadId = this.threadId
 			this.persistHistory()
+			this.changeWorkspace = this.workspace
+			this.changeSnapshot = scanWorkspace(this.changeWorkspace)
+			if (!this.changeSnapshot.complete) {
+				this.output.appendLine("[DiCode files] 工作区快照超过限制，本轮无法从命令生成文件差异")
+				this.changeSnapshot = null
+			}
 			const result = await client.request("turn/start", {
 				threadId: this.threadId,
 				cwd: this.workspace,
@@ -712,6 +744,7 @@ class DicodeView {
 			}
 		} catch (error) {
 			if (this.activeRunId !== runId) return
+			this.changeSnapshot = null
 			clearTimeout(this.stopTimer)
 			this.busy = false
 			this.stopping = false

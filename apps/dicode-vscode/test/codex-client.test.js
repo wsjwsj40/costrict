@@ -84,7 +84,7 @@ test('Windows Codex prefers MXC and enables a legacy sandbox fallback', () => {
   const windowsInstructions = args.find(value => value.startsWith('developer_instructions='))
   assert.ok(windowsInstructions.includes('Windows 文件编辑'))
   assert.ok(windowsInstructions.includes('[System.IO.File]::WriteAllText'))
-  assert.ok(windowsInstructions.includes('turn/diff/updated'))
+  assert.ok(windowsInstructions.includes('比较工作区文件的前后内容'))
   assert.equal(windowsInstructions.includes('\\ncodex --codex-run-as-apply-patch $patch'), false)
   client.dispose()
   const elevated = new CodexClient('codex', 'https://example.test', 'token', 'identity', 'catalog.json', () => {}, null, 'win32', 'elevated')

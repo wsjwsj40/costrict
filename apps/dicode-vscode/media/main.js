@@ -248,17 +248,20 @@ function diffLines(diff) {
   return code
 }
 function changedFiles(turn) {
-  let files = parseDiff(turn.diff)
-  if (!files.length) {
-    files = (turn.items || []).filter(item => item.type === 'fileChange').flatMap(item => (item.raw?.changes || []).flatMap(change => {
+  const files = new Map(parseDiff(turn.diff).map(file => [relativePatchPath(file.path).toLowerCase(), file]))
+  for (const item of turn.items || []) {
+    if (item.type !== 'fileChange') continue
+    for (const change of item.raw?.changes || []) {
       const filePath = change.path || change.filePath
-      if (!filePath || !change.diff) return []
+      if (!filePath || !change.diff) continue
       const patch = change.diff.startsWith('diff --git ') ? change.diff : `diff --git a/${filePath} b/${filePath}\n${change.diff}`
-      return parseDiff(patch)
-    }))
-    files = [...new Map(files.map(file => [file.path, file])).values()]
+      for (const file of parseDiff(patch)) {
+        const key = relativePatchPath(file.path).toLowerCase()
+        if (!files.has(key)) files.set(key, file)
+      }
+    }
   }
-  return files
+  return [...files.values()]
 }
 function detectedFileChanges(turn) {
   const nativeFiles = new Set((turn.items || []).filter(item => item.type === 'fileChange').flatMap(item => (item.raw?.changes || []).map(change => relativePatchPath(change.path || change.filePath).toLowerCase())))

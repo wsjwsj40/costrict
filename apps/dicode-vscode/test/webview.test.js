@@ -217,21 +217,23 @@ test('shell edits show detected file changes when Codex emits only a diff', asyn
   dom.window.close()
 })
 
-test('diff detects command edits beside native file changes and opens the edited file', async () => {
+test('command edits and native file changes share the file list and open the edited file', async () => {
   const { dom, sent, emit, doc } = setup()
-  const diff = ['a.js', 'b.js'].map(name => `diff --git a/${name} b/${name}\n--- a/${name}\n+++ b/${name}\n@@ -1 +1 @@\n-old\n+new`).join('\n')
+  const fileDiff = name => `diff --git a/${name} b/${name}\n--- a/${name}\n+++ b/${name}\n@@ -1 +1 @@\n-old\n+new`
   emit({ type: 'state', loggedIn: true, busy: false, workspace: '/repo', models: [] })
   emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
-    id: 'turn', status: 'completed', startedAt: 1000, completedAt: 3000, diff,
+    id: 'turn', status: 'completed', startedAt: 1000, completedAt: 3000, diff: fileDiff('a.js'),
     items: [
       { id: 'native', type: 'fileChange', status: 'completed', raw: { changes: [{ path: 'a.js' }] } },
       { id: 'shell', type: 'commandExecution', status: 'completed', raw: { command: 'Set-Content b.js new' } },
+      { id: 'workspace-change-1-shell', type: 'fileChange', status: 'completed', raw: { changes: [{ path: 'b.js', diff: fileDiff('b.js') }] } },
       { id: 'final', type: 'agentMessage', status: 'completed', text: '完成', raw: { phase: 'final_answer' } },
     ],
   }] } })
   await tick()
   const cards = [...doc.querySelectorAll('.file-card')]
   assert.equal(cards.length, 2)
+  assert.match(doc.querySelector('.turn-content > .file-summary').textContent, /b\.js/)
   const shellCard = cards.find(card => card.textContent.includes('b.js'))
   assert.match(shellCard.querySelector('summary').textContent, /已编辑 b\.js \+1 -1/)
   shellCard.querySelector('summary').click()

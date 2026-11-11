@@ -2,17 +2,20 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const Module = require('node:module')
 const path = require('node:path')
+const fs = require('node:fs')
+const os = require('node:os')
+const { scanWorkspace } = require('../workspaceChanges')
 
-function makeView() {
+function makeView(root = '/repo') {
   const vscode = {
-    workspace: { workspaceFolders: [{ uri: { fsPath: '/repo' } }] },
+    workspace: { workspaceFolders: [{ uri: { fsPath: root } }] },
     window: { createOutputChannel: () => ({ appendLine() {}, dispose() {} }) },
   }
   const originalLoad = Module._load
   Module._load = function (request, parent, isMain) { return request === 'vscode' ? vscode : originalLoad.call(this, request, parent, isMain) }
   let DicodeView
   try { delete require.cache[require.resolve('../extension')]; ({ DicodeView } = require('../extension')) } finally { Module._load = originalLoad }
-  const data = new Map([['dicodeCodex.thread', { id: 'thread', cwd: '/repo' }]])
+  const data = new Map([['dicodeCodex.thread', { id: 'thread', cwd: root }]])
   const context = {
     extensionPath: path.join(__dirname, '..'),
     globalState: { get: (key, fallback) => data.has(key) ? data.get(key) : fallback, update: async (key, value) => { data.set(key, value) } },
@@ -38,6 +41,35 @@ test('item diagnostics identify command actions and real file changes without co
   assert.match(lines[1], /type=fileChange.*changes=1/)
   assert.equal(lines.join(' ').includes('private command'), false)
   view.dispose()
+})
+
+test('shell writes create file edit events and diffs without Codex patch notifications', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dicode-shell-edit-'))
+  try {
+    fs.writeFileSync(path.join(root, 'existing.txt'), 'before\n')
+    fs.writeFileSync(path.join(root, 'removed.txt'), 'gone\n')
+    const { view, posted } = makeView(root)
+    view.changeWorkspace = root
+    view.changeSnapshot = scanWorkspace(root)
+    rpc(view, 'turn/started', { turn: { id: 't' } })
+    rpc(view, 'item/started', { turnId: 't', item: { id: 'cmd', type: 'commandExecution', command: 'write files' } })
+    fs.writeFileSync(path.join(root, 'existing.txt'), 'after\n')
+    fs.writeFileSync(path.join(root, 'created.txt'), 'new\n')
+    fs.unlinkSync(path.join(root, 'removed.txt'))
+    rpc(view, 'item/completed', { turnId: 't', item: { id: 'cmd', type: 'commandExecution', status: 'completed', exitCode: 0 } })
+    const edit = posted.find(message => message.method === 'item/completed' && message.params?.item?.id?.startsWith('workspace-change-'))
+    assert.ok(edit)
+    assert.equal(edit.params.item.type, 'fileChange')
+    assert.deepEqual(edit.params.item.changes.map(change => change.path).sort(), ['created.txt', 'existing.txt', 'removed.txt'])
+    assert.match(edit.params.item.changes.find(change => change.path === 'existing.txt').diff, /-before\n\+after/)
+    assert.match(edit.params.item.changes.find(change => change.path === 'created.txt').diff, /--- \/dev\/null/)
+    assert.match(edit.params.item.changes.find(change => change.path === 'removed.txt').diff, /\+\+\+ \/dev\/null/)
+    rpc(view, 'turn/completed', { turnId: 't', turn: { id: 't', status: 'completed' } })
+    assert.equal(posted.filter(message => message.params?.item?.id?.startsWith('workspace-change-')).length, 1)
+    view.dispose()
+  } finally {
+    if (root.startsWith(os.tmpdir() + path.sep)) fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('Codex permission modes apply to each turn and full access needs explicit confirmation', async () => {
