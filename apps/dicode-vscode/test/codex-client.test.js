@@ -27,7 +27,7 @@ test('Codex app-server starts with interactive input and plan tools enabled', as
   }
   let CodexClient, modelCatalog
   try { delete require.cache[require.resolve('../extension')]; ({ CodexClient, modelCatalog } = require('../extension')) } finally { Module._load = originalLoad }
-  const client = new CodexClient('/bin/codex', 'https://example.test/codex/v1', 'token', '/tmp/instructions.md', '/tmp/catalog.json', () => {})
+  const client = new CodexClient('/bin/codex', 'https://example.test/codex/v1', 'token', '你是 DiCode', '/tmp/catalog.json', () => {})
   const [binary, args] = spawned
   assert.equal(binary, '/bin/codex')
   assert.equal(args[0], 'app-server')
@@ -35,12 +35,20 @@ test('Codex app-server starts with interactive input and plan tools enabled', as
   assert.ok(overrides.includes('features.default_mode_request_user_input=true'))
   assert.ok(overrides.includes('tools.update_plan.enabled=true'))
   assert.ok(overrides.includes('model_catalog_json="/tmp/catalog.json"'))
-  const catalogModel = modelCatalog([{ id: 'dicode-model', name: 'DiCode Model' }], 'DiCode prompt').models[0]
+  assert.ok(overrides.includes('developer_instructions="你是 DiCode"'))
+  assert.equal(overrides.some(value => value.startsWith('model_instructions_file=')), false)
+  const nativeModels = [
+    { slug: 'native-default', priority: 1, model_messages: { instructions_template: 'CLI default instructions', tools: { apply_patch: { description: 'Native patch guidance' } } } },
+    { slug: 'known-model', priority: 2, model_messages: { instructions_template: 'CLI model instructions' } },
+  ]
+  const catalogModel = modelCatalog([{ id: 'dicode-model', name: 'DiCode Model' }], nativeModels).models[0]
   assert.equal(catalogModel.apply_patch_tool_type, 'freeform')
-  assert.equal(catalogModel.base_instructions, 'DiCode prompt')
+  assert.equal(catalogModel.base_instructions, 'CLI default instructions')
   assert.equal(catalogModel.supports_reasoning_summaries, false)
   assert.equal(catalogModel.supports_parallel_tool_calls, false)
-  assert.equal(catalogModel.model_messages.instructions_template, 'DiCode prompt')
+  assert.equal(catalogModel.model_messages.instructions_template, 'CLI default instructions')
+  assert.deepEqual(catalogModel.model_messages.tools, nativeModels[0].model_messages.tools)
+  assert.equal(modelCatalog([{ id: 'known-model' }], nativeModels).models[0].base_instructions, 'CLI model instructions')
   await client.initialize('0.2.8')
   assert.deepEqual(writes.map(message => message.method), ['initialize', 'initialized'])
   client.dispose()
@@ -62,11 +70,11 @@ test('Windows Codex prefers MXC and enables a legacy sandbox fallback', () => {
   }
   let CodexClient
   try { delete require.cache[require.resolve('../extension')]; ({ CodexClient } = require('../extension')) } finally { Module._load = originalLoad }
-  const client = new CodexClient('codex', 'https://example.test', 'token', 'instructions.md', 'catalog.json', () => {}, null, 'win32')
+  const client = new CodexClient('codex', 'https://example.test', 'token', 'identity', 'catalog.json', () => {}, null, 'win32')
   assert.ok(args.includes('features.prefer_mxc=true'))
   assert.ok(args.includes('windows.sandbox="unelevated"'))
   client.dispose()
-  const elevated = new CodexClient('codex', 'https://example.test', 'token', 'instructions.md', 'catalog.json', () => {}, null, 'win32', 'elevated')
+  const elevated = new CodexClient('codex', 'https://example.test', 'token', 'identity', 'catalog.json', () => {}, null, 'win32', 'elevated')
   assert.ok(args.includes('windows.sandbox="elevated"'))
   elevated.dispose()
 })

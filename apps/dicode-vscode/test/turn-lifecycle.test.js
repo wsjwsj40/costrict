@@ -68,6 +68,28 @@ test('Codex permission modes apply to each turn and full access needs explicit c
   view.dispose()
 })
 
+test('new threads use the catalog and resumed threads replace saved base instructions with native text', async () => {
+  for (const resume of [false, true]) {
+    const { view } = makeView()
+    if (resume) {
+      view.loadedThreadId = null
+      view.nativeInstructionsByModel = new Map([['m', 'Native Codex instructions']])
+    }
+    else view.threadId = null
+    const calls = []
+    view.ensureClient = async () => ({ request: async (method, params) => {
+      calls.push({ method, params })
+      return method === 'thread/start' ? { thread: { id: 'new-thread' } } : { turn: { id: 'turn' } }
+    } })
+    await view.send('检查指令', 'm')
+    const threadCall = calls.find(call => call.method === (resume ? 'thread/resume' : 'thread/start'))
+    assert.ok(threadCall)
+    if (resume) assert.equal(threadCall.params.baseInstructions, 'Native Codex instructions')
+    else assert.equal(Object.hasOwn(threadCall.params, 'baseInstructions'), false)
+    view.dispose()
+  }
+})
+
 test('user input server request responds to the current turn and clears on resolution or stop', async () => {
   const { view, posted } = makeView()
   const replies = []

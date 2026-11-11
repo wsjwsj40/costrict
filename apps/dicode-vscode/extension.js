@@ -1,5 +1,6 @@
 const vscode = require("vscode")
-const { spawn } = require("node:child_process")
+const { spawn, execFile } = require("node:child_process")
+const { promisify } = require("node:util")
 const crypto = require("node:crypto")
 const path = require("node:path")
 const fs = require("node:fs")
@@ -22,32 +23,59 @@ const PERMISSION_MODES = {
 	full: { sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" }, approvalPolicy: "never" },
 }
 
-function modelCatalog(models, instructions) {
-	return { models: models.map((item, priority) => ({
-		slug: item.id,
-		display_name: item.name || item.id,
-		description: null,
-		supported_reasoning_levels: [],
-		shell_type: "unified_exec",
-		visibility: "list",
-		supported_in_api: true,
-		priority,
-		availability_nux: null,
-		upgrade: null,
-		model_messages: { instructions_template: instructions },
-		base_instructions: instructions,
-		supports_reasoning_summaries: false,
-		supports_parallel_tool_calls: false,
-		support_verbosity: false,
-		default_verbosity: null,
-		apply_patch_tool_type: "freeform",
-		truncation_policy: { mode: "bytes", limit: 10000 },
-		experimental_supported_tools: [],
-	})) }
+async function bundledModels(binary) {
+	let stdout
+	try {
+		const result = await promisify(execFile)(binary, ["debug", "models", "--bundled"], { maxBuffer: 16 * 1024 * 1024 })
+		stdout = result.stdout
+	} catch (error) {
+		throw new Error(`无法读取 Codex CLI 内置模型指令：${error.message}`)
+	}
+	let catalog
+	try { catalog = JSON.parse(stdout) } catch { throw new Error("Codex CLI 内置模型目录不是有效 JSON") }
+	if (!Array.isArray(catalog.models)) throw new Error("Codex CLI 内置模型目录缺少 models")
+	return catalog.models
+}
+
+function nativeInstructions(model) {
+	return model?.model_messages?.instructions_template || model?.base_instructions || ""
+}
+
+function modelCatalog(models, nativeModels) {
+	// Codex rejects custom model entries without a base template, so reuse the
+	// template bundled with the exact CLI binary that will run this catalog.
+	const candidates = nativeModels.filter((model) => nativeInstructions(model))
+	const fallback = candidates.reduce((best, model) => !best || (model.priority ?? Infinity) < (best.priority ?? Infinity) ? model : best, null)
+	if (!fallback) throw new Error("Codex CLI 内置模型目录没有可用的基础指令")
+	return { models: models.map((item, priority) => {
+		const native = candidates.find((model) => model.slug === item.id) || fallback
+		const instructions = nativeInstructions(native)
+		return {
+			slug: item.id,
+			display_name: item.name || item.id,
+			description: null,
+			supported_reasoning_levels: [],
+			shell_type: "unified_exec",
+			visibility: "list",
+			supported_in_api: true,
+			priority,
+			availability_nux: null,
+			upgrade: null,
+			model_messages: { ...native.model_messages, instructions_template: instructions },
+			base_instructions: instructions,
+			supports_reasoning_summaries: false,
+			supports_parallel_tool_calls: false,
+			support_verbosity: false,
+			default_verbosity: null,
+			apply_patch_tool_type: "freeform",
+			truncation_policy: { mode: "bytes", limit: 10000 },
+			experimental_supported_tools: [],
+		}
+	}) }
 }
 
 class CodexClient {
-	constructor(binary, baseUrl, token, instructionsPath, catalogPath, onEvent, powerShellPath, platform = process.platform, windowsSandboxFallback = "unelevated") {
+	constructor(binary, baseUrl, token, identity, catalogPath, onEvent, powerShellPath, platform = process.platform, windowsSandboxFallback = "unelevated") {
 		this.onEvent = onEvent
 		this.nextId = 1
 		this.pending = new Map()
@@ -59,7 +87,7 @@ class CodexClient {
 				"--listen",
 				"stdio://",
 				"-c",
-				`model_instructions_file=${JSON.stringify(instructionsPath)}`,
+				`developer_instructions=${JSON.stringify(identity)}`,
 				"-c",
 				`model_catalog_json=${JSON.stringify(catalogPath)}`,
 				"-c",
@@ -193,8 +221,8 @@ class DicodeView {
 		this.activeRunId = null
 		this.approvals = new Map()
 		this.inputRequests = new Map()
-		this.instructionsPath = path.join(context.extensionPath, "dicode-instructions.md")
-		this.instructions = fs.readFileSync(this.instructionsPath, "utf8")
+		this.identityPath = path.join(context.extensionPath, "dicode-instructions.md")
+		this.identity = fs.readFileSync(this.identityPath, "utf8").trim()
 		this.conversation = new ConversationStore()
 		this.threads = context.globalState.get(THREADS_KEY, [])
 		const savedPermission = context.workspaceState?.get(PERMISSION_KEY)
@@ -360,10 +388,19 @@ class DicodeView {
 		if (this.client) return this.client
 		const pending = (async () => {
 			const [binary, powerShellPath] = await Promise.all([this.ensureBinary(), process.platform === "win32" ? this.ensurePowerShell() : Promise.resolve(null)])
+			const nativeModels = await bundledModels(binary)
+			const catalog = modelCatalog(this.models, nativeModels)
+			this.nativeInstructionsByModel = new Map(catalog.models.map((model) => [model.slug, model.base_instructions]))
+			for (const model of catalog.models) {
+				const digest = crypto.createHash("sha256").update(model.base_instructions).digest("hex")
+				const source = nativeModels.find((item) => item.slug === model.slug && nativeInstructions(item) === model.base_instructions)
+					|| nativeModels.find((item) => nativeInstructions(item) === model.base_instructions)
+				this.output.appendLine(`[Codex catalog] model=${model.slug} native_source=${source?.slug || "unknown"} native_prompt_sha256=${digest} native_prompt_chars=${model.base_instructions.length} apply_patch=${model.apply_patch_tool_type}`)
+			}
 			const catalogPath = path.join(this.context.globalStorageUri.fsPath, "dicode-model-catalog.json")
 			fs.mkdirSync(path.dirname(catalogPath), { recursive: true })
-			fs.writeFileSync(catalogPath, JSON.stringify(modelCatalog(this.models, this.instructions)), { encoding: "utf8", mode: 0o600 })
-			const client = new CodexClient(binary, `${this.serverUrl}/codex/v1`, token, this.instructionsPath, catalogPath, (event) => {
+			fs.writeFileSync(catalogPath, JSON.stringify(catalog), { encoding: "utf8", mode: 0o600 })
+			const client = new CodexClient(binary, `${this.serverUrl}/codex/v1`, token, this.identity, catalogPath, (event) => {
 				if (this.client === client) this.onCodexEvent(event)
 			}, powerShellPath, process.platform, process.platform === "win32"
 				? vscode.workspace.getConfiguration("dicodeCodex").get("windowsSandboxFallback", "unelevated")
@@ -616,7 +653,12 @@ class DicodeView {
 			if (this.stopping) return this.recoverStoppedTurn("已取消")
 			if (this.threadId && this.loadedThreadId !== this.threadId) {
 				try {
-					await client.request("thread/resume", { threadId: this.threadId, excludeTurns: true, baseInstructions: this.instructions })
+					const nativeInstructions = this.nativeInstructionsByModel?.get(model)
+					await client.request("thread/resume", {
+						threadId: this.threadId,
+						excludeTurns: true,
+						...(nativeInstructions ? { baseInstructions: nativeInstructions } : {}),
+					})
 				} catch (error) {
 					throw new Error(`无法恢复当前会话：${error.message}`)
 				}
@@ -631,7 +673,6 @@ class DicodeView {
 					cwd: this.workspace,
 					approvalPolicy: permission.approvalPolicy,
 					sandbox: permission.sandbox,
-					baseInstructions: this.instructions,
 				})
 				this.threadId = started.thread.id
 				this.loadedThreadId = this.threadId
