@@ -150,8 +150,9 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .turn-process-body .command-card .activity-label { flex: 1; }
 .turn-process-body .command-card > summary::after { display: none; }
 .turn-process-body .command-card .activity-body { margin: 4px 0 8px 21px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 7px; background: var(--soft-surface); }
-.running-shimmer { color: var(--muted); background: linear-gradient(105deg, var(--muted) 15%, var(--vscode-foreground) 48%, var(--muted) 78%); background-size: 240% 100%; background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: running-shimmer 2s linear infinite; }
-@keyframes running-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.running-shimmer { color: var(--muted); background: linear-gradient(105deg, var(--muted) 15%, var(--vscode-foreground) 48%, var(--muted) 78%); background-size: 240% 100%; background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: running-shimmer 4s linear 600ms infinite; }
+@keyframes running-shimmer { 0% { background-position: 100% 0; } 25%, 100% { background-position: -100% 0; } }
+body.page-hidden .running-shimmer, .running-shimmer.shimmer-paused { animation-play-state: paused; }
 .file-heading, .section-title { font-weight: 650; margin-bottom: 7px; color: var(--green); }
 .file-card { margin: 4px 0; }
 .turn-process-body .file-card { border: 0; border-radius: 0; background: transparent; }
@@ -207,6 +208,9 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .approval-actions .approval-session { margin-right: auto; color: var(--muted); }
 .approval-actions .approval-accept { border-color: transparent; background: var(--vscode-foreground); color: var(--surface); }
 .approval-actions .approval-accept:hover { filter: brightness(.88); }
+.approval-actions button:disabled { opacity: .55; cursor: default; }
+.approval-feedback { margin-top: 7px; color: var(--muted); font-size: 11px; }
+.approval-feedback:empty { display: none; }
 .user-input { flex: none; max-height: min(58vh, 480px); overflow-y: auto; margin: 0 10px 8px; padding: 12px; border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--border)); border-radius: 11px; background: var(--surface); box-shadow: 0 5px 18px var(--vscode-widget-shadow, #0002); }
 .user-input-heading { display: flex; align-items: center; gap: 7px; margin-bottom: 2px; }
 .user-input-mark { display: grid; place-items: center; width: 22px; height: 22px; flex: none; border-radius: 7px; background: color-mix(in srgb, var(--brand) 14%, var(--surface)); color: var(--brand); font-size: 14px; }

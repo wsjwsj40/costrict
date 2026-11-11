@@ -14,6 +14,11 @@ const { ConversationStore, parseDiff } = require('./conversation')
 const vscode = acquireVsCodeApi()
 const $ = id => document.getElementById(id)
 const store = new ConversationStore()
+const shimmerObserver = typeof IntersectionObserver === 'function'
+  ? new IntersectionObserver(entries => {
+    for (const entry of entries) entry.target.classList.toggle('shimmer-paused', !entry.isIntersecting)
+  }, { root: $('messages') })
+  : null
 const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true })
 markdown.renderer.rules.fence = (tokens, idx) => {
   const token = tokens[idx], lang = token.info.trim().split(/\s+/)[0].toLowerCase()
@@ -147,51 +152,76 @@ function commandKind(raw) {
 function commandTitle(raw) {
   return ({ search: '搜索代码', read: '读取文件', list: '列出文件', command: '执行命令' })[commandKind(raw)]
 }
+function activityVerb(status, running, completed, failed, interrupted, declined) {
+  return ({ inProgress: running, completed, failed, interrupted, declined })[status || 'inProgress'] || failed
+}
 function stripAnsi(text) { return String(text || '').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '') }
 function commandPreview(command) {
   return String(command || '').replace(/\s+/g, ' ').trim()
 }
-function commandView(item, turn) {
-  const raw = item.raw || {}, body = element('div', 'activity-body')
+function commandRaw(item, action) {
+  const raw = item.raw || {}
+  return action ? { ...raw, command: action.command || raw.command, commandActions: [action] } : raw
+}
+function commandView(item, turn, action, index = 0) {
+  const raw = commandRaw(item, action), body = element('div', 'activity-body')
   const cmd = raw.command || ''
-  const running = item.status === 'inProgress'
+  const status = item.status === 'completed' && Number.isInteger(raw.exitCode) && raw.exitCode !== 0 ? 'failed' : item.status
+  const running = status === 'inProgress'
   const meta = element('div', 'muted', [commandTitle(raw), raw.cwd, raw.exitCode !== undefined ? `退出码 ${raw.exitCode}` : '', raw.durationMs !== undefined ? `${raw.durationMs} ms` : ''].filter(Boolean).join(' · '))
   const cmdPre = element('pre', 'command-text', cmd)
   body.append(meta, cmdPre, button('复制命令', () => navigator.clipboard.writeText(cmd), 'subtle'))
   if (item.output) {
     body.append(element('div', 'muted', '输出'), element('pre', 'command-output', stripAnsi(item.output)), button('复制输出', () => navigator.clipboard.writeText(stripAnsi(item.output)), 'subtle'))
   }
-  const action = commandTitle(raw)
-  const verb = ({ search: running ? '正在搜索代码' : '已搜索代码', read: running ? '正在读取文件' : '已读取文件', list: running ? '正在列出文件' : '已列出文件', command: running ? '正在运行' : '已运行' })[commandKind(raw)]
-  const label = `⌘  ${verb} ${commandPreview(cmd) || action}`
-  const card = detail(`${turn.id}:${item.id}`, label, body, `command-card status-${item.status || 'inProgress'}`)
+  const actionTitle = commandTitle(raw)
+  const verbs = {
+    search: ['正在搜索代码', '已搜索代码', '搜索代码失败', '已停止搜索代码', '已拒绝搜索代码'],
+    read: ['正在读取文件', '已读取文件', '读取文件失败', '已停止读取文件', '已拒绝读取文件'],
+    list: ['正在列出文件', '已列出文件', '列出文件失败', '已停止列出文件', '已拒绝列出文件'],
+    command: ['正在运行', '已运行', '运行失败', '已停止运行', '已拒绝运行'],
+  }
+  const verb = activityVerb(status, ...verbs[commandKind(raw)])
+  const label = `⌘  ${verb} ${commandPreview(cmd) || actionTitle}`
+  const card = detail(`${turn.id}:${item.id}:${index}`, label, body, `command-card status-${status || 'inProgress'}`)
   if (running) card.querySelector('.activity-label')?.classList.add('running-shimmer')
   return card
 }
 function activityKind(entry) {
   if (['fileChange', 'detectedFileChange'].includes(entry.item.type)) return 'edit'
   if (entry.item.type === 'webSearch') return 'webSearch'
-  return commandKind(entry.item.raw || {})
+  return commandKind(commandRaw(entry.item, entry.action))
+}
+function activityStatus(entry) {
+  const status = entry.item.status || 'inProgress'
+  return entry.item.type === 'commandExecution' && status === 'completed' && Number.isInteger(entry.item.raw?.exitCode) && entry.item.raw.exitCode !== 0 ? 'failed' : status
 }
 function activityTitle(entries) {
-  const counts = { edit: 0, command: 0, search: 0, read: 0, list: 0, webSearch: 0 }
-  const running = { edit: false, command: false, search: false, read: false, list: false, webSearch: false }
+  const groups = new Map()
   for (const entry of entries) {
     const kind = activityKind(entry)
-    counts[kind]++
-    if (!entry.item.status || entry.item.status === 'inProgress') running[kind] = true
+    if (!groups.has(kind)) groups.set(kind, { count: 0, statuses: new Set() })
+    const group = groups.get(kind)
+    group.count++
+    group.statuses.add(activityStatus(entry))
   }
-  const parts = []
-  if (counts.edit) parts.push(`${running.edit ? '正在编辑' : '已编辑'} ${counts.edit} 个文件`)
-  if (counts.command) parts.push(`${running.command ? '正在执行' : '已执行'} ${counts.command} 条命令`)
-  if (counts.search) parts.push(`${running.search ? '正在搜索代码' : '已搜索代码'} ${counts.search} 次`)
-  if (counts.read) parts.push(`${running.read ? '正在读取文件' : '已读取文件'} ${counts.read} 次`)
-  if (counts.list) parts.push(`${running.list ? '正在列出文件' : '已列出文件'} ${counts.list} 次`)
-  if (counts.webSearch) parts.push(`${running.webSearch ? '正在搜索网页' : '已搜索网页'} ${counts.webSearch} 次`)
-  return parts.join('、')
+  const labels = {
+    edit: ['正在编辑', '已编辑', '编辑失败', '已停止编辑', '已拒绝编辑', '个文件'],
+    command: ['正在执行', '已执行', '执行失败', '已停止执行', '已拒绝执行', '条命令'],
+    search: ['正在搜索代码', '已搜索代码', '搜索代码失败', '已停止搜索代码', '已拒绝搜索代码', '次'],
+    read: ['正在读取文件', '已读取文件', '读取文件失败', '已停止读取文件', '已拒绝读取文件', '次'],
+    list: ['正在列出文件', '已列出文件', '列出文件失败', '已停止列出文件', '已拒绝列出文件', '次'],
+    webSearch: ['正在搜索网页', '已搜索网页', '搜索网页失败', '已停止搜索网页', '已拒绝搜索网页', '次'],
+  }
+  return [...groups].map(([kind, group]) => {
+    const status = ['inProgress', 'failed', 'interrupted', 'declined'].find(value => group.statuses.has(value)) || 'completed'
+    const words = labels[kind]
+    return `${activityVerb(status, ...words)} ${group.count} ${words[5]}`
+  }).join('、')
 }
 function activityEntryView(entry, turn) {
   if (['fileChange', 'detectedFileChange'].includes(entry.item.type)) return fileItem(entry.item, turn, entry.change, entry.index)
+  if (entry.item.type === 'commandExecution') return commandView(entry.item, turn, entry.action, entry.index)
   return itemView(entry.item, turn)
 }
 function activityGroup(entries, turn) {
@@ -285,7 +315,7 @@ function fileItem(item, turn, singleChange, index = 0) {
   const added = stats.reduce((count, entry) => count + entry.additions, 0)
   const deleted = stats.reduce((count, entry) => count + entry.deletions, 0)
   const counts = stats.length ? ` +${added} -${deleted}` : ''
-  const action = item.type === 'detectedFileChange' ? '检测到文件变更' : running ? '正在编辑文件' : '已编辑文件'
+  const action = item.type === 'detectedFileChange' ? '检测到文件变更' : activityVerb(item.status, '正在编辑文件', '已编辑文件', '编辑文件失败', '已停止编辑文件', '已拒绝编辑文件')
   const label = `▤  ${action}${changes.length ? ` · ${changes.map(change => change.path || change.filePath).filter(Boolean).join('、')}` : ''}${counts}`
   const card = detail(`${turn.id}:${item.id}:${index}`, label, body, `file-card status-${item.status || 'inProgress'}`)
   if (running) card.querySelector('.activity-label')?.classList.add('running-shimmer')
@@ -349,11 +379,11 @@ function renderPlanDock() {
     host.append(list)
   }
 }
-function processView(turn, active, nodes) {
+function processView(turn, active, nodes, finalStarted = false) {
   if (!nodes.length) return turn.startedAt && !active ? element('div', 'turn-duration', formatDuration(turn)) : null
   const key = `${turn.id}:process`
   const box = element('details', 'turn-process')
-  box.open = processPreference.has(key) ? processPreference.get(key) : active
+  box.open = processPreference.has(key) ? processPreference.get(key) : active && !finalStarted
   const summary = element('summary', 'turn-process-summary', active ? formatElapsed(turn.startedAt) : formatDuration(turn))
   if (active && Number.isFinite(turn.startedAt)) box.dataset.startedAt = String(turn.startedAt)
   summary.onclick = () => { processPreference.set(key, !box.open) }
@@ -418,7 +448,8 @@ function render() {
       }
     }
     const flushActivities = () => {
-      if (activities.length === 1) processNodes.push(activityEntryView(activities[0], turn))
+      if (activities.length === 1 && activities[0].item.status !== 'inProgress') processNodes.push(activityEntryView(activities[0], turn))
+      else if (activities.length === 1) processNodes.push(activityGroup(activities, turn))
       else if (activities.length > 1) processNodes.push(activityGroup(activities, turn))
       activities = []
     }
@@ -426,7 +457,9 @@ function render() {
       if (['commandExecution', 'fileChange', 'webSearch'].includes(item.type)) {
         const entries = item.type === 'fileChange' && item.raw?.changes?.length
           ? item.raw.changes.map((change, index) => ({ item, change, index }))
-          : [{ item }]
+          : item.type === 'commandExecution' && item.status !== 'declined' && item.raw?.commandActions?.length
+            ? item.raw.commandActions.map((action, index) => ({ item, action, index }))
+            : [{ item }]
         activities.push(...entries)
         continue
       }
@@ -436,8 +469,18 @@ function render() {
     }
     appendDetectedChanges()
     flushActivities()
-    if (active && busy && turn === store.turns.at(-1) && !processNodes.length) processNodes.push(element('div', 'working', stopping ? '◌  正在停止…' : '◌  DiCode 正在处理…'))
-    const process = processView(turn, active, processNodes)
+    const visibleFinalStarted = finalItems.some(item => String(item.text || '').trim())
+    if (active && busy && turn === store.turns.at(-1) && !visibleFinalStarted) {
+      const latestVisible = [...(turn.items || [])].reverse().find(item =>
+        ['commandExecution', 'fileChange', 'webSearch', 'mcpToolCall', 'dynamicToolCall', 'imageView', 'collabToolCall'].includes(item.type) ||
+        item.type === 'agentMessage' && item.raw?.phase !== 'final_answer' && String(item.text || '').trim())
+      if (stopping || !latestVisible || latestVisible.status !== 'inProgress') {
+        const marker = element('div', 'working thinking', stopping ? '◌  正在停止…' : '◌  正在思考…')
+        marker.setAttribute('role', 'status')
+        processNodes.push(marker)
+      }
+    }
+    const process = processView(turn, active, processNodes, visibleFinalStarted && turn.status !== 'interrupted')
     if (process) content.append(process)
     for (const item of finalItems) content.append(itemView(item, turn, true))
     if (!active) { const files = fileSummary(turn); if (files) content.append(files) }
@@ -450,6 +493,10 @@ function render() {
     turnNodes.set(turn.id, section)
   }
   dirtyTurns.clear()
+  if (shimmerObserver) {
+    shimmerObserver.disconnect()
+    for (const label of list.querySelectorAll('.running-shimmer')) shimmerObserver.observe(label)
+  }
   updateNavigation()
   if (follow) {
     scrollToBottom()
@@ -611,28 +658,34 @@ function renderPermissionPicker(mode) {
   if (!menu.hidden) positionPickerMenu($('permissionPicker'), menu, 270)
 }
 function approvalView(message) {
+  if (String(activeApproval?.id) === String(message.id)) return
+  if (approvalQueue.some(approval => String(approval.id) === String(message.id))) return
   if (activeApproval) { approvalQueue.push(message); return }
   activeApproval = message
   const box = $('approval'), params = message.params || {}
   box.replaceChildren()
-  box.append(element('div', 'approval-heading', message.method.includes('command') ? '▣  终端' : '▤  文件变更'))
+  box.append(element('div', 'approval-heading', message.method.includes('command') ? '▣  终端' : message.method.includes('fileChange') ? '▤  文件变更' : '◇  权限请求'))
   box.append(element('div', 'approval-reason', params.reason ? `原因：${params.reason}` : 'Codex 未提供具体审批原因'))
   if (params.cwd) box.append(element('div', 'approval-meta', `工作目录：${params.cwd}`))
   box.append(element('pre', 'approval-command', params.command || JSON.stringify(params, null, 2)))
   const actions = element('div', 'approval-actions')
+  const feedback = element('div', 'approval-feedback', message.submitted ? '已提交，等待 Codex CLI 确认…' : '')
   const labels = { accept: '允许本次', acceptForSession: '本次会话均允许', decline: '拒绝', cancel: '取消' }
   const decisions = (params.availableDecisions || ['accept', 'decline']).map(entry => typeof entry === 'string' ? entry : entry.decision).filter(Boolean)
   for (const value of ['decline', 'cancel', 'acceptForSession', 'accept', ...decisions]) {
     if (!decisions.includes(value) || actions.querySelector(`[data-decision="${value}"]`)) continue
     const action = button(labels[value] || value, () => {
+      if (activeApproval?.submitted) return
+      activeApproval.submitted = true
+      for (const control of actions.querySelectorAll('button')) control.disabled = true
+      feedback.textContent = '正在提交审批…'
       post('approve', { id: message.id, decision: value })
-      activeApproval = null; box.hidden = true
-      if (approvalQueue.length) approvalView(approvalQueue.shift())
     }, value === 'accept' ? 'approval-accept' : value === 'acceptForSession' ? 'approval-session' : 'approval-deny')
     action.dataset.decision = value
+    action.disabled = !!message.submitted
     actions.append(action)
   }
-  box.append(actions); box.hidden = false
+  box.append(actions, feedback); box.hidden = false
   requestAnimationFrame(() => { if (followMessages) scrollToBottom(); updateNavigation() })
 }
 function showNextUserInput() {
@@ -742,6 +795,14 @@ window.addEventListener('message', event => {
   if (msg.type === 'error') { awaitingHostBusy = false; setStatus(`错误：${msg.message}`, 'error'); const turn = store.turns.at(-1); if (turn && busy) { turn.error = { message: msg.message }; turn.status = 'failed'; turn.completedAt ||= Date.now(); dirtyTurns.add(turn.id); schedule() } }
   if (msg.type === 'stopped') { awaitingHostBusy = false; busy = false; stopping = false; updateComposer(); setStatus(msg.message || '已停止，可以继续提问', 'warning'); const turn = store.turns.at(-1); if (turn) { turn.status = 'interrupted'; turn.completedAt ||= Date.now(); dirtyTurns.add(turn.id); schedule() } }
   if (msg.type === 'approval') approvalView(msg)
+  if (msg.type === 'approvalSubmitted' && String(activeApproval?.id) === String(msg.id)) {
+    $('approval').querySelector('.approval-feedback').textContent = '已提交，等待 Codex CLI 确认…'
+  }
+  if (msg.type === 'approvalError' && String(activeApproval?.id) === String(msg.id)) {
+    activeApproval.submitted = false
+    for (const control of $('approval').querySelectorAll('.approval-actions button')) control.disabled = false
+    $('approval').querySelector('.approval-feedback').textContent = msg.message || '提交失败，请重试'
+  }
   if (msg.type === 'approvalsCleared') { activeApproval = null; approvalQueue.length = 0; $('approval').hidden = true }
   if (msg.type === 'userInputRequest') enqueueUserInput(msg)
   if (msg.type === 'userInputSubmitted' && String(activeUserInput?.id) === String(msg.id)) {
@@ -825,6 +886,8 @@ $('modelPicker').onclick = () => {
   }
 }
 window.addEventListener('resize', repositionPickerMenus)
+document.addEventListener('visibilitychange', () => document.body.classList.toggle('page-hidden', document.hidden))
+document.body.classList.toggle('page-hidden', document.hidden)
 document.getElementById('modelMenu').addEventListener('keydown', event => {
   if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return
   event.preventDefault()

@@ -38,9 +38,7 @@ class ConversationStore {
     } else if (method === 'turn/completed') {
       turn.status = params.turn?.status || 'completed'; turn.error = params.turn?.error || null
       turn.completedAt ||= Date.now()
-      if (turn.status === 'interrupted' || turn.status === 'failed') {
-        for (const item of turn.items) if (item.status === 'inProgress') item.status = turn.status
-      }
+      for (const item of turn.items) if (item.status === 'inProgress') item.status = turn.status
     } else if (method === 'turn/plan/updated') {
       turn.plan = { explanation: params.explanation || '', steps: params.plan || [] }
     } else if (method === 'turn/diff/updated') {
@@ -50,13 +48,13 @@ class ConversationStore {
       if (!incoming?.id) return turn
       const item = this.item(turn, incoming.id, incoming.type)
       item.raw = { ...item.raw, ...incoming }
-      item.status = method === 'item/completed' ? (incoming.status || 'completed') : (incoming.status || 'inProgress')
+      if (method === 'item/completed' || item.status === 'inProgress') item.status = method === 'item/completed' ? (incoming.status || 'completed') : (incoming.status || 'inProgress')
       if (incoming.text !== undefined) item.text = typeof incoming.text === 'string' ? incoming.text : ''
       if (incoming.aggregatedOutput !== undefined) item.output = typeof incoming.aggregatedOutput === 'string' ? incoming.aggregatedOutput : ''
       if (incoming.summary !== undefined) item.summary = Array.isArray(incoming.summary) ? incoming.summary.map(p => p.text || p).join('\n') : incoming.summary
     } else if (['item/agentMessage/delta', 'item/commandExecution/outputDelta', 'item/reasoning/summaryTextDelta'].includes(method)) {
       const item = this.item(turn, params.itemId, deltaType(method))
-      if (item.status === 'completed' || item.status === 'failed') return turn
+      if (item.status !== 'inProgress') return turn
       const delta = params.delta || ''
       if (method === 'item/agentMessage/delta') item.text += delta
       if (method === 'item/commandExecution/outputDelta') item.output += delta

@@ -90,7 +90,7 @@ test('completed turn folds muted activity behind elapsed time and keeps final an
   await tick()
   assert.match(doc.querySelector('.plan-dock-toggle').textContent, /验证结果/)
   assert.equal(doc.querySelectorAll('.plan-dock-step').length, 0)
-  assert.equal(doc.querySelector('.turn-process').open, true)
+  assert.equal(doc.querySelector('.turn-process').open, false)
   emit({ type: 'rpc', method: 'turn/completed', params: { turnId: 'turn', turn: { id: 'turn', status: 'completed' } } })
   await tick()
   assert.equal(doc.getElementById('planDock').hidden, true)
@@ -121,7 +121,7 @@ test('consecutive commands share a collapsible list and retain their output', as
   const group = doc.querySelector('.command-group')
   assert.ok(group)
   assert.equal(group.open, false)
-  assert.match(group.querySelector('summary').textContent, /已读取文件 1 次、已列出文件 1 次/)
+  assert.match(group.querySelector('summary').textContent, /已列出文件 1 次、已读取文件 1 次/)
   assert.equal(group.querySelectorAll('.command-card').length, 2)
   assert.ok(group.querySelector('.command-group-icon svg'))
   assert.ok(group.querySelector('.command-card .activity-icon svg'))
@@ -171,7 +171,7 @@ test('PowerShell file reads group with adjacent commands across empty commentary
   const group = doc.querySelector('.command-group')
   assert.ok(group)
   assert.equal(group.querySelectorAll('.command-card').length, 2)
-  assert.match(group.querySelector('.command-group-label').textContent, /已执行 1 条命令、已读取文件 1 次/)
+  assert.match(group.querySelector('.command-group-label').textContent, /已读取文件 1 次、已执行 1 条命令/)
   assert.match(group.querySelector('.command-card summary').textContent, /已读取文件/)
   assert.doesNotMatch(group.querySelector('.command-card summary').textContent, /已搜索代码/)
   dom.window.close()
@@ -185,15 +185,17 @@ test('structured command actions take priority over command text when rendering'
     items: [
       { id: 'read', type: 'commandExecution', status: 'completed', raw: { command: 'rg something', commandActions: [{ type: 'read', path: 'game.js' }] } },
       { id: 'list', type: 'commandExecution', status: 'completed', raw: { command: 'rg something', commandActions: [{ type: 'listFiles' }] } },
-      { id: 'search', type: 'commandExecution', status: 'completed', raw: { command: 'Get-Content game.js | Select-String needle', commandActions: [{ type: 'read' }, { type: 'search' }] } },
+      { id: 'search', type: 'commandExecution', status: 'completed', raw: { command: 'Get-Content game.js | Select-String needle', commandActions: [{ type: 'read', command: 'Get-Content game.js' }, { type: 'search', command: 'Select-String needle' }] } },
     ],
   }] } })
   await tick()
   const cards = doc.querySelectorAll('.command-card')
   assert.match(cards[0].querySelector('.activity-label').textContent, /已读取文件/)
   assert.match(cards[1].querySelector('.activity-label').textContent, /已列出文件/)
-  assert.match(cards[2].querySelector('.activity-label').textContent, /已搜索代码/)
-  assert.match(doc.querySelector('.command-group-label').textContent, /已搜索代码 1 次、已读取文件 1 次、已列出文件 1 次/)
+  assert.equal(cards.length, 4)
+  assert.match(cards[2].querySelector('.activity-label').textContent, /已读取文件 Get-Content game.js/)
+  assert.match(cards[3].querySelector('.activity-label').textContent, /已搜索代码 Select-String needle/)
+  assert.match(doc.querySelector('.command-group-label').textContent, /已读取文件 2 次、已列出文件 1 次、已搜索代码 1 次/)
   dom.window.close()
 })
 
@@ -215,7 +217,7 @@ test('shell edits show detected file changes when Codex emits only a diff', asyn
   assert.equal(group.querySelectorAll('.command-card').length, 2)
   assert.equal(group.querySelectorAll('.file-card').length, 1)
   assert.match(group.querySelector('.file-card summary').textContent, /检测到文件变更 · game\.js/)
-  assert.match(group.querySelector('.command-group-label').textContent, /已编辑 1 个文件、已执行 1 条命令、已读取文件 1 次/)
+  assert.match(group.querySelector('.command-group-label').textContent, /已读取文件 1 次、已执行 1 条命令、已编辑 1 个文件/)
   dom.window.close()
 })
 
@@ -256,7 +258,7 @@ test('running commands shimmer, editing shows changes, and completion keeps a fi
   await tick()
   assert.match(doc.querySelector('.turn-process-summary').textContent, /^正在处理/)
   assert.equal(doc.querySelector('.command-group').open, true)
-  assert.match(doc.querySelector('.command-group-label').textContent, /正在编辑 1 个文件、正在执行 1 条命令、已列出文件 1 次/)
+  assert.match(doc.querySelector('.command-group-label').textContent, /已列出文件 1 次、正在执行 1 条命令、正在编辑 1 个文件/)
   assert.match(doc.querySelector('.command-card.status-completed').textContent, /rg --files/)
   assert.match(doc.querySelector('.command-card.status-inProgress').textContent, /正在运行 npm test/)
   assert.equal(doc.querySelectorAll('.command-card.status-inProgress .running-shimmer').length, 1)
@@ -310,6 +312,70 @@ test('a single search activity renders directly without a redundant group', asyn
   assert.equal(doc.querySelector('.command-group'), null)
   assert.equal(doc.querySelectorAll('.command-card').length, 1)
   assert.match(doc.querySelector('.command-card summary').textContent, /已搜索代码 rg login/)
+  dom.window.close()
+})
+
+test('one running command has a group and failed commands never read as completed', async () => {
+  const { dom, emit, doc } = setup()
+  emit({ type: 'state', loggedIn: true, busy: true, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
+    id: 'turn', status: 'inProgress', startedAt: Date.now(), items: [
+      { id: 'run', type: 'commandExecution', status: 'inProgress', raw: { command: 'npm test' } },
+    ],
+  }] } })
+  await tick()
+  assert.equal(doc.querySelectorAll('.command-group').length, 1)
+  assert.equal(doc.querySelector('.command-group').open, true)
+  emit({ type: 'rpc', method: 'item/completed', params: { turnId: 'turn', item: { id: 'run', type: 'commandExecution', status: 'failed', command: 'npm test', exitCode: 1 } } })
+  await tick()
+  assert.equal(doc.querySelector('.command-group'), null)
+  assert.match(doc.querySelector('.command-card .activity-label').textContent, /运行失败 npm test/)
+  emit({ type: 'rpc', method: 'item/completed', params: { turnId: 'turn', item: { id: 'run', type: 'commandExecution', status: 'completed', command: 'npm test', exitCode: 1 } } })
+  await tick()
+  assert.match(doc.querySelector('.command-card .activity-label').textContent, /运行失败 npm test/)
+  dom.window.close()
+})
+
+test('thinking appears between activities and stops when the final answer starts', async () => {
+  const { dom, emit, doc } = setup()
+  emit({ type: 'state', loggedIn: true, busy: true, workspace: '/repo', models: [] })
+  emit({ type: 'rpc', method: 'turn/started', params: { threadId: 'thread', turn: { id: 't', status: 'inProgress' } } })
+  emit({ type: 'rpc', method: 'item/started', params: { turnId: 't', item: { id: 'reason', type: 'reasoning' } } })
+  await tick()
+  assert.match(doc.querySelector('.thinking').textContent, /正在思考/)
+  emit({ type: 'rpc', method: 'item/started', params: { turnId: 't', item: { id: 'cmd', type: 'commandExecution', command: 'npm test' } } })
+  await tick()
+  assert.equal(doc.querySelector('.thinking'), null)
+  assert.match(doc.querySelector('.command-card .activity-label').textContent, /正在运行 npm test/)
+  emit({ type: 'rpc', method: 'item/completed', params: { turnId: 't', item: { id: 'cmd', type: 'commandExecution', status: 'completed', command: 'npm test', exitCode: 0 } } })
+  await tick()
+  assert.match(doc.querySelector('.thinking').textContent, /正在思考/)
+  emit({ type: 'rpc', method: 'item/started', params: { turnId: 't', item: { id: 'answer', type: 'agentMessage', text: '测试通过', phase: 'final_answer' } } })
+  await tick()
+  assert.equal(doc.querySelector('.thinking'), null)
+  assert.equal(doc.querySelector('.turn-process').open, false)
+  assert.match(doc.querySelector('.final-answer').textContent, /测试通过/)
+  dom.window.close()
+})
+
+test('approval stays visible until Codex resolves it and can recover from send errors', () => {
+  const { dom, sent, emit, doc } = setup()
+  const approval = { type: 'approval', id: '77', method: 'item/commandExecution/requestApproval', params: { command: 'npm test', availableDecisions: ['accept', 'decline'] } }
+  emit(approval)
+  emit(approval)
+  assert.equal(doc.querySelectorAll('#approval .approval-actions button').length, 2)
+  doc.querySelector('#approval .approval-accept').click()
+  assert.equal(sent.filter(message => message.type === 'approve').length, 1)
+  assert.equal(doc.getElementById('approval').hidden, false)
+  assert.equal(doc.querySelector('#approval .approval-accept').disabled, true)
+  emit({ type: 'approvalError', id: '77', message: '连接断开' })
+  assert.equal(doc.querySelector('#approval .approval-accept').disabled, false)
+  assert.match(doc.querySelector('#approval .approval-feedback').textContent, /连接断开/)
+  doc.querySelector('#approval .approval-accept').click()
+  emit({ type: 'approvalSubmitted', id: '77' })
+  assert.match(doc.querySelector('#approval .approval-feedback').textContent, /等待 Codex CLI 确认/)
+  emit({ type: 'rpc', method: 'serverRequest/resolved', params: { requestId: 77 } })
+  assert.equal(doc.getElementById('approval').hidden, true)
   dom.window.close()
 })
 

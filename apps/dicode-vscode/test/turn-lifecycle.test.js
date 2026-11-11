@@ -11,7 +11,7 @@ function makeView() {
   const originalLoad = Module._load
   Module._load = function (request, parent, isMain) { return request === 'vscode' ? vscode : originalLoad.call(this, request, parent, isMain) }
   let DicodeView
-  try { ({ DicodeView } = require('../extension')) } finally { Module._load = originalLoad }
+  try { delete require.cache[require.resolve('../extension')]; ({ DicodeView } = require('../extension')) } finally { Module._load = originalLoad }
   const data = new Map([['dicodeCodex.thread', { id: 'thread', cwd: '/repo' }]])
   const context = {
     extensionPath: path.join(__dirname, '..'),
@@ -27,6 +27,18 @@ function makeView() {
 }
 function rpc(view, method, params) { view.onCodexEvent({ type: 'rpc', message: { method, params } }) }
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
+
+test('item diagnostics identify command actions and real file changes without command text', () => {
+  const { view } = makeView()
+  const lines = []
+  view.output.appendLine = line => lines.push(line)
+  rpc(view, 'item/started', { turnId: 't', item: { id: 'c', type: 'commandExecution', command: 'private command', commandActions: [{ type: 'read' }] } })
+  rpc(view, 'item/completed', { turnId: 't', item: { id: 'p', type: 'fileChange', status: 'completed', changes: [{ path: 'a.txt' }] } })
+  assert.match(lines[0], /type=commandExecution.*actions=read/)
+  assert.match(lines[1], /type=fileChange.*changes=1/)
+  assert.equal(lines.join(' ').includes('private command'), false)
+  view.dispose()
+})
 
 test('Codex permission modes apply to each turn and full access needs explicit confirmation', async () => {
   const { view, vscode, posted } = makeView()
@@ -79,6 +91,27 @@ test('user input server request responds to the current turn and clears on resol
   assert.equal(view.inputRequests.size, 0)
   assert.equal(posted.filter(message => message.type === 'state').at(-1).busy, false)
   assert.ok(posted.some(message => message.type === 'userInputsCleared'))
+  view.dispose()
+})
+
+test('approval remains tracked until Codex resolves it and retries after a write error', async () => {
+  const { view, posted } = makeView()
+  const replies = []
+  view.client = { respond: (id, body, done) => replies.push({ id, body, done }), dispose() {} }
+  view.onCodexEvent({ type: 'rpc', message: { id: 77, method: 'item/commandExecution/requestApproval', params: { command: 'npm test', availableDecisions: ['accept', 'decline'] } } })
+  await view.handle({ type: 'approve', id: '77', decision: 'accept' })
+  assert.equal(view.approvals.size, 1)
+  assert.equal(replies.length, 1)
+  await view.handle({ type: 'approve', id: '77', decision: 'accept' })
+  assert.equal(replies.length, 1)
+  replies[0].done(new Error('write failed'))
+  assert.equal(posted.at(-1).type, 'approvalError')
+  await view.handle({ type: 'approve', id: '77', decision: 'accept' })
+  assert.equal(replies.length, 2)
+  replies[1].done()
+  assert.equal(posted.at(-1).type, 'approvalSubmitted')
+  rpc(view, 'serverRequest/resolved', { requestId: 77 })
+  assert.equal(view.approvals.size, 0)
   view.dispose()
 })
 

@@ -37,6 +37,9 @@ test('Codex app-server starts with interactive input and plan tools enabled', as
   assert.ok(overrides.includes('model_catalog_json="/tmp/catalog.json"'))
   const catalogModel = modelCatalog([{ id: 'dicode-model', name: 'DiCode Model' }], 'DiCode prompt').models[0]
   assert.equal(catalogModel.apply_patch_tool_type, 'freeform')
+  assert.equal(catalogModel.base_instructions, 'DiCode prompt')
+  assert.equal(catalogModel.supports_reasoning_summaries, false)
+  assert.equal(catalogModel.supports_parallel_tool_calls, false)
   assert.equal(catalogModel.model_messages.instructions_template, 'DiCode prompt')
   await client.initialize('0.2.8')
   assert.deepEqual(writes.map(message => message.method), ['initialize', 'initialized'])

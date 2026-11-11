@@ -67,3 +67,13 @@ test('null command output from app-server cannot break history snapshots', () =>
   s.turns[0].items[0].output = null // old saved state
   assert.equal(s.snapshot().turns[0].items[0].output, '')
 })
+
+test('terminal turn settles unfinished items and late starts cannot reopen them', () => {
+  const s = new ConversationStore(); s.begin('运行')
+  s.receive('item/started', { turnId: 't', item: { id: 'cmd', type: 'commandExecution', command: 'npm test' } })
+  s.receive('turn/completed', { turnId: 't', turn: { status: 'completed' } })
+  s.receive('item/started', { turnId: 't', item: { id: 'cmd', type: 'commandExecution', status: 'inProgress' } })
+  s.receive('item/commandExecution/outputDelta', { turnId: 't', itemId: 'cmd', delta: 'late' })
+  assert.equal(s.turns[0].items[0].status, 'completed')
+  assert.equal(s.turns[0].items[0].output, '')
+})

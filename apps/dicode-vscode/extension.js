@@ -35,6 +35,9 @@ function modelCatalog(models, instructions) {
 		availability_nux: null,
 		upgrade: null,
 		model_messages: { instructions_template: instructions },
+		base_instructions: instructions,
+		supports_reasoning_summaries: false,
+		supports_parallel_tool_calls: false,
 		support_verbosity: false,
 		default_verbosity: null,
 		apply_patch_tool_type: "freeform",
@@ -144,9 +147,13 @@ class CodexClient {
 		if (this.closed) return
 		this.proc.stdin.write(JSON.stringify({ method, params }) + "\n")
 	}
-	respond(id, result) {
-		if (this.closed) return
-		this.proc.stdin.write(JSON.stringify({ id, result }) + "\n")
+	respond(id, result, onWritten) {
+		if (this.closed || !this.proc?.stdin?.writable) {
+			onWritten?.(new Error("Codex CLI 连接已断开"))
+			return
+		}
+		try { this.proc.stdin.write(JSON.stringify({ id, result }) + "\n", onWritten) }
+		catch (error) { onWritten?.(error) }
 	}
 	async initialize(version) {
 		await this.request("initialize", { clientInfo: { name: "dicode", title: "DiCode", version } })
@@ -416,6 +423,8 @@ class DicodeView {
 			return
 		}
 		if (event.type === "error") {
+			this.output.appendLine(`[Codex error] ${event.message}`)
+			this.output.show?.(true)
 			clearTimeout(this.stopTimer)
 			this.client = null
 			this.loadedThreadId = null
@@ -434,6 +443,11 @@ class DicodeView {
 			return
 		}
 		const { message } = event
+		if (message.method === "item/started" || message.method === "item/completed") {
+			const item = message.params?.item
+			const actions = (item?.commandActions || []).map((action) => typeof action === "string" ? action : action?.type || action?.kind).filter(Boolean)
+			this.output.appendLine(`[Codex item] ${message.method} type=${item?.type || "unknown"} status=${item?.status || "inProgress"} actions=${actions.join(",") || "none"} changes=${item?.changes?.length || 0}`)
+		}
 		if (message.method?.endsWith("/requestApproval") && message.id !== undefined) {
 			const decisions = (message.params?.availableDecisions || ["accept", "decline"]).map((entry) => typeof entry === "string" ? entry : entry.decision).filter(Boolean)
 			this.approvals.set(String(message.id), { id: message.id, decisions, method: message.method, params: message.params })
@@ -454,7 +468,7 @@ class DicodeView {
 			this.interruptSent = false
 			this.activeRunId = null
 			this.conversation.receive(message.method, message.params)
-			if (message.params?.turn?.status === "interrupted" || message.params?.turn?.status === "failed") {
+			if (this.approvals.size) {
 				this.approvals.clear()
 				this.post({ type: "approvalsCleared" })
 			}
@@ -657,7 +671,7 @@ class DicodeView {
 		if (message.type === "ready") {
 			await this.postState()
 			if (this.conversation.turns.length) this.post({ type: "history", snapshot: this.conversation.snapshot() })
-			for (const [id, approval] of this.approvals) this.post({ type: "approval", id, method: approval.method, params: approval.params })
+			for (const [id, approval] of this.approvals) this.post({ type: "approval", id, method: approval.method, params: approval.params, submitted: approval.submitted })
 			for (const [id, input] of this.inputRequests) this.post({ type: "userInputRequest", id, params: input.params, submitted: input.submitted })
 			return
 		}
@@ -780,9 +794,19 @@ class DicodeView {
 		}
 		if (message.type === "approve") {
 			const approval = this.approvals.get(String(message.id))
-			if (!approval || !approval.decisions.includes(message.decision)) return
-			this.approvals.delete(String(message.id))
-			this.client.respond(approval.id, { decision: message.decision })
+			if (!approval || approval.submitted || !approval.decisions.includes(message.decision)) return
+			approval.submitted = true
+			this.client?.respond(approval.id, { decision: message.decision }, (error) => {
+				if (this.approvals.get(String(message.id)) !== approval) return
+				if (error) {
+					approval.submitted = false
+					this.post({ type: "approvalError", id: String(message.id), message: error.message })
+				} else this.post({ type: "approvalSubmitted", id: String(message.id) })
+			})
+			if (!this.client) {
+				approval.submitted = false
+				this.post({ type: "approvalError", id: String(message.id), message: "Codex CLI 连接已断开" })
+			}
 			return
 		}
 		if (message.type === "answerUserInput") {
