@@ -1,25 +1,3 @@
-From 4f243774f99373c274fb7fd639815a48c28d6200 Mon Sep 17 00:00:00 2001
-From: wsjwsj40 <1309342119@qq.com>
-Date: Mon, 2 Nov 2026 03:38:00 +0000
-Subject: [PATCH] feat: deploy DiCode Codex bridge and CLI assets
-
----
- .gitignore                                   |  1 +
- apisix_router_setting.sh                     |  1 +
- configure.sh                                 |  4 ++
- costrict.sh                                  |  6 +-
- docs/dicode-codex-mvp.md                     | 57 +++++++++++++++++++
- k8s/dicode-codex-bridge.yaml.tpl             | 59 ++++++++++++++++++++
- scripts/apisix_router/dicode-codex-bridge.sh | 17 ++++++
- scripts/deploy-dicode-codex-cli-assets.sh    | 21 +++++++
- scripts/newest-images.list                   |  1 +
- scripts/templates.list                       |  1 +
- 10 files changed, 166 insertions(+), 2 deletions(-)
- create mode 100644 docs/dicode-codex-mvp.md
- create mode 100644 k8s/dicode-codex-bridge.yaml.tpl
- create mode 100755 scripts/apisix_router/dicode-codex-bridge.sh
- create mode 100755 scripts/deploy-dicode-codex-cli-assets.sh
-
 diff --git a/.gitignore b/.gitignore
 index 496b70c..14298e5 100644
 --- a/.gitignore
@@ -44,26 +22,83 @@ index f26a171..a6c6b85 100644
  "${SCRIPT_DIR}/scripts/apisix_router/casdoor.sh"
  "${SCRIPT_DIR}/scripts/apisix_router/chatrag.sh"
  "${SCRIPT_DIR}/scripts/apisix_router/completion-v2.sh"
+diff --git a/config/grafana/dashboards/dicode-codex-bridge-logs.json b/config/grafana/dashboards/dicode-codex-bridge-logs.json
+new file mode 100644
+index 0000000..3313de1
+--- /dev/null
++++ b/config/grafana/dashboards/dicode-codex-bridge-logs.json
+@@ -0,0 +1,41 @@
++{
++  "annotations": { "list": [] },
++  "editable": true,
++  "fiscalYearStartMonth": 0,
++  "graphTooltip": 0,
++  "id": null,
++  "links": [],
++  "panels": [
++    {
++      "datasource": "Loki",
++      "fieldConfig": { "defaults": {}, "overrides": [] },
++      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 0 },
++      "id": 1,
++      "options": { "dedupStrategy": "none", "enableLogDetails": true, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
++      "targets": [{ "datasource": "Loki", "expr": "{app=\"dicode-codex-bridge\"}", "refId": "A" }],
++      "title": "Bridge requests and gateway responses",
++      "type": "logs"
++    },
++    {
++      "datasource": "Loki",
++      "fieldConfig": { "defaults": {}, "overrides": [] },
++      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 12 },
++      "id": 2,
++      "options": { "dedupStrategy": "none", "enableLogDetails": true, "showCommonLabels": false, "showLabels": false, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true },
++      "targets": [{ "datasource": "Loki", "expr": "{app=\"dicode-codex-bridge\"} |~ \"gateway_error:|gateway_stream_error:\"", "refId": "A" }],
++      "title": "Gateway errors",
++      "type": "logs"
++    }
++  ],
++  "refresh": "10s",
++  "schemaVersion": 39,
++  "tags": ["dicode", "codex", "bridge", "logs"],
++  "templating": { "list": [] },
++  "time": { "from": "now-1h", "to": "now" },
++  "timepicker": {},
++  "timezone": "browser",
++  "title": "DiCode Codex Bridge Logs",
++  "uid": "dicode-codex-bridge-logs",
++  "version": 1,
++  "weekStart": ""
++}
 diff --git a/configure.sh b/configure.sh
-index e2e76d8..1bf4f47 100755
+index 9ea1bdf..6e89b40 100755
 --- a/configure.sh
 +++ b/configure.sh
-@@ -150,6 +150,10 @@ MODEL_ACCESS_ADMIN_TOKEN="change-this-model-access-admin-token"
- # 网关服务根地址。正式环境可填 https://yice.byd.com/ai-gate；
- # 直连测试服务可填 http://10.111.175.240:3002。
- MODEL_GATEWAY_BASE_URL="https://yice.byd.com/ai-gate"
-+# Full Responses endpoint for the Codex bridge. Confirm the gateway route before deployment.
-+CODEX_GATEWAY_RESPONSES_URL="${MODEL_GATEWAY_BASE_URL}/v1/responses"
-+# Same email-to-key service used by chat-rag newTokenAuth.endpoint.
+@@ -16,6 +16,10 @@ PORT_NACOS="31808"
+ #---------------------------------------------------------
+ # 模型服务器的IP，需要根据实际情况设置
+ MODEL_SERVER_IP="10.72.12.32"
++# Codex bridge upstreams. Confirm these addresses against the current gateway
++# and chat-rag newTokenAuth.endpoint before deploying the bridge.
++CODEX_GATEWAY_RESPONSES_URL="https://yice.byd.com/ai-gate/v1/responses"
 +CODEX_TOKEN_EXCHANGE_URL="http://10.0.135.45:30022/api/opentoken/key/condition"
- MODEL_GATEWAY_TOKEN="change-this-new-open-token"
- # 代码补全固定使用的模型，会在同步时自动追加且去重。
- MODEL_GATEWAY_COMPLETION_MODEL="DeepSeek-Coder-V2-Lite-Base"
+ # 对话模型的BASEURL,DEFAULT_MODEL,MODEL_CONTEXTSIZE,APIKEY，初始化后更新配置需在higress中修改
+ 
+ # 已废弃，到higress中配置
 diff --git a/costrict.sh b/costrict.sh
-index 76273ec..e79d4cb 100755
+index b9a50f3..88dc41a 100755
 --- a/costrict.sh
 +++ b/costrict.sh
-@@ -139,6 +139,7 @@ wait_k8s_rollout() {
+@@ -86,7 +86,8 @@ apply_k8s_configmaps() {
+   apply_configmap costrict-grafana-provisioning-dashboards \
+     --from-file=all.yaml="${SCRIPT_DIR}/config/grafana/provisioning/dashboards/all.yaml"
+   apply_configmap costrict-grafana-dashboards \
+-    --from-file=apisix-grafana-dashboard.json="${SCRIPT_DIR}/config/grafana/dashboards/apisix-grafana-dashboard.json"
++    --from-file=apisix-grafana-dashboard.json="${SCRIPT_DIR}/config/grafana/dashboards/apisix-grafana-dashboard.json" \
++    --from-file=dicode-codex-bridge-logs.json="${SCRIPT_DIR}/config/grafana/dashboards/dicode-codex-bridge-logs.json"
+   apply_configmap costrict-postgres-initdb \
+     --from-file="${SCRIPT_DIR}/config/postgres/initdb.d"
+ 
+@@ -140,6 +141,7 @@ wait_k8s_rollout() {
      nacos
      apisix
      model-proxy
@@ -71,7 +106,7 @@ index 76273ec..e79d4cb 100755
      issue-manager
      portal
      chat-rag
-@@ -345,7 +346,7 @@ cmd_install() {
+@@ -336,7 +338,7 @@ cmd_install() {
    fi
    info "开始安装..."
    apply_k8s_configmaps
@@ -80,7 +115,7 @@ index 76273ec..e79d4cb 100755
    if [[ $? -ne 0 ]]; then
      die "安装异常"
    fi
-@@ -373,6 +374,7 @@ cmd_down() {
+@@ -364,6 +366,7 @@ cmd_down() {
    fi
  
    if kubectl delete -f "${manifest}" --ignore-not-found "$@"; then
@@ -88,7 +123,7 @@ index 76273ec..e79d4cb 100755
      success "Kubernetes 资源已删除。PVC 是否保留取决于集群 StorageClass 的回收策略。"
    else
      die "删除服务失败，请检查 Kubernetes 配置。"
-@@ -392,7 +394,7 @@ cmd_up() {
+@@ -383,7 +386,7 @@ cmd_up() {
    fi
  
    apply_k8s_configmaps
@@ -99,26 +134,26 @@ index 76273ec..e79d4cb 100755
      success "所有服务已启动。"
 diff --git a/docs/dicode-codex-mvp.md b/docs/dicode-codex-mvp.md
 new file mode 100644
-index 0000000..7a6aaba
+index 0000000..c501dc6
 --- /dev/null
 +++ b/docs/dicode-codex-mvp.md
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,72 @@
 +# DiCode Codex MVP deployment
 +
 +The standalone `dicode-codex-bridge` receives `POST /codex/v1/responses`. It checks the caller's DiCode bearer token and selected model through the existing `model-proxy` model-access service. After that service validates the JWT, the bridge reads its email claim, looks up `chat_rag:new_token_auth` in the existing Redis, and on a miss calls the same email-to-key service as chat-rag. It sends the returned per-user key to the Responses gateway, with `originator: codex_cli_rs` and session/thread IDs, and streams the original events. The VS Code extension starts an unmodified local Codex CLI; no Codex process runs in the Kubernetes container.
 +
 +## Offline artifacts
 +
-+The release contains `dicode-codex-bridge-v0.1.2-linux-amd64-image.tar`, `dicode-codex-cli-0.164.0-assets.tar`, `dicode-codex-mvp.vsix`, the deployment patch, and a SHA-256 file. Copy them into one directory on the internal network and run `sha256sum -c SHA256SUMS-dicode-codex-mvp-v0.1.3.txt`. The bridge image is for **linux/amd64** cluster nodes. The CLI asset archive contains the official Codex 0.164.0 **Linux and Windows x64/arm64** platform packages.
++The bridge logging release contains `dicode-codex-bridge-v0.1.3-linux-amd64-image.tar` and a SHA-256 file. The earlier DiCode Codex MVP release contains the CLI asset archive and VSIX. The bridge image is for **linux/amd64** cluster nodes.
 +
 +## Install the new service only
 +
 +1. On a machine with Docker and access to your internal registry, run:
 +
 +   ```sh
-+   docker load -i dicode-codex-bridge-v0.1.2-linux-amd64-image.tar
-+   docker tag costrict/dicode-codex-bridge:v0.1.2 REGISTRY/PROJECT/dicode-codex-bridge:v0.1.2
-+   docker push REGISTRY/PROJECT/dicode-codex-bridge:v0.1.2
++   docker load -i dicode-codex-bridge-v0.1.3-linux-amd64-image.tar
++   docker tag costrict/dicode-codex-bridge:v0.1.3 REGISTRY/PROJECT/dicode-codex-bridge:v0.1.3
++   docker push REGISTRY/PROJECT/dicode-codex-bridge:v0.1.3
 +   ```
 +
 +2. Create a Secret containing the **token exchange service's `NEW-OPEN-TOKEN` credential**. Use the same value as `newTokenAuth.openToken` in the current chat-rag configuration; this is not a gateway API key. Do not put it in `configure.sh` or the VSIX:
@@ -129,7 +164,7 @@ index 0000000..7a6aaba
 +     --dry-run=client -o yaml | kubectl apply -f -
 +   ```
 +
-+3. In this deployment repository, set `IMAGE_DICODE_CODEX_BRIDGE` in `scripts/newest-images.list` to `REGISTRY/PROJECT/dicode-codex-bridge:v0.1.2`. Set `CODEX_GATEWAY_RESPONSES_URL` in `configure.sh` to `https://yice.byd.com/ai-gate/v1/responses`, or the corresponding internal address. Confirm `CODEX_TOKEN_EXCHANGE_URL` matches chat-rag's current `newTokenAuth.endpoint`. The caller's DiCode JWT is used for model authorization; the token exchange service uses its own Secret credential, and the gateway uses the resulting user's key. The bridge reads the existing `redis:6379` service and `chat_rag:new_token_auth` cache. The deployed chat-rag configuration currently sets `fixedEmail`; this bridge deliberately uses each verified user's email instead.
++3. In this deployment repository, set `IMAGE_DICODE_CODEX_BRIDGE` in `scripts/newest-images.list` to `REGISTRY/PROJECT/dicode-codex-bridge:v0.1.3`. Confirm `CODEX_GATEWAY_RESPONSES_URL` points to the gateway's exact `/v1/responses` endpoint and `CODEX_TOKEN_EXCHANGE_URL` matches chat-rag's current `newTokenAuth.endpoint`. The caller's DiCode JWT is used for model authorization; the token exchange service uses its own Secret credential, and the gateway uses the resulting user's key. The bridge reads the existing `redis:6379` service and `chat_rag:new_token_auth` cache.
 +4. Run `./costrict.sh prepare`. Check the generated `k8s/dicode-codex-bridge.yaml`, then apply only this new service:
 +
 +   ```sh
@@ -150,6 +185,21 @@ index 0000000..7a6aaba
 +   The public route is `POST /codex/v1/responses`. You can also use the existing `./apisix_router_setting.sh` workflow, which reapplies all routes.
 +
 +For a direct check, `kubectl -n costrict port-forward svc/dicode-codex-bridge 18080:8080`, then send a Responses request to `http://127.0.0.1:18080/codex/v1/responses` using a **DiCode user bearer token** and a model visible in `/ai-gateway/api/v1/models`. Do not send a gateway key to the bridge as the user token. Check `kubectl -n costrict logs deployment/dicode-codex-bridge` if the model check, Redis lookup, email-to-key exchange, or gateway call fails.
++
++## View bridge logs in Grafana
++
++The existing Promtail DaemonSet scrapes all Pod stdout/stderr in the CoStrict namespace and attaches the Pod's `app` label. The bridge Deployment has `app: dicode-codex-bridge`, and Grafana already has a Loki data source. No new collector or data source is needed. Provision the dashboard after updating this repository:
++
++```sh
++kubectl -n costrict create configmap costrict-grafana-dashboards \
++  --from-file=apisix-grafana-dashboard.json=config/grafana/dashboards/apisix-grafana-dashboard.json \
++  --from-file=dicode-codex-bridge-logs.json=config/grafana/dashboards/dicode-codex-bridge-logs.json \
++  --dry-run=client -o yaml | kubectl apply -f -
++kubectl -n costrict rollout restart deployment/grafana
++kubectl -n costrict rollout status deployment/grafana
++```
++
++Open **DiCode Codex Bridge Logs** in Grafana, or use Loki Explore with `{app="dicode-codex-bridge"}`. The upper panel includes request summaries and every upstream HTTP status. The lower panel filters `gateway_error:` and `gateway_stream_error:`. Request logs include model, tool names, and instruction digests but omit tokens and user text. Gateway error logs include bounded error messages from HTTP errors and SSE error events. These logs are always enabled.
 +
 +## Codex CLI auto-install assets
 +
@@ -276,17 +326,17 @@ index 0000000..2758b1b
 +kubectl -n "${namespace}" cp "${destination}/." "${pod}:/var/www/costrict/codex/"
 +echo "Codex CLI assets deployed to portal pod ${pod}"
 diff --git a/scripts/newest-images.list b/scripts/newest-images.list
-index e0e677b..770488d 100644
+index 81226ed..302013e 100644
 --- a/scripts/newest-images.list
 +++ b/scripts/newest-images.list
-@@ -6,6 +6,7 @@ IMAGE_NGINX=nginx:1.27.1
+@@ -4,6 +4,7 @@ IMAGE_REDIS=redis:7.2.4
+ IMAGE_POSTGRES=postgres:15-alpine
+ IMAGE_NGINX=nginx:1.27.1
  IMAGE_GRAFANA=grafana/grafana:11.2.0
++IMAGE_DICODE_CODEX_BRIDGE=costrict/dicode-codex-bridge:v0.1.3
  IMAGE_PROMETHEUS=quay.io/prometheus/prometheus:v2.54.0
- IMAGE_MODEL_PROXY=costrict/model-proxy-access:v0.4.2
-+IMAGE_DICODE_CODEX_BRIDGE=costrict/dicode-codex-bridge:v0.1.2
+ IMAGE_MODEL_PROXY=ghcr.io/zgsm-sangfor/costrict-model-proxy:v0.0.4
  IMAGE_CASDOOR=zgsm/casdoor:v2.1.3
- IMAGE_CHATRAG=zgsm/chat-rag:v1.5.22
- IMAGE_CODE_COMPLETION=zgsm/code-completion:v1.7.105
 diff --git a/scripts/templates.list b/scripts/templates.list
 index 76daaf8..fb8b5af 100644
 --- a/scripts/templates.list
@@ -297,6 +347,3 @@ index 76daaf8..fb8b5af 100644
  k8s/costrict.yaml.tpl
 +k8s/dicode-codex-bridge.yaml.tpl
  k8s/loki-promtail.yaml.tpl
--- 
-2.53.0
-

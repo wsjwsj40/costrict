@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,8 @@ import (
 )
 
 const maxRequestBytes = 16 << 20
+const maxLoggedErrorBytes = 4096
+const maxEventLineBytes = 8192
 
 type server struct {
 	modelsURL    string
@@ -121,6 +124,7 @@ func (s *server) responses(w http.ResponseWriter, r *http.Request) {
 	if id := r.Header.Get("X-Request-Id"); id != "" {
 		upstream.Header.Set("X-Request-Id", id)
 	}
+	log.Printf("responses request: session=%q thread=%q request=%q %s", upstream.Header.Get("session-id"), upstream.Header.Get("thread-id"), upstream.Header.Get("X-Request-Id"), responsesRequestSummary(body))
 	response, err := s.client.Do(upstream)
 	if err != nil {
 		log.Printf("responses upstream failed: %v", err)
@@ -128,6 +132,8 @@ func (s *server) responses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer response.Body.Close()
+	responseContext := fmt.Sprintf("session=%q thread=%q request=%q upstream_request=%q", upstream.Header.Get("session-id"), upstream.Header.Get("thread-id"), upstream.Header.Get("X-Request-Id"), response.Header.Get("X-Request-Id"))
+	log.Printf("gateway_response: %s status=%d content_type=%q", responseContext, response.StatusCode, response.Header.Get("Content-Type"))
 	for _, key := range []string{"Content-Type", "Cache-Control", "X-Request-Id"} {
 		if value := response.Header.Get(key); value != "" {
 			w.Header().Set(key, value)
@@ -135,9 +141,16 @@ func (s *server) responses(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(response.StatusCode)
 	buffer := make([]byte, 32*1024)
+	events := newGatewayEventLogger(responseContext)
+	var errorBody []byte
 	for {
 		n, readErr := response.Body.Read(buffer)
 		if n > 0 {
+			events.write(buffer[:n])
+			if response.StatusCode >= http.StatusBadRequest && len(errorBody) < maxLoggedErrorBytes {
+				remaining := maxLoggedErrorBytes - len(errorBody)
+				errorBody = append(errorBody, buffer[:min(n, remaining)]...)
+			}
 			if _, err := w.Write(buffer[:n]); err != nil {
 				return
 			}
@@ -146,9 +159,187 @@ func (s *server) responses(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if readErr != nil {
+			events.finish()
+			if response.StatusCode >= http.StatusBadRequest && !events.loggedError {
+				log.Printf("gateway_error: %s status=%d detail=%q", responseContext, response.StatusCode, gatewayErrorDetail(errorBody))
+			}
+			if readErr != io.EOF {
+				log.Printf("gateway_stream_error: %s error=%q", responseContext, readErr)
+			}
 			return
 		}
 	}
+}
+
+type gatewayEventLogger struct {
+	context     string
+	pending     []byte
+	event       string
+	data        []byte
+	dropping    bool
+	loggedError bool
+}
+
+func newGatewayEventLogger(context string) *gatewayEventLogger {
+	return &gatewayEventLogger{context: context}
+}
+
+func (l *gatewayEventLogger) write(chunk []byte) {
+	for len(chunk) > 0 {
+		end := bytes.IndexByte(chunk, '\n')
+		if end < 0 {
+			if !l.dropping && len(l.pending)+len(chunk) <= maxEventLineBytes {
+				l.pending = append(l.pending, chunk...)
+			} else {
+				l.pending = nil
+				l.dropping = true
+			}
+			return
+		}
+		if !l.dropping && len(l.pending)+end <= maxEventLineBytes {
+			l.pending = append(l.pending, chunk[:end]...)
+			l.line(bytes.TrimSuffix(l.pending, []byte{'\r'}))
+		}
+		l.pending = nil
+		l.dropping = false
+		chunk = chunk[end+1:]
+	}
+}
+
+func (l *gatewayEventLogger) line(line []byte) {
+	if len(line) == 0 {
+		l.finishEvent()
+		return
+	}
+	if bytes.HasPrefix(line, []byte("event:")) {
+		l.event = strings.TrimSpace(string(line[len("event:"):]))
+	} else if bytes.HasPrefix(line, []byte("data:")) && len(l.data) < maxLoggedErrorBytes {
+		value := bytes.TrimSpace(line[len("data:"):])
+		remaining := maxLoggedErrorBytes - len(l.data)
+		l.data = append(l.data, value[:min(len(value), remaining)]...)
+	}
+}
+
+func (l *gatewayEventLogger) finishEvent() {
+	if l.event == "error" || l.event == "response.failed" || l.event == "response.incomplete" {
+		log.Printf("gateway_error: %s event=%q detail=%q", l.context, l.event, gatewayErrorDetail(l.data))
+		l.loggedError = true
+	}
+	l.event = ""
+	l.data = nil
+}
+
+func (l *gatewayEventLogger) finish() {
+	if len(l.pending) > 0 && !l.dropping {
+		l.line(bytes.TrimSuffix(l.pending, []byte{'\r'}))
+	}
+	l.finishEvent()
+}
+
+func gatewayErrorDetail(body []byte) string {
+	var envelope struct {
+		Error    json.RawMessage `json:"error"`
+		Message  string          `json:"message"`
+		Response struct {
+			Status string          `json:"status"`
+			Error  json.RawMessage `json:"error"`
+		} `json:"response"`
+	}
+	if json.Unmarshal(body, &envelope) == nil {
+		raw := envelope.Error
+		if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+			raw = envelope.Response.Error
+		}
+		if len(raw) > 0 && !bytes.Equal(raw, []byte("null")) {
+			var detail struct {
+				Type    string          `json:"type"`
+				Code    json.RawMessage `json:"code"`
+				Message string          `json:"message"`
+			}
+			if json.Unmarshal(raw, &detail) == nil {
+				return limitErrorDetail(fmt.Sprintf("type=%q code=%s message=%q", detail.Type, detail.Code, detail.Message))
+			}
+			var message string
+			if json.Unmarshal(raw, &message) == nil {
+				return limitErrorDetail(message)
+			}
+		}
+		if envelope.Message != "" {
+			return limitErrorDetail(envelope.Message)
+		}
+		if envelope.Response.Status != "" {
+			return limitErrorDetail("response.status=" + envelope.Response.Status)
+		}
+	}
+	if len(body) == 0 {
+		return "empty error body"
+	}
+	return limitErrorDetail(string(body))
+}
+
+func limitErrorDetail(value string) string {
+	value = strings.ToValidUTF8(value, "�")
+	if len(value) > 1024 {
+		value = value[:1024] + "…"
+	}
+	return value
+}
+
+// responsesRequestSummary records the request shape without user text, tool
+// arguments, bearer tokens, or the full model instructions.
+func responsesRequestSummary(body []byte) string {
+	var request struct {
+		Model             string            `json:"model"`
+		Stream            bool              `json:"stream"`
+		ParallelToolCalls bool              `json:"parallel_tool_calls"`
+		ToolChoice        json.RawMessage   `json:"tool_choice"`
+		Input             []json.RawMessage `json:"input"`
+		Tools             []struct {
+			Type string `json:"type"`
+			Name string `json:"name"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(body, &request); err != nil {
+		return `{"error":"could not parse request summary"}`
+	}
+	input := make([]map[string]any, 0, len(request.Input))
+	for index, raw := range request.Input {
+		var item struct {
+			Role    string          `json:"role"`
+			Type    string          `json:"type"`
+			Content json.RawMessage `json:"content"`
+		}
+		if json.Unmarshal(raw, &item) != nil {
+			continue
+		}
+		entry := map[string]any{"index": index, "role": item.Role, "type": item.Type}
+		if item.Role == "developer" || item.Role == "system" {
+			var parts []struct {
+				Text string `json:"text"`
+			}
+			if json.Unmarshal(item.Content, &parts) == nil {
+				var content strings.Builder
+				for _, part := range parts {
+					content.WriteString(part.Text)
+				}
+				text := content.String()
+				entry["text_bytes"] = len(text)
+				entry["sha256"] = fmt.Sprintf("%x", sha256.Sum256([]byte(text)))
+				entry["codex_prompt"] = strings.HasPrefix(text, "You are Codex")
+				entry["dicode_identity"] = strings.Contains(text, "你是 DiCode")
+			}
+		}
+		input = append(input, entry)
+	}
+	tools := make([]map[string]string, 0, len(request.Tools))
+	for _, tool := range request.Tools {
+		tools = append(tools, map[string]string{"type": tool.Type, "name": tool.Name})
+	}
+	summary, _ := json.Marshal(map[string]any{
+		"model": request.Model, "stream": request.Stream, "parallel_tool_calls": request.ParallelToolCalls,
+		"tool_choice": request.ToolChoice, "input": input, "tools": tools, "body_bytes": len(body),
+	})
+	return string(summary)
 }
 
 func emailFromVerifiedJWT(auth string) (string, error) {

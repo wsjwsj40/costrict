@@ -4,4 +4,8 @@ Standalone Responses endpoint for the unmodified Codex CLI. Set `MODEL_ACCESS_UR
 
 `GET /health` is unauthenticated. `POST /codex/v1/responses` requires a DiCode bearer token. It does not hold Codex sessions or run Codex itself; the VS Code extension starts `codex app-server` on the user's extension host.
 
+Request diagnostics are always on. Each forwarded Responses request logs its session/thread/request IDs, model, stream and tool settings, input item roles and types, tool names, and the byte length and SHA-256 digest of developer/system messages. `codex_prompt` marks a developer message beginning with Codex's native opening; `dicode_identity` marks a message containing the DiCode identity. The extension's DiCode Codex output channel logs the selected bundled template digest. The digests may differ because Codex adds runtime guidance before sending a request. The diagnostic omits bearer tokens, user text, tool arguments, and full instruction text.
+
+The bridge also logs every upstream HTTP status as `gateway_response`, HTTP error details as `gateway_error`, and `error`, `response.failed`, and `response.incomplete` SSE events as `gateway_error`. Error text is capped at 1 KiB per entry. The response status, headers, and stream bytes are forwarded unchanged. In the existing deployment, Promtail collects container stdout/stderr and Grafana's Loki data source can query `{app="dicode-codex-bridge"}`.
+
 Build: `docker build -t dicode-codex-bridge:dev tools/dicode-codex-bridge` from the repository root.
