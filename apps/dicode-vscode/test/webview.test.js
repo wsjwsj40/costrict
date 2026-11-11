@@ -33,7 +33,7 @@ test('sidebar renders mixed app-server events and real approval decisions', asyn
   assert.equal(doc.getElementById('planDock').hidden, false)
   assert.equal(doc.getElementById('planDock').nextElementSibling.id, 'changeDock')
   assert.equal(doc.getElementById('changeDock').nextElementSibling.className, 'composer-shell')
-  assert.match(doc.getElementById('messages').textContent, /搜索代码/)
+  assert.match(doc.getElementById('messages').textContent, /已运行 npm test/)
   assert.match(doc.getElementById('changeDock').textContent, /1 个文件已修改/)
   doc.querySelector('#changeDock .view-changes').click()
   assert.equal(sent.at(-1).type, 'openDiff')
@@ -121,7 +121,7 @@ test('consecutive commands share a collapsible list and retain their output', as
   const group = doc.querySelector('.command-group')
   assert.ok(group)
   assert.equal(group.open, false)
-  assert.match(group.querySelector('summary').textContent, /已列出文件 1 次、已读取文件 1 次/)
+  assert.match(group.querySelector('summary').textContent, /已运行 2 条命令/)
   assert.equal(group.querySelectorAll('.command-card').length, 2)
   assert.ok(group.querySelector('.command-group-icon svg'))
   assert.ok(group.querySelector('.command-card .activity-icon svg'))
@@ -150,8 +150,8 @@ test('four consecutive commands stay in one group across pending and invisible e
   const groups = doc.querySelectorAll('.command-group')
   assert.equal(groups.length, 1)
   assert.equal(groups[0].querySelectorAll('.command-card').length, 4)
-  assert.equal(groups[0].open, true)
-  assert.match(groups[0].querySelector('.command-group-label').textContent, /正在执行 4 条命令/)
+  assert.equal(groups[0].open, false)
+  assert.match(groups[0].querySelector('.command-group-label').textContent, /正在运行 git status/)
   dom.window.close()
 })
 
@@ -171,13 +171,12 @@ test('PowerShell file reads group with adjacent commands across empty commentary
   const group = doc.querySelector('.command-group')
   assert.ok(group)
   assert.equal(group.querySelectorAll('.command-card').length, 2)
-  assert.match(group.querySelector('.command-group-label').textContent, /已读取文件 1 次、已执行 1 条命令/)
-  assert.match(group.querySelector('.command-card summary').textContent, /已读取文件/)
-  assert.doesNotMatch(group.querySelector('.command-card summary').textContent, /已搜索代码/)
+  assert.match(group.querySelector('.command-group-label').textContent, /已运行 2 条命令/)
+  assert.match(group.querySelector('.command-card summary').textContent, /已运行/)
   dom.window.close()
 })
 
-test('structured command actions take priority over command text when rendering', async () => {
+test('structured command actions keep one ordinary command row each', async () => {
   const { dom, emit, doc } = setup()
   emit({ type: 'state', loggedIn: true, busy: false, workspace: '/repo', models: [] })
   emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
@@ -190,12 +189,9 @@ test('structured command actions take priority over command text when rendering'
   }] } })
   await tick()
   const cards = doc.querySelectorAll('.command-card')
-  assert.match(cards[0].querySelector('.activity-label').textContent, /已读取文件/)
-  assert.match(cards[1].querySelector('.activity-label').textContent, /已列出文件/)
-  assert.equal(cards.length, 4)
-  assert.match(cards[2].querySelector('.activity-label').textContent, /已读取文件 Get-Content game.js/)
-  assert.match(cards[3].querySelector('.activity-label').textContent, /已搜索代码 Select-String needle/)
-  assert.match(doc.querySelector('.command-group-label').textContent, /已读取文件 2 次、已列出文件 1 次、已搜索代码 1 次/)
+  assert.equal(cards.length, 3)
+  assert.ok([...cards].every(card => card.querySelector('.activity-label').textContent.startsWith('已运行 ')))
+  assert.match(doc.querySelector('.command-group-label').textContent, /已运行 3 条命令/)
   dom.window.close()
 })
 
@@ -216,8 +212,36 @@ test('shell edits show detected file changes when Codex emits only a diff', asyn
   assert.ok(group)
   assert.equal(group.querySelectorAll('.command-card').length, 2)
   assert.equal(group.querySelectorAll('.file-card').length, 1)
-  assert.match(group.querySelector('.file-card summary').textContent, /检测到文件变更 · game\.js/)
-  assert.match(group.querySelector('.command-group-label').textContent, /已读取文件 1 次、已执行 1 条命令、已编辑 1 个文件/)
+  assert.match(group.querySelector('.file-card summary').textContent, /已编辑 game\.js/)
+  assert.match(group.querySelector('.command-group-label').textContent, /已运行 2 条命令、已编辑 1 个文件/)
+  dom.window.close()
+})
+
+test('Codex patch command renders as a file edit with inline and editor diff', async () => {
+  const { dom, sent, emit, doc } = setup()
+  const command = "$patch = @'\n*** Begin Patch\n*** Add File: D:\\projects\\test\\snake-game\\style.css\n+body { color: red; }\n*** End Patch\n'@\n& $codexExe --codex-run-as-apply-patch $patch"
+  const diff = 'diff --git a/snake-game/style.css b/snake-game/style.css\nnew file mode 100644\n--- /dev/null\n+++ b/snake-game/style.css\n@@ -0,0 +1 @@\n+body { color: red; }'
+  emit({ type: 'state', loggedIn: true, busy: true, workspace: 'D:\\projects\\test', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{ id: 'turn', status: 'inProgress', startedAt: Date.now(), items: [
+    { id: 'patch', type: 'commandExecution', status: 'inProgress', raw: { command, cwd: 'D:\\projects\\test' } },
+  ] }] } })
+  await tick()
+  assert.equal(doc.querySelector('.command-card'), null)
+  assert.match(doc.querySelector('.file-card .activity-label').textContent, /正在编辑 snake-game\/style\.css/)
+  assert.equal(doc.querySelector('.file-diff-link').disabled, true)
+  emit({ type: 'rpc', method: 'turn/diff/updated', params: { turnId: 'turn', diff } })
+  emit({ type: 'rpc', method: 'item/completed', params: { turnId: 'turn', item: { id: 'patch', type: 'commandExecution', status: 'completed', command, exitCode: 0 } } })
+  await tick()
+  const card = doc.querySelector('.file-card')
+  assert.match(card.querySelector('.activity-label').textContent, /已编辑 snake-game\/style\.css \+1 -0/)
+  assert.match(card.querySelector('.diff').textContent, /body \{ color: red; \}/)
+  const beforeExpand = sent.length
+  card.querySelector('summary').click()
+  assert.equal(sent.length, beforeExpand)
+  card.querySelector('.file-diff-link').click()
+  assert.equal(sent.at(-1).type, 'openDiff')
+  assert.equal(sent.at(-1).path, 'snake-game/style.css')
+  assert.equal(doc.querySelectorAll('.file-card').length, 1)
   dom.window.close()
 })
 
@@ -257,12 +281,12 @@ test('running commands shimmer, editing shows changes, and completion keeps a fi
   }] } })
   await tick()
   assert.match(doc.querySelector('.turn-process-summary').textContent, /^正在处理/)
-  assert.equal(doc.querySelector('.command-group').open, true)
-  assert.match(doc.querySelector('.command-group-label').textContent, /已列出文件 1 次、正在执行 1 条命令、正在编辑 1 个文件/)
+  assert.equal(doc.querySelector('.command-group').open, false)
+  assert.match(doc.querySelector('.command-group-label').textContent, /正在编辑 src\/a\.js/)
   assert.match(doc.querySelector('.command-card.status-completed').textContent, /rg --files/)
   assert.match(doc.querySelector('.command-card.status-inProgress').textContent, /正在运行 npm test/)
   assert.equal(doc.querySelectorAll('.command-card.status-inProgress .running-shimmer').length, 1)
-  assert.match(doc.querySelector('.file-card.status-inProgress').textContent, /正在编辑文件/)
+  assert.match(doc.querySelector('.file-card.status-inProgress').textContent, /正在编辑/)
   assert.equal(doc.getElementById('changeDock').hidden, false)
   doc.querySelector('#changeDock .view-changes').click()
   assert.equal(sent.at(-1).type, 'openDiff')
@@ -292,7 +316,7 @@ test('mixed edits and commands use a content-based group with separate file rows
   }] } })
   await tick()
   const group = doc.querySelector('.command-group')
-  assert.match(group.querySelector('.command-group-label').textContent, /已编辑 2 个文件、已执行 1 条命令/)
+  assert.match(group.querySelector('.command-group-label').textContent, /已编辑 2 个文件、已运行 1 条命令/)
   assert.equal(group.querySelectorAll('.file-card').length, 2)
   assert.equal(group.querySelectorAll('.command-card').length, 1)
   assert.match(group.querySelector('.file-card').textContent, /a\.js \+1 -1/)
@@ -301,7 +325,7 @@ test('mixed edits and commands use a content-based group with separate file rows
   dom.window.close()
 })
 
-test('a single search activity renders directly without a redundant group', async () => {
+test('a single command activity renders directly without a redundant group', async () => {
   const { dom, emit, doc } = setup()
   emit({ type: 'state', loggedIn: true, busy: false, workspace: '/repo', models: [] })
   emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
@@ -311,7 +335,7 @@ test('a single search activity renders directly without a redundant group', asyn
   await tick()
   assert.equal(doc.querySelector('.command-group'), null)
   assert.equal(doc.querySelectorAll('.command-card').length, 1)
-  assert.match(doc.querySelector('.command-card summary').textContent, /已搜索代码 rg login/)
+  assert.match(doc.querySelector('.command-card summary').textContent, /已运行 rg login/)
   dom.window.close()
 })
 
@@ -324,8 +348,8 @@ test('one running command has a group and failed commands never read as complete
     ],
   }] } })
   await tick()
-  assert.equal(doc.querySelectorAll('.command-group').length, 1)
-  assert.equal(doc.querySelector('.command-group').open, true)
+  assert.equal(doc.querySelectorAll('.command-group').length, 0)
+  assert.match(doc.querySelector('.command-card .activity-label').textContent, /正在运行 npm test/)
   emit({ type: 'rpc', method: 'item/completed', params: { turnId: 'turn', item: { id: 'run', type: 'commandExecution', status: 'failed', command: 'npm test', exitCode: 1 } } })
   await tick()
   assert.equal(doc.querySelector('.command-group'), null)
@@ -342,17 +366,20 @@ test('thinking appears between activities and stops when the final answer starts
   emit({ type: 'rpc', method: 'turn/started', params: { threadId: 'thread', turn: { id: 't', status: 'inProgress' } } })
   emit({ type: 'rpc', method: 'item/started', params: { turnId: 't', item: { id: 'reason', type: 'reasoning' } } })
   await tick()
-  assert.match(doc.querySelector('.thinking').textContent, /正在思考/)
+  assert.match(doc.querySelector('.thinking-marker').textContent, /思考中/)
   emit({ type: 'rpc', method: 'item/started', params: { turnId: 't', item: { id: 'cmd', type: 'commandExecution', command: 'npm test' } } })
   await tick()
-  assert.equal(doc.querySelector('.thinking'), null)
+  assert.equal(doc.querySelector('.thinking-marker'), null)
   assert.match(doc.querySelector('.command-card .activity-label').textContent, /正在运行 npm test/)
   emit({ type: 'rpc', method: 'item/completed', params: { turnId: 't', item: { id: 'cmd', type: 'commandExecution', status: 'completed', command: 'npm test', exitCode: 0 } } })
+  emit({ type: 'rpc', method: 'item/started', params: { turnId: 't', item: { id: 'reason2', type: 'reasoning' } } })
   await tick()
-  assert.match(doc.querySelector('.thinking').textContent, /正在思考/)
+  assert.match(doc.querySelector('.command-group-label').textContent, /思考中/)
+  assert.equal(doc.querySelector('.command-group').open, false)
+  assert.match(doc.querySelector('.command-group-list').textContent, /已运行 npm test/)
   emit({ type: 'rpc', method: 'item/started', params: { turnId: 't', item: { id: 'answer', type: 'agentMessage', text: '测试通过', phase: 'final_answer' } } })
   await tick()
-  assert.equal(doc.querySelector('.thinking'), null)
+  assert.equal(doc.querySelector('.thinking-marker'), null)
   assert.equal(doc.querySelector('.turn-process').open, false)
   assert.match(doc.querySelector('.final-answer').textContent, /测试通过/)
   dom.window.close()
@@ -379,7 +406,7 @@ test('approval stays visible until Codex resolves it and can recover from send e
   dom.window.close()
 })
 
-test('local rg search is labelled as search even when Codex omits command actions', async () => {
+test('local rg search keeps the ordinary command label', async () => {
   const { dom, emit, doc } = setup()
   emit({ type: 'state', loggedIn: true, busy: false, workspace: '/repo', models: [] })
   emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
@@ -390,9 +417,8 @@ test('local rg search is labelled as search even when Codex omits command action
     ],
   }] } })
   await tick()
-  assert.match(doc.querySelector('.command-group-label').textContent, /已搜索代码 1 次/)
-  assert.match(doc.querySelector('.command-group-label').textContent, /已执行 1 条命令/)
-  assert.match(doc.querySelector('.command-card summary').textContent, /已搜索代码 rg -n login src/)
+  assert.match(doc.querySelector('.command-group-label').textContent, /已运行 2 条命令/)
+  assert.match(doc.querySelector('.command-card summary').textContent, /已运行 rg -n login src/)
   dom.window.close()
 })
 
@@ -413,7 +439,7 @@ test('command headings keep full single-line text for responsive CSS clipping wh
   assert.equal(single.querySelector('.activity-label').textContent, '已运行 npm test -- --runInBand')
   assert.equal(single.querySelector('.command-text').textContent, multilineCommand)
   const grouped = doc.querySelector('[data-turn-id="grouped"] .command-card')
-  assert.equal(grouped.querySelector('.activity-label').textContent, `已列出文件 ${longCommand}`)
+  assert.equal(grouped.querySelector('.activity-label').textContent, `已运行 ${longCommand}`)
   assert.equal(grouped.querySelector('.command-text').textContent, longCommand)
   dom.window.close()
 })
@@ -699,7 +725,7 @@ test('host idle state clears the working badge after cancelling command approval
   doc.getElementById('prompt').dispatchEvent(new dom.window.Event('input'))
   doc.getElementById('send').click()
   assert.equal(sent.at(-1).type, 'send')
-  assert.equal(doc.querySelectorAll('.working').length, 1)
+  assert.equal(doc.querySelectorAll('.thinking-marker').length, 1)
   dom.window.close()
 })
 

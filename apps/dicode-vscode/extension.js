@@ -10,6 +10,7 @@ const { beforeFromUnifiedDiff } = require("./diff")
 const { ConversationStore } = require("./media/conversation")
 const { generateThreadTitle } = require("./threadTitle")
 const EXTENSION_VERSION = require("./package.json").version
+const WINDOWS_PATCH_INSTRUCTIONS = fs.readFileSync(path.join(__dirname, "windows-patch-instructions.md"), "utf8").trim()
 
 const TOKEN_KEY = "dicodeCodex.tokens"
 const CLIENT_KEY = "dicodeCodex.machineId"
@@ -43,7 +44,7 @@ function nativeInstructions(model) {
 
 const PATCH_TOOL_GUIDANCE = "Use only apply_patch for this tool (there is no write tool). Send raw patch text, not JSON or a code fence. Example:\n*** Begin Patch\n*** Add File: index.html\n+<!DOCTYPE html>\n+<html></html>\n*** End Patch\nEvery added file line starts with +."
 
-function modelCatalog(models, nativeModels) {
+function modelCatalog(models, nativeModels, platform = process.platform) {
 	// Codex rejects custom model entries without a base template, so reuse the
 	// template bundled with the exact CLI binary that will run this catalog.
 	const candidates = nativeModels.filter((model) => nativeInstructions(model))
@@ -68,10 +69,9 @@ function modelCatalog(models, nativeModels) {
 				instructions_template: instructions,
 				tools: {
 					...native.model_messages?.tools,
-					functions_namespace_functions_description_prefixes: {
-						...native.model_messages?.tools?.functions_namespace_functions_description_prefixes,
-						apply_patch: PATCH_TOOL_GUIDANCE,
-					},
+					functions_namespace_functions_description_prefixes: platform === "win32"
+						? { ...native.model_messages?.tools?.functions_namespace_functions_description_prefixes }
+						: { ...native.model_messages?.tools?.functions_namespace_functions_description_prefixes, apply_patch: PATCH_TOOL_GUIDANCE },
 				},
 			},
 			base_instructions: instructions,
@@ -79,7 +79,7 @@ function modelCatalog(models, nativeModels) {
 			supports_parallel_tool_calls: false,
 			support_verbosity: false,
 			default_verbosity: null,
-			apply_patch_tool_type: "freeform",
+			apply_patch_tool_type: platform === "win32" ? null : "freeform",
 			truncation_policy: { mode: "bytes", limit: 10000 },
 			experimental_supported_tools: [],
 		}
@@ -99,7 +99,7 @@ class CodexClient {
 				"--listen",
 				"stdio://",
 				"-c",
-				`developer_instructions=${JSON.stringify(identity)}`,
+				`developer_instructions=${JSON.stringify(platform === "win32" ? `${identity}\n\n${WINDOWS_PATCH_INSTRUCTIONS}` : identity)}`,
 				"-c",
 				`model_catalog_json=${JSON.stringify(catalogPath)}`,
 				"-c",
@@ -124,7 +124,7 @@ class CodexClient {
 				"-c",
 				"model_providers.dicode.supports_websockets=false",
 			],
-			{ env: { ...(powerShellPath ? powerShellEnv(powerShellPath) : process.env), DICODE_ACCESS_TOKEN: token }, stdio: ["pipe", "pipe", "pipe"] },
+			{ env: { ...(powerShellPath ? powerShellEnv(powerShellPath, process.env, binary) : process.env), DICODE_ACCESS_TOKEN: token }, stdio: ["pipe", "pipe", "pipe"] },
 		)
 		this.proc.stdout.setEncoding("utf8")
 		this.proc.stdout.on("data", (chunk) => this.consume(chunk))
@@ -401,7 +401,7 @@ class DicodeView {
 		const pending = (async () => {
 			const [binary, powerShellPath] = await Promise.all([this.ensureBinary(), process.platform === "win32" ? this.ensurePowerShell() : Promise.resolve(null)])
 			const nativeModels = await bundledModels(binary)
-			const catalog = modelCatalog(this.models, nativeModels)
+			const catalog = modelCatalog(this.models, nativeModels, process.platform)
 			this.nativeInstructionsByModel = new Map(catalog.models.map((model) => [model.slug, model.base_instructions]))
 			for (const model of catalog.models) {
 				const digest = crypto.createHash("sha256").update(model.base_instructions).digest("hex")

@@ -4,20 +4,25 @@ const crypto = require("node:crypto")
 const { spawn } = require("node:child_process")
 const { isInstalled, publishInstall, downloadArchive, run } = require("./codexInstaller")
 
-function powerShellEnv(executable, source = process.env) {
+function powerShellEnv(executable, source = process.env, codexBinary = "") {
 	const env = { ...source }
-	const pathKey = Object.keys(env).find((key) => key.toLowerCase() === "path") || "PATH"
-	env[pathKey] = `${path.dirname(executable)}${path.delimiter}${env[pathKey] || ""}`
+	const pathKeys = Object.keys(env).filter((key) => key.toLowerCase() === "path").sort()
+	const pathKey = pathKeys[0] || "PATH"
+	const currentPath = pathKeys.map((key) => env[key]).find(Boolean) || ""
+	for (const key of pathKeys) delete env[key]
+	const dirs = [path.dirname(executable)]
+	if (path.isAbsolute(codexBinary) && path.basename(codexBinary).toLowerCase() === "codex.exe") dirs.unshift(path.dirname(codexBinary))
+	env[pathKey] = [...dirs, currentPath].filter(Boolean).join(path.delimiter)
 	return env
 }
 
 function probePowerShell(executable) {
 	return new Promise((resolve, reject) => {
-		const child = spawn(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "if ($PSVersionTable.PSVersion.Major -ne 7) { exit 1 }"], {
+		const child = spawn(executable, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "if ($PSVersionTable.PSVersion -lt [version]'7.3') { exit 1 }"], {
 			windowsHide: true, stdio: "ignore", timeout: 20000,
 		})
 		child.on("error", reject)
-		child.on("close", (code) => code === 0 ? resolve() : reject(new Error(`PowerShell 7 启动检查失败：${code}`)))
+		child.on("close", (code) => code === 0 ? resolve() : reject(new Error(`PowerShell 7.3+ 启动检查失败：${code}`)))
 	})
 }
 

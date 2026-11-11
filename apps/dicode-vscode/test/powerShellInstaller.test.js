@@ -14,6 +14,12 @@ test('PowerShell env selects portable pwsh ahead of existing Windows shell', () 
   assert.equal(env.OTHER, 'value')
 })
 
+test('PowerShell env puts the installed Codex executable and pwsh ahead of Windows PATH aliases', () => {
+  const env = powerShellEnv('/storage/powershell/package/pwsh.exe', { Path: '/windows/alias', PATH: '/windows/system32' }, '/storage/codex/bin/codex.exe')
+  assert.deepEqual(Object.keys(env).filter(key => key.toLowerCase() === 'path'), ['PATH'])
+  assert.equal(env.PATH, ['/storage/codex/bin', '/storage/powershell/package', '/windows/system32'].join(path.delimiter))
+})
+
 test('PowerShell installer verifies, extracts, probes, and reuses the portal package', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dicode-pwsh-test-'))
   const source = path.join(dir, 'source')

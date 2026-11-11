@@ -138,19 +138,16 @@ function statusText(item) {
   const status = item.status || 'inProgress'
   return ({ inProgress: '运行中', completed: '完成', failed: '失败', interrupted: '已停止', declined: '已拒绝' })[status] || status
 }
-function commandKind(raw) {
-  const types = (raw.commandActions || []).map(action => typeof action === 'string' ? action : action?.type || action?.kind)
-  if (types.includes('search')) return 'search'
-  if (types.includes('read')) return 'read'
-  if (types.includes('listFiles') || types.includes('list')) return 'list'
-  const command = raw.command || ''
-  if (/(?:^|[\s;&|])(?:rg\s+--files\b|Get-ChildItem\b|\bgci\b)/i.test(command)) return 'list'
-  if (/(?:^|[\s;&|])(?:rg|grep|git\s+grep|Select-String)\b/i.test(command)) return 'search'
-  if (/(?:^|[\s;&|])(?:Get-Content|gc)\b/i.test(command)) return 'read'
-  return 'command'
+function isPatchCommand(item) { return item.type === 'commandExecution' && /--codex-run-as-apply-patch\b/i.test(item.raw?.command || '') }
+function patchPaths(item) {
+  const command = item.raw?.command || ''
+  return [...command.matchAll(/^\*\*\* (Add|Update|Delete) File: (.+)$/gm)].map(([, kind, filePath]) => ({ kind: ({ Add: 'added', Update: 'modified', Delete: 'deleted' })[kind], path: filePath.trim().replace(/\r$/, '') }))
 }
-function commandTitle(raw) {
-  return ({ search: '搜索代码', read: '读取文件', list: '列出文件', command: '执行命令' })[commandKind(raw)]
+function relativePatchPath(filePath, cwd = '') {
+  const normalized = String(filePath || '').replace(/\\/g, '/')
+  const roots = [String($('workspace')?.textContent || ''), cwd].map(root => root.replace(/\\/g, '/').replace(/\/$/, ''))
+  for (const root of roots) if (root && normalized.toLowerCase().startsWith(`${root.toLowerCase()}/`)) return normalized.slice(root.length + 1)
+  return normalized
 }
 function activityVerb(status, running, completed, failed, interrupted, declined) {
   return ({ inProgress: running, completed, failed, interrupted, declined })[status || 'inProgress'] || failed
@@ -168,29 +165,21 @@ function commandView(item, turn, action, index = 0) {
   const cmd = raw.command || ''
   const status = item.status === 'completed' && Number.isInteger(raw.exitCode) && raw.exitCode !== 0 ? 'failed' : item.status
   const running = status === 'inProgress'
-  const meta = element('div', 'muted', [commandTitle(raw), raw.cwd, raw.exitCode !== undefined ? `退出码 ${raw.exitCode}` : '', raw.durationMs !== undefined ? `${raw.durationMs} ms` : ''].filter(Boolean).join(' · '))
+  const meta = element('div', 'muted', ['执行命令', raw.cwd, raw.exitCode !== undefined ? `退出码 ${raw.exitCode}` : '', raw.durationMs !== undefined ? `${raw.durationMs} ms` : ''].filter(Boolean).join(' · '))
   const cmdPre = element('pre', 'command-text', cmd)
   body.append(meta, cmdPre, button('复制命令', () => navigator.clipboard.writeText(cmd), 'subtle'))
   if (item.output) {
     body.append(element('div', 'muted', '输出'), element('pre', 'command-output', stripAnsi(item.output)), button('复制输出', () => navigator.clipboard.writeText(stripAnsi(item.output)), 'subtle'))
   }
-  const actionTitle = commandTitle(raw)
-  const verbs = {
-    search: ['正在搜索代码', '已搜索代码', '搜索代码失败', '已停止搜索代码', '已拒绝搜索代码'],
-    read: ['正在读取文件', '已读取文件', '读取文件失败', '已停止读取文件', '已拒绝读取文件'],
-    list: ['正在列出文件', '已列出文件', '列出文件失败', '已停止列出文件', '已拒绝列出文件'],
-    command: ['正在运行', '已运行', '运行失败', '已停止运行', '已拒绝运行'],
-  }
-  const verb = activityVerb(status, ...verbs[commandKind(raw)])
-  const label = `⌘  ${verb} ${commandPreview(cmd) || actionTitle}`
+  const verb = activityVerb(status, '正在运行', '已运行', '运行失败', '已停止运行', '已拒绝运行')
+  const label = `⌘  ${verb} ${commandPreview(cmd) || '命令'}`
   const card = detail(`${turn.id}:${item.id}:${index}`, label, body, `command-card status-${status || 'inProgress'}`)
   if (running) card.querySelector('.activity-label')?.classList.add('running-shimmer')
   return card
 }
 function activityKind(entry) {
-  if (['fileChange', 'detectedFileChange'].includes(entry.item.type)) return 'edit'
-  if (entry.item.type === 'webSearch') return 'webSearch'
-  return commandKind(commandRaw(entry.item, entry.action))
+  if (['fileChange', 'detectedFileChange'].includes(entry.item.type) || isPatchCommand(entry.item)) return 'edit'
+  return 'command'
 }
 function activityStatus(entry) {
   const status = entry.item.status || 'inProgress'
@@ -199,6 +188,7 @@ function activityStatus(entry) {
 function activityTitle(entries) {
   const groups = new Map()
   for (const entry of entries) {
+    if (entry.item.type === 'reasoning') continue
     const kind = activityKind(entry)
     if (!groups.has(kind)) groups.set(kind, { count: 0, statuses: new Set() })
     const group = groups.get(kind)
@@ -207,11 +197,7 @@ function activityTitle(entries) {
   }
   const labels = {
     edit: ['正在编辑', '已编辑', '编辑失败', '已停止编辑', '已拒绝编辑', '个文件'],
-    command: ['正在执行', '已执行', '执行失败', '已停止执行', '已拒绝执行', '条命令'],
-    search: ['正在搜索代码', '已搜索代码', '搜索代码失败', '已停止搜索代码', '已拒绝搜索代码', '次'],
-    read: ['正在读取文件', '已读取文件', '读取文件失败', '已停止读取文件', '已拒绝读取文件', '次'],
-    list: ['正在列出文件', '已列出文件', '列出文件失败', '已停止列出文件', '已拒绝列出文件', '次'],
-    webSearch: ['正在搜索网页', '已搜索网页', '搜索网页失败', '已停止搜索网页', '已拒绝搜索网页', '次'],
+    command: ['正在运行', '已运行', '运行失败', '已停止运行', '已拒绝运行', '条命令'],
   }
   return [...groups].map(([kind, group]) => {
     const status = ['inProgress', 'failed', 'interrupted', 'declined'].find(value => group.statuses.has(value)) || 'completed'
@@ -221,25 +207,29 @@ function activityTitle(entries) {
 }
 function activityEntryView(entry, turn) {
   if (['fileChange', 'detectedFileChange'].includes(entry.item.type)) return fileItem(entry.item, turn, entry.change, entry.index)
+  if (isPatchCommand(entry.item)) return patchFileView(entry, turn)
   if (entry.item.type === 'commandExecution') return commandView(entry.item, turn, entry.action, entry.index)
   return itemView(entry.item, turn)
 }
-function activityGroup(entries, turn) {
+function activityGroup(entries, turn, live = false) {
   const group = element('details', 'command-group')
   const key = `${turn.id}:activities:${entries[0].item.id}`
-  group.open = commandGroupPreference.has(key)
-    ? commandGroupPreference.get(key)
-    : entries.some(entry => !entry.item.status || entry.item.status === 'inProgress')
+  group.open = commandGroupPreference.get(key) || false
   group.ontoggle = () => {
     requestAnimationFrame(() => { if (followMessages) scrollToBottom(); updateNavigation() })
   }
+  const list = element('div', 'command-group-list')
+  for (const entry of entries) if (entry.item.type !== 'reasoning') list.append(activityEntryView(entry, turn))
   const summary = element('summary', 'command-group-summary')
   summary.onclick = () => { commandGroupPreference.set(key, !group.open) }
   const icon = element('span', 'command-group-icon')
-  icon.append(activityIcon(entries.some(entry => activityKind(entry) === 'edit') ? 'edit' : 'terminal'))
-  summary.append(icon, element('span', 'command-group-label', activityTitle(entries)), element('span', 'command-group-chevron'))
-  const list = element('div', 'command-group-list')
-  for (const entry of entries) list.append(activityEntryView(entry, turn))
+  const current = live ? entries.at(-1) : null
+  const currentIsReasoning = current?.item.type === 'reasoning'
+  icon.append(currentIsReasoning ? element('span', 'thinking-icon', '✦') : activityIcon(current ? activityKind(current) === 'edit' ? 'edit' : 'terminal' : entries.some(entry => activityKind(entry) === 'edit') ? 'edit' : 'terminal'))
+  const label = currentIsReasoning ? '思考中' : current ? list.lastElementChild?.querySelector('.activity-label')?.textContent || activityTitle([current]) : activityTitle(entries)
+  const labelNode = element('span', 'command-group-label', label)
+  if (live && (currentIsReasoning || current?.item.status === 'inProgress')) labelNode.classList.add('running-shimmer')
+  summary.append(icon, labelNode, element('span', 'command-group-chevron'))
   group.append(summary, list)
   return group
 }
@@ -266,7 +256,17 @@ function changedFiles(turn) {
 }
 function detectedFileChanges(turn) {
   if ((turn.items || []).some(item => item.type === 'fileChange')) return []
-  return parseDiff(turn.diff)
+  const patchFiles = new Set((turn.items || []).filter(isPatchCommand).flatMap(item => patchPaths(item).map(file => relativePatchPath(file.path, item.raw?.cwd).toLowerCase())))
+  return parseDiff(turn.diff).filter(file => !patchFiles.has(file.path.replace(/\\/g, '/').toLowerCase()))
+}
+function patchFileView(entry, turn) {
+  const { item } = entry
+  const rawPath = entry.patch?.path || ''
+  const filePath = relativePatchPath(rawPath, item.raw?.cwd)
+  const diff = parseDiff(turn.diff).find(file => file.path.replace(/\\/g, '/').toLowerCase() === filePath.toLowerCase())
+  const change = { path: filePath, kind: entry.patch?.kind || diff?.kind || 'modified', diff: diff?.diff || '' }
+  const status = activityStatus(entry)
+  return fileItem({ ...item, type: 'fileChange', status, raw: { changes: [change] } }, turn, change, entry.index)
 }
 function fileSummary(turn, compact = false) {
   const files = changedFiles(turn)
@@ -304,19 +304,25 @@ function fileItem(item, turn, singleChange, index = 0) {
   const body = element('div', 'activity-body')
   for (const change of changes) {
     const path = change.path || change.filePath || ''
-    const row = element('div', 'file-row', `${change.kind || 'modified'}  ${path}`)
-    if (path) row.append(button('打开', () => post('openFile', { path }), 'subtle'))
+    const diff = change.diff || parseDiff(turn.diff).find(file => file.path === path)?.diff || ''
+    const row = element('div', 'file-row')
+    const fileButton = button(path || '文件', () => post('openDiff', { path, diff }), 'file-diff-link')
+    fileButton.disabled = !path || !diff
+    fileButton.title = diff ? '在 VS Code 中查看差异' : '等待文件差异'
+    row.append(fileButton)
     body.append(row)
-    if (change.diff && path) body.append(button('在编辑器中比较', () => post('openDiff', { path, diff: change.diff }), 'subtle'), diffLines(change.diff))
+    if (diff) body.append(diffLines(diff))
+    else body.append(element('div', 'muted', running ? '正在等待文件差异…' : '没有收到该文件的差异内容'))
   }
   const file = changes[0]
   const path = file?.path || file?.filePath
-  const stats = file?.diff && path ? parseDiff(file.diff.startsWith('diff --git ') ? file.diff : `diff --git a/${path} b/${path}\n${file.diff}`) : []
+  const fileDiff = file?.diff || parseDiff(turn.diff).find(entry => entry.path === path)?.diff
+  const stats = fileDiff && path ? parseDiff(fileDiff.startsWith('diff --git ') ? fileDiff : `diff --git a/${path} b/${path}\n${fileDiff}`) : []
   const added = stats.reduce((count, entry) => count + entry.additions, 0)
   const deleted = stats.reduce((count, entry) => count + entry.deletions, 0)
   const counts = stats.length ? ` +${added} -${deleted}` : ''
-  const action = item.type === 'detectedFileChange' ? '检测到文件变更' : activityVerb(item.status, '正在编辑文件', '已编辑文件', '编辑文件失败', '已停止编辑文件', '已拒绝编辑文件')
-  const label = `▤  ${action}${changes.length ? ` · ${changes.map(change => change.path || change.filePath).filter(Boolean).join('、')}` : ''}${counts}`
+  const action = activityVerb(item.status, '正在编辑', '已编辑', '编辑失败', '已停止编辑', '已拒绝编辑')
+  const label = `▤  ${action}${changes.length ? ` ${changes.map(change => change.path || change.filePath).filter(Boolean).join('、')}` : '文件'}${counts}`
   const card = detail(`${turn.id}:${item.id}:${index}`, label, body, `file-card status-${item.status || 'inProgress'}`)
   if (running) card.querySelector('.activity-label')?.classList.add('running-shimmer')
   return card
@@ -439,6 +445,7 @@ function render() {
     const active = ['starting', 'inProgress'].includes(turn.status)
     let activities = []
     const detectedChanges = detectedFileChanges(turn)
+    const nativeChangePaths = new Set((turn.items || []).filter(item => item.type === 'fileChange').flatMap(item => (item.raw?.changes || []).map(change => String(change.path || change.filePath || '').replace(/\\/g, '/').toLowerCase())))
     let detectedChangesAdded = false
     const appendDetectedChanges = () => {
       if (detectedChangesAdded) return
@@ -448,17 +455,23 @@ function render() {
       }
     }
     const flushActivities = () => {
-      if (activities.length === 1 && activities[0].item.status !== 'inProgress') processNodes.push(activityEntryView(activities[0], turn))
-      else if (activities.length === 1) processNodes.push(activityGroup(activities, turn))
-      else if (activities.length > 1) processNodes.push(activityGroup(activities, turn))
+      const visible = activities.filter(entry => entry.item.type !== 'reasoning')
+      if (visible.length === 1) processNodes.push(activityEntryView(visible[0], turn))
+      else if (visible.length > 1) processNodes.push(activityGroup(visible, turn))
       activities = []
     }
     for (const item of turn.items || []) {
-      if (['commandExecution', 'fileChange', 'webSearch'].includes(item.type)) {
+      if (item.type === 'reasoning') {
+        activities.push({ item })
+        continue
+      }
+      if (['commandExecution', 'fileChange'].includes(item.type)) {
+        const patches = isPatchCommand(item) ? patchPaths(item).filter(patch => !nativeChangePaths.has(relativePatchPath(patch.path, item.raw?.cwd).toLowerCase())) : []
+        if (isPatchCommand(item) && !patches.length && patchPaths(item).length) continue
         const entries = item.type === 'fileChange' && item.raw?.changes?.length
           ? item.raw.changes.map((change, index) => ({ item, change, index }))
-          : item.type === 'commandExecution' && item.status !== 'declined' && item.raw?.commandActions?.length
-            ? item.raw.commandActions.map((action, index) => ({ item, action, index }))
+          : patches.length
+            ? patches.map((patch, index) => ({ item, patch, index }))
             : [{ item }]
         activities.push(...entries)
         continue
@@ -468,17 +481,20 @@ function render() {
       if (node) { flushActivities(); processNodes.push(node) }
     }
     appendDetectedChanges()
-    flushActivities()
     const visibleFinalStarted = finalItems.some(item => String(item.text || '').trim())
-    if (active && busy && turn === store.turns.at(-1) && !visibleFinalStarted) {
-      const latestVisible = [...(turn.items || [])].reverse().find(item =>
-        ['commandExecution', 'fileChange', 'webSearch', 'mcpToolCall', 'dynamicToolCall', 'imageView', 'collabToolCall'].includes(item.type) ||
-        item.type === 'agentMessage' && item.raw?.phase !== 'final_answer' && String(item.text || '').trim())
-      if (stopping || !latestVisible || latestVisible.status !== 'inProgress') {
-        const marker = element('div', 'working thinking', stopping ? '◌  正在停止…' : '◌  正在思考…')
-        marker.setAttribute('role', 'status')
-        processNodes.push(marker)
-      }
+    const live = active && busy && turn === store.turns.at(-1) && !visibleFinalStarted && !stopping
+    const latestActivity = activities.at(-1)
+    if (active && busy && stopping && turn === store.turns.at(-1)) {
+      flushActivities()
+      processNodes.push(element('div', 'thinking-marker running-shimmer', '正在停止…'))
+    } else if (live && latestActivity?.item.type === 'reasoning') {
+      if (activities.some(entry => entry.item.type !== 'reasoning')) processNodes.push(activityGroup(activities, turn, true))
+      else processNodes.push(element('div', 'thinking-marker running-shimmer', '思考中'))
+    } else if (live && activities.filter(entry => entry.item.type !== 'reasoning').length > 1) {
+      processNodes.push(activityGroup(activities, turn, true))
+    } else {
+      flushActivities()
+      if (live && !processNodes.length) processNodes.push(element('div', 'thinking-marker running-shimmer', '思考中'))
     }
     const process = processView(turn, active, processNodes, visibleFinalStarted && turn.status !== 'interrupted')
     if (process) content.append(process)

@@ -133,7 +133,7 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .activity .command-output { max-height: 280px; }
 .activity .tool-json { max-height: 220px; }
 .command-group { margin: 7px 0 16px; color: var(--muted); }
-.command-group-summary { display: flex; align-items: center; gap: 7px; width: fit-content; max-width: 100%; padding: 2px 0 7px; cursor: pointer; list-style: none; font-size: 12px; }
+.command-group-summary { display: flex; align-items: center; gap: 6px; width: 100%; max-width: 100%; padding: 4px 0; cursor: pointer; list-style: none; font-size: 11px; }
 .command-group-summary::-webkit-details-marker { display: none; }
 .command-group-summary:hover { color: var(--vscode-foreground); }
 .command-group-icon { display: grid; place-items: center; width: 16px; height: 16px; flex: none; }
@@ -141,7 +141,10 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .command-group-chevron, .chevron { display: grid; place-items: center; flex: none; width: 12px; height: 12px; color: var(--muted); }
 .command-group-chevron::after, .chevron::after { content: ''; display: block; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-1px) rotate(45deg); }
 .command-group[open] .command-group-chevron::after { transform: translateY(1px) rotate(225deg); }
-.command-group-list { min-width: 0; padding: 1px 0 0 1px; }
+.command-group-list { min-width: 0; padding: 4px 0 0 21px; }
+.command-group-label { flex: 1; }
+.thinking-marker { width: fit-content; font-size: 11px; }
+.thinking-icon { font-size: 14px; line-height: 1; }
 .turn-process-body .command-card { width: 100%; min-width: 0; border: 0; border-radius: 0; margin: 0; background: transparent; }
 .turn-process-body .command-card.status-inProgress, .turn-process-body .file-card.status-inProgress { --activity-color: var(--muted); }
 .turn-process-body .command-card > summary { width: 100%; padding: 4px 0; gap: 6px; color: var(--muted); font-size: 11px; }
@@ -159,6 +162,9 @@ body.page-hidden .running-shimmer, .running-shimmer.shimmer-paused { animation-p
 .turn-process-body .file-card > summary { padding: 4px 0; color: var(--muted); font-size: 11px; }
 .turn-process-body .file-card .activity-icon { width: 15px; height: 15px; background: transparent; }
 .turn-process-body .file-card .activity-body { margin: 4px 0 8px 20px; border: 1px solid var(--border); border-radius: 7px; background: var(--soft-surface); }
+.file-diff-link { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--brand); text-align: left; font-size: 11px; }
+.file-diff-link:hover { text-decoration: underline; }
+.file-diff-link:disabled { color: var(--muted); cursor: default; text-decoration: none; }
 .change-dock { flex: none; margin: 0 12px 6px; }
 .file-summary { margin: 18px 0 0; overflow: hidden; border: 1px solid var(--border); border-radius: 11px; color: var(--muted); font-size: 11px; }
 .file-summary.compact { margin: 0; }
@@ -194,7 +200,6 @@ body.page-hidden .running-shimmer, .running-shimmer.shimmer-paused { animation-p
 .plan-dock-step.completed { color: var(--green); }
 .plan-shimmer { color: var(--blue); background: linear-gradient(100deg, var(--blue) 0%, var(--blue) 35%, var(--vscode-editor-foreground) 50%, var(--blue) 65%, var(--blue) 100%); background-size: 250% 100%; background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: plan-shimmer 2.4s linear infinite; }
 @keyframes plan-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
-.working { color: var(--blue); font-size: 11px; animation: pulse 1.5s ease-in-out infinite; }
 .turn-interrupted { color: var(--yellow); font-size: 11px; }
 .turn-error { color: var(--red); font-size: 11px; }
 @keyframes pulse { 50% { opacity: .55; } }
@@ -289,4 +294,4 @@ textarea::placeholder { color: var(--vscode-input-placeholderForeground, var(--m
 .status-line[data-kind="warning"] .status-dot { background: var(--yellow); }
 .status-line[data-kind="error"] .status-dot { background: var(--red); }
 @media (max-width: 250px) { .brand-sub { display: none; } #permissionPicker { max-width: 96px; } }
-@media (prefers-reduced-motion: reduce) { .working, .status-line[data-kind="working"] .status-dot { animation: none; } .plan-shimmer, .running-shimmer { animation: none; background: none; -webkit-text-fill-color: currentColor; } }
+@media (prefers-reduced-motion: reduce) { .status-line[data-kind="working"] .status-dot { animation: none; } .plan-shimmer, .running-shimmer { animation: none; background: none; -webkit-text-fill-color: currentColor; } }
