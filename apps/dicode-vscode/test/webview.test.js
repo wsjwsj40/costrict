@@ -217,6 +217,35 @@ test('shell edits show detected file changes when Codex emits only a diff', asyn
   dom.window.close()
 })
 
+test('diff detects command edits beside native file changes and opens the edited file', async () => {
+  const { dom, sent, emit, doc } = setup()
+  const diff = ['a.js', 'b.js'].map(name => `diff --git a/${name} b/${name}\n--- a/${name}\n+++ b/${name}\n@@ -1 +1 @@\n-old\n+new`).join('\n')
+  emit({ type: 'state', loggedIn: true, busy: false, workspace: '/repo', models: [] })
+  emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{
+    id: 'turn', status: 'completed', startedAt: 1000, completedAt: 3000, diff,
+    items: [
+      { id: 'native', type: 'fileChange', status: 'completed', raw: { changes: [{ path: 'a.js' }] } },
+      { id: 'shell', type: 'commandExecution', status: 'completed', raw: { command: 'Set-Content b.js new' } },
+      { id: 'final', type: 'agentMessage', status: 'completed', text: '完成', raw: { phase: 'final_answer' } },
+    ],
+  }] } })
+  await tick()
+  const cards = [...doc.querySelectorAll('.file-card')]
+  assert.equal(cards.length, 2)
+  const shellCard = cards.find(card => card.textContent.includes('b.js'))
+  assert.match(shellCard.querySelector('summary').textContent, /已编辑 b\.js \+1 -1/)
+  shellCard.querySelector('summary').click()
+  await tick()
+  assert.match(shellCard.querySelector('summary').textContent, /已编辑 文件/)
+  assert.equal(shellCard.querySelectorAll('.diff-line.added').length, 1)
+  assert.equal(shellCard.querySelectorAll('.diff-line.deleted').length, 1)
+  assert.equal(shellCard.querySelector('.diff-line.added .diff-number:nth-child(2)').textContent, '1')
+  shellCard.querySelector('.file-diff-link').click()
+  assert.equal(sent.at(-1).type, 'openFile')
+  assert.equal(sent.at(-1).path, 'b.js')
+  dom.window.close()
+})
+
 test('Codex patch command renders as a file edit with inline and editor diff', async () => {
   const { dom, sent, emit, doc } = setup()
   const command = "$patch = @'\n*** Begin Patch\n*** Add File: D:\\projects\\test\\snake-game\\style.css\n+body { color: red; }\n*** End Patch\n'@\n& $codexExe --codex-run-as-apply-patch $patch"
@@ -228,7 +257,7 @@ test('Codex patch command renders as a file edit with inline and editor diff', a
   await tick()
   assert.equal(doc.querySelector('.command-card'), null)
   assert.match(doc.querySelector('.file-card .activity-label').textContent, /正在编辑 snake-game\/style\.css/)
-  assert.equal(doc.querySelector('.file-diff-link').disabled, true)
+  assert.equal(doc.querySelector('.file-diff-link').disabled, false)
   emit({ type: 'rpc', method: 'turn/diff/updated', params: { turnId: 'turn', diff } })
   emit({ type: 'rpc', method: 'item/completed', params: { turnId: 'turn', item: { id: 'patch', type: 'commandExecution', status: 'completed', command, exitCode: 0 } } })
   await tick()
@@ -239,7 +268,7 @@ test('Codex patch command renders as a file edit with inline and editor diff', a
   card.querySelector('summary').click()
   assert.equal(sent.length, beforeExpand)
   card.querySelector('.file-diff-link').click()
-  assert.equal(sent.at(-1).type, 'openDiff')
+  assert.equal(sent.at(-1).type, 'openFile')
   assert.equal(sent.at(-1).path, 'snake-game/style.css')
   assert.equal(doc.querySelectorAll('.file-card').length, 1)
   dom.window.close()
@@ -299,7 +328,7 @@ test('running commands shimmer, editing shows changes, and completion keeps a fi
   assert.equal(doc.getElementById('changeDock').hidden, true)
   assert.match(doc.querySelector('.turn-content > .file-summary').textContent, /src\/a.js/)
   doc.querySelector('.file-summary-row').click()
-  assert.equal(sent.at(-1).type, 'openDiff')
+  assert.equal(sent.at(-1).type, 'openFile')
   dom.window.close()
 })
 

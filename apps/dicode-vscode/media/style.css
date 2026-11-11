@@ -157,14 +157,28 @@ main { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 @keyframes running-shimmer { 0% { background-position: 100% 0; } 25%, 100% { background-position: -100% 0; } }
 body.page-hidden .running-shimmer, .running-shimmer.shimmer-paused { animation-play-state: paused; }
 .file-heading, .section-title { font-weight: 650; margin-bottom: 7px; color: var(--green); }
-.file-card { margin: 4px 0; }
-.turn-process-body .file-card { border: 0; border-radius: 0; background: transparent; }
-.turn-process-body .file-card > summary { padding: 4px 0; color: var(--muted); font-size: 11px; }
-.turn-process-body .file-card .activity-icon { width: 15px; height: 15px; background: transparent; }
-.turn-process-body .file-card .activity-body { margin: 4px 0 8px 20px; border: 1px solid var(--border); border-radius: 7px; background: var(--soft-surface); }
-.file-diff-link { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--brand); text-align: left; font-size: 11px; }
+.file-card { --activity-color: var(--muted); margin: 4px 0; border: 0; border-radius: 0; background: transparent; }
+.file-card > summary, .turn-process-body .file-card > summary { padding: 4px 0; color: var(--muted); font-size: 11px; }
+.file-card > summary::after { display: none; }
+.file-card > summary::before { content: ''; order: 3; width: 5px; height: 5px; margin: 0 3px; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; transform: rotate(45deg); }
+.file-card[open] > summary::before { transform: rotate(225deg); }
+.file-card .activity-icon, .turn-process-body .file-card .activity-icon { width: 15px; height: 15px; border: 0; border-radius: 0; color: var(--muted); background: transparent; }
+.file-card .activity-label { flex: none; }
+.file-card .activity-body, .turn-process-body .file-card .activity-body { margin: 4px 0 8px 20px; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.file-diff-panel { overflow: hidden; border: 1px solid var(--border); border-radius: 6px; background: var(--vscode-editor-background, var(--code)); }
+.file-diff-head { display: flex; align-items: center; gap: 5px; height: 29px; padding: 0 8px; border-bottom: 1px solid var(--border); background: var(--vscode-editorGroupHeader-tabsBackground, var(--surface)); }
+.file-diff-link { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); text-align: left; font-size: 11px; }
 .file-diff-link:hover { text-decoration: underline; }
 .file-diff-link:disabled { color: var(--muted); cursor: default; text-decoration: none; }
+.file-deleted-count { color: var(--muted); }
+.file-diff-copy { margin-left: auto; color: var(--muted); font-size: 11px; }
+.file-diff-copy:hover { color: var(--vscode-foreground); }
+.file-card .diff { overflow: auto; max-height: 260px; padding: 4px 0; font: 11px/19px var(--vscode-editor-font-family, monospace); }
+.file-card .diff-line { display: flex; min-width: max-content; white-space: pre; }
+.file-card .diff-line.added { background: color-mix(in srgb, var(--vscode-diffEditor-insertedLineBackground, #234b35) 75%, transparent); }
+.file-card .diff-line.deleted { background: color-mix(in srgb, var(--vscode-diffEditor-removedLineBackground, #632f32) 75%, transparent); }
+.file-card .diff-number { flex: none; width: 31px; padding-right: 6px; color: var(--vscode-editorLineNumber-foreground, var(--muted)); text-align: right; user-select: none; }
+.file-card .diff-code { padding: 0 9px; }
 .change-dock { flex: none; margin: 0 12px 6px; }
 .file-summary { margin: 18px 0 0; overflow: hidden; border: 1px solid var(--border); border-radius: 11px; color: var(--muted); font-size: 11px; }
 .file-summary.compact { margin: 0; }

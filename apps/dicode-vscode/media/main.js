@@ -234,12 +234,18 @@ function activityGroup(entries, turn, live = false) {
   return group
 }
 function diffLines(diff) {
-  const pre = element('pre', 'diff')
-  for (const line of String(diff || '').split('\n')) {
-    const span = element('span', line.startsWith('+') && !line.startsWith('+++') ? 'added' : line.startsWith('-') && !line.startsWith('---') ? 'deleted' : line.startsWith('@@') ? 'hunk' : '', line + '\n')
-    pre.appendChild(span)
+  const code = element('div', 'diff')
+  let oldLine = 0, newLine = 0, inHunk = false
+  for (const line of String(diff || '').replace(/\n$/, '').split('\n')) {
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line)
+    if (hunk) { oldLine = Number(hunk[1]); newLine = Number(hunk[2]); inHunk = true; continue }
+    if (!inHunk || line.startsWith('\\ No newline')) continue
+    const kind = line.startsWith('+') ? 'added' : line.startsWith('-') ? 'deleted' : 'context'
+    const row = element('div', `diff-line ${kind}`)
+    row.append(element('span', 'diff-number', kind === 'added' ? '' : String(oldLine++)), element('span', 'diff-number', kind === 'deleted' ? '' : String(newLine++)), element('span', 'diff-code', line.slice(1)))
+    code.append(row)
   }
-  return pre
+  return code
 }
 function changedFiles(turn) {
   let files = parseDiff(turn.diff)
@@ -255,9 +261,9 @@ function changedFiles(turn) {
   return files
 }
 function detectedFileChanges(turn) {
-  if ((turn.items || []).some(item => item.type === 'fileChange')) return []
-  const patchFiles = new Set((turn.items || []).filter(isPatchCommand).flatMap(item => patchPaths(item).map(file => relativePatchPath(file.path, item.raw?.cwd).toLowerCase())))
-  return parseDiff(turn.diff).filter(file => !patchFiles.has(file.path.replace(/\\/g, '/').toLowerCase()))
+  const nativeFiles = new Set((turn.items || []).filter(item => item.type === 'fileChange').flatMap(item => (item.raw?.changes || []).map(change => relativePatchPath(change.path || change.filePath).toLowerCase())))
+  const patchFiles = new Set((turn.items || []).filter(item => isPatchCommand(item) && ['completed', 'inProgress'].includes(activityStatus({ item }))).flatMap(item => patchPaths(item).map(file => relativePatchPath(file.path, item.raw?.cwd).toLowerCase())))
+  return parseDiff(turn.diff).filter(file => !nativeFiles.has(file.path.replace(/\\/g, '/').toLowerCase()) && !patchFiles.has(file.path.replace(/\\/g, '/').toLowerCase()))
 }
 function patchFileView(entry, turn) {
   const { item } = entry
@@ -283,7 +289,7 @@ function fileSummary(turn, compact = false) {
   if (compact) return root
   const list = element('div', 'file-summary-list')
   for (const file of files) {
-    const row = button('', () => post('openDiff', { path: file.path, diff: file.diff }), 'file-summary-row')
+    const row = button('', () => post('openFile', { path: file.path }), 'file-summary-row')
     row.append(element('span', 'file-summary-path', file.path))
     const count = element('span', 'file-stats')
     count.append(element('span', 'added-count', `+${file.additions}`), document.createTextNode(' '), element('span', 'deleted-count', `-${file.deletions}`))
@@ -305,14 +311,21 @@ function fileItem(item, turn, singleChange, index = 0) {
   for (const change of changes) {
     const path = change.path || change.filePath || ''
     const diff = change.diff || parseDiff(turn.diff).find(file => file.path === path)?.diff || ''
-    const row = element('div', 'file-row')
-    const fileButton = button(path || '文件', () => post('openDiff', { path, diff }), 'file-diff-link')
-    fileButton.disabled = !path || !diff
-    fileButton.title = diff ? '在 VS Code 中查看差异' : '等待文件差异'
-    row.append(fileButton)
-    body.append(row)
-    if (diff) body.append(diffLines(diff))
-    else body.append(element('div', 'muted', running ? '正在等待文件差异…' : '没有收到该文件的差异内容'))
+    const panel = element('div', 'file-diff-panel')
+    const head = element('div', 'file-diff-head')
+    const fileButton = button(path || '文件', () => post('openFile', { path }), 'file-diff-link')
+    fileButton.disabled = !path || change.kind === 'deleted'
+    fileButton.title = '在 VS Code 中打开文件'
+    head.append(fileButton)
+    if (diff) {
+      const stats = parseDiff(diff.startsWith('diff --git ') ? diff : `diff --git a/${path} b/${path}\n${diff}`)[0]
+      head.append(element('span', 'added-count', `+${stats?.additions || 0}`), element('span', 'file-deleted-count', `-${stats?.deletions || 0}`))
+      head.append(button('复制', () => navigator.clipboard.writeText(diff), 'file-diff-copy'))
+    }
+    panel.append(head)
+    if (diff) panel.append(diffLines(diff))
+    else panel.append(element('div', 'muted', running ? '正在等待文件差异…' : '没有收到该文件的差异内容'))
+    body.append(panel)
   }
   const file = changes[0]
   const path = file?.path || file?.filePath
@@ -324,6 +337,15 @@ function fileItem(item, turn, singleChange, index = 0) {
   const action = activityVerb(item.status, '正在编辑', '已编辑', '编辑失败', '已停止编辑', '已拒绝编辑')
   const label = `▤  ${action}${changes.length ? ` ${changes.map(change => change.path || change.filePath).filter(Boolean).join('、')}` : '文件'}${counts}`
   const card = detail(`${turn.id}:${item.id}:${index}`, label, body, `file-card status-${item.status || 'inProgress'}`)
+  const activityLabel = card.querySelector('.activity-label')
+  if (activityLabel) {
+    const collapsed = () => {
+      activityLabel.replaceChildren(document.createTextNode(`${action} ${path || '文件'}`))
+      if (stats.length) activityLabel.append(document.createTextNode(' '), element('span', 'added-count', `+${added}`), document.createTextNode(' '), element('span', 'file-deleted-count', `-${deleted}`))
+    }
+    collapsed()
+    card.addEventListener('toggle', () => { if (card.open) activityLabel.textContent = `${action} 文件`; else collapsed() })
+  }
   if (running) card.querySelector('.activity-label')?.classList.add('running-shimmer')
   return card
 }

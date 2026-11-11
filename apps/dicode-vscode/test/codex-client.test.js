@@ -27,7 +27,7 @@ test('Codex app-server starts with interactive input and plan tools enabled', as
   }
   let CodexClient, modelCatalog
   try { delete require.cache[require.resolve('../extension')]; ({ CodexClient, modelCatalog } = require('../extension')) } finally { Module._load = originalLoad }
-  const client = new CodexClient('/bin/codex', 'https://example.test/codex/v1', 'token', '你是 DiCode', '/tmp/catalog.json', () => {})
+  const client = new CodexClient('/bin/codex', 'https://example.test/codex/v1', 'token', '你是 DiCode', '/tmp/catalog.json', () => {}, null, 'linux')
   const [binary, args] = spawned
   assert.equal(binary, '/bin/codex')
   assert.equal(args[0], 'app-server')
@@ -41,7 +41,7 @@ test('Codex app-server starts with interactive input and plan tools enabled', as
     { slug: 'native-default', priority: 1, model_messages: { instructions_template: 'CLI default instructions', tools: { apply_patch: { description: 'Native patch guidance' } } } },
     { slug: 'known-model', priority: 2, model_messages: { instructions_template: 'CLI model instructions' } },
   ]
-  const catalogModel = modelCatalog([{ id: 'dicode-model', name: 'DiCode Model' }], nativeModels).models[0]
+  const catalogModel = modelCatalog([{ id: 'dicode-model', name: 'DiCode Model' }], nativeModels, 'linux').models[0]
   assert.equal(catalogModel.apply_patch_tool_type, 'freeform')
   assert.equal(catalogModel.base_instructions, 'CLI default instructions')
   assert.equal(catalogModel.supports_reasoning_summaries, false)
@@ -83,8 +83,8 @@ test('Windows Codex prefers MXC and enables a legacy sandbox fallback', () => {
   assert.ok(args.includes('windows.sandbox="unelevated"'))
   const windowsInstructions = args.find(value => value.startsWith('developer_instructions='))
   assert.ok(windowsInstructions.includes('Windows 文件编辑'))
-  assert.ok(windowsInstructions.includes('Get-Command codex.exe -CommandType Application -ErrorAction Stop'))
-  assert.ok(windowsInstructions.includes('& $codexExe --codex-run-as-apply-patch $patch'))
+  assert.ok(windowsInstructions.includes('[System.IO.File]::WriteAllText'))
+  assert.ok(windowsInstructions.includes('turn/diff/updated'))
   assert.equal(windowsInstructions.includes('\\ncodex --codex-run-as-apply-patch $patch'), false)
   client.dispose()
   const elevated = new CodexClient('codex', 'https://example.test', 'token', 'identity', 'catalog.json', () => {}, null, 'win32', 'elevated')
