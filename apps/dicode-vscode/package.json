@@ -2,7 +2,7 @@
 	"name": "dicode-codex",
 	"displayName": "DiCode",
 	"description": "DiCode coding agent powered by the unmodified Codex CLI",
-	"version": "0.2.34",
+	"version": "0.2.35",
 	"publisher": "atad-apts",
 	"repository": {
 		"type": "git",
@@ -74,7 +74,7 @@
 		"codexInstaller.js",
 		"powerShellInstaller.js",
 		"diff.js",
-    "workspaceChanges.js",
+		"workspaceChanges.js",
 		"dicode-instructions.md",
 		"windows-patch-instructions.md",
 		"media/**",

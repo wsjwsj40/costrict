@@ -7,7 +7,7 @@ const fs = require("node:fs")
 const { ensureCodexInstalled } = require("./codexInstaller")
 const { ensurePowerShellInstalled, powerShellEnv } = require("./powerShellInstaller")
 const { beforeFromUnifiedDiff } = require("./diff")
-const { scanWorkspace, workspaceChanges } = require("./workspaceChanges")
+const { scanWorkspace, scanChangedPaths, workspaceChanges } = require("./workspaceChanges")
 const { ConversationStore } = require("./media/conversation")
 const { generateThreadTitle } = require("./threadTitle")
 const EXTENSION_VERSION = require("./package.json").version
@@ -253,6 +253,9 @@ class DicodeView {
 		this.changeSnapshot = null
 		this.changeWorkspace = null
 		this.changeSequence = 0
+		this.changeWatcher = null
+		this.changedPaths = new Set()
+		this.changeNeedsFullScan = false
 	}
 	get serverUrl() {
 		return vscode.workspace.getConfiguration("dicodeCodex").get("serverUrl").replace(/\/$/, "")
@@ -476,7 +479,8 @@ class DicodeView {
 			return
 		}
 		if (event.type === "error") {
-			this.captureWorkspaceChanges("connection-error", this.turnId)
+			this.captureWorkspaceChanges("connection-error", this.turnId, true)
+			this.stopChangeWatcher()
 			this.changeSnapshot = null
 			this.output.appendLine(`[Codex error] ${event.message}`)
 			this.output.show?.(true)
@@ -516,7 +520,8 @@ class DicodeView {
 			this.inputRequests.delete(requestId)
 			this.post({ type: "rpc", method: message.method, params: message.params })
 		} else if (message.method === "turn/completed") {
-			this.captureWorkspaceChanges("turn", message.params?.turnId)
+			this.captureWorkspaceChanges("turn", message.params?.turnId, true)
+			this.stopChangeWatcher()
 			this.changeSnapshot = null
 			this.output.appendLine(`[Codex turn] completed status=${message.params?.turn?.status || "unknown"} error=${message.params?.turn?.error?.message || "none"}`)
 			const completedThreadId = this.threadId
@@ -552,12 +557,39 @@ class DicodeView {
 			this.scheduleHistory()
 			this.post({ type: "rpc", method: message.method, params })
 			if (message.method === "item/completed" && params?.item?.type === "commandExecution") this.captureWorkspaceChanges(params.item.id, params.turnId)
-			if (message.method === "item/completed" && params?.item?.type === "fileChange" && this.changeSnapshot && this.workspace === this.changeWorkspace) this.changeSnapshot = scanWorkspace(this.workspace, this.changeSnapshot.files)
+			if (message.method === "item/completed" && params?.item?.type === "fileChange" && this.changeSnapshot && this.workspace === this.changeWorkspace) {
+				const paths = (params.item.changes || []).map(change => path.relative(this.changeWorkspace, path.resolve(this.changeWorkspace, change.path || change.filePath || "")))
+				this.changeSnapshot = scanChangedPaths(this.changeWorkspace, this.changeSnapshot, paths) || scanWorkspace(this.changeWorkspace, this.changeSnapshot.files)
+				for (const file of paths) this.changedPaths.delete(file.replace(/\\/g, '/'))
+			}
 		}
 	}
-	captureWorkspaceChanges(sourceId, turnId) {
+	startChangeWatcher() {
+		this.stopChangeWatcher()
+		this.changeNeedsFullScan = false
+		if (!this.changeSnapshot) return
+		try {
+			this.changeWatcher = fs.watch(this.changeWorkspace, { recursive: true }, (_event, filename) => {
+				if (!filename) { this.changeNeedsFullScan = true; return }
+				this.changedPaths.add(String(filename).replace(/\\/g, '/'))
+			})
+			this.changeWatcher.on("error", () => { this.stopChangeWatcher(); this.changeNeedsFullScan = true })
+		} catch { this.changeNeedsFullScan = true }
+	}
+	stopChangeWatcher() {
+		this.changeWatcher?.close()
+		this.changeWatcher = null
+		this.changedPaths.clear()
+	}
+	captureWorkspaceChanges(sourceId, turnId, full = false) {
 		if (!this.changeSnapshot || this.workspace !== this.changeWorkspace) return
-		const after = scanWorkspace(this.changeWorkspace, this.changeSnapshot.files)
+		const paths = this.changedPaths
+		this.changedPaths = new Set()
+		if (!full && this.changeWatcher && !this.changeNeedsFullScan && !paths.size) return
+		const after = full || !this.changeWatcher || this.changeNeedsFullScan
+			? scanWorkspace(this.changeWorkspace, this.changeSnapshot.files)
+			: scanChangedPaths(this.changeWorkspace, this.changeSnapshot, paths) || scanWorkspace(this.changeWorkspace, this.changeSnapshot.files)
+		this.changeNeedsFullScan = false
 		const changes = workspaceChanges(this.changeSnapshot, after)
 		this.changeSnapshot = after
 		if (!changes.length) return
@@ -616,7 +648,8 @@ class DicodeView {
 	}
 	recoverStoppedTurn(reason = "未收到结束通知，已重连 Agent") {
 		if (!this.busy || !this.stopping) return
-		this.captureWorkspaceChanges("stopped", this.turnId)
+		this.captureWorkspaceChanges("stopped", this.turnId, true)
+		this.stopChangeWatcher()
 		this.changeSnapshot = null
 		clearTimeout(this.stopTimer)
 		this.busy = false
@@ -728,6 +761,7 @@ class DicodeView {
 				this.output.appendLine("[DiCode files] 工作区快照超过限制，本轮无法从命令生成文件差异")
 				this.changeSnapshot = null
 			}
+			this.startChangeWatcher()
 			const result = await client.request("turn/start", {
 				threadId: this.threadId,
 				cwd: this.workspace,
@@ -744,6 +778,7 @@ class DicodeView {
 			}
 		} catch (error) {
 			if (this.activeRunId !== runId) return
+			this.stopChangeWatcher()
 			this.changeSnapshot = null
 			clearTimeout(this.stopTimer)
 			this.busy = false
@@ -903,6 +938,7 @@ class DicodeView {
 		}
 	}
 	dispose() {
+		this.stopChangeWatcher()
 		clearTimeout(this.stopTimer)
 		clearTimeout(this.historyTimer)
 		this.persistHistory()

@@ -45,6 +45,35 @@ function scanWorkspace(root, previous = new Map()) {
   return { files, complete: true }
 }
 
+function scanChangedPaths(root, previous, changedPaths) {
+  const files = new Map(previous.files)
+  for (const relative of changedPaths) {
+    const absolute = path.resolve(root, relative)
+    const inside = path.relative(root, absolute)
+    if (!inside || inside.startsWith('..' + path.sep) || inside === '..' || path.isAbsolute(inside)) continue
+    if (inside.split(path.sep).some(part => ignoredDirectories.has(part))) continue
+    let stat
+    try { stat = fs.statSync(absolute) } catch {
+      const key = inside.replace(/\\/g, '/')
+      if ([...files.keys()].some(file => file.startsWith(key + '/'))) return null
+      files.delete(key)
+      continue
+    }
+    if (stat.isDirectory()) return null
+    if (!stat.isFile()) continue
+    const key = inside.replace(/\\/g, '/')
+    let content = null
+    if (stat.size <= maxTextBytes) {
+      try {
+        const buffer = fs.readFileSync(absolute)
+        if (!buffer.includes(0)) content = new TextDecoder('utf-8', { fatal: true }).decode(buffer)
+      } catch { /* Keep the file event without an inline diff. */ }
+    }
+    files.set(key, { size: stat.size, mtimeMs: stat.mtimeMs, content })
+  }
+  return { files, complete: true }
+}
+
 function splitLines(content) {
   if (!content) return []
   const lines = content.replace(/\r\n/g, '\n').split('\n')
@@ -80,8 +109,9 @@ function workspaceChanges(before, after) {
   const paths = new Set([...before.files.keys(), ...after.files.keys()])
   for (const file of paths) {
     const oldFile = before.files.get(file), newFile = after.files.get(file)
-    if (oldFile === newFile || (oldFile && newFile && oldFile.size === newFile.size && oldFile.mtimeMs === newFile.mtimeMs)) continue
-    if (oldFile?.content !== null && newFile?.content !== null && oldFile?.content === newFile?.content) continue
+    if (oldFile === newFile) continue
+    if (oldFile && newFile && oldFile.content !== null && newFile.content !== null && oldFile.content === newFile.content) continue
+    if (oldFile && newFile && oldFile.content === null && newFile.content === null && oldFile.size === newFile.size && oldFile.mtimeMs === newFile.mtimeMs) continue
     const kind = !oldFile ? 'added' : !newFile ? 'deleted' : 'modified'
     const diff = oldFile?.content === null || newFile?.content === null ? '' : unifiedDiff(file, oldFile?.content ?? null, newFile?.content ?? null)
     changes.push({ path: file, kind, diff })
@@ -89,4 +119,4 @@ function workspaceChanges(before, after) {
   return changes
 }
 
-module.exports = { scanWorkspace, workspaceChanges, unifiedDiff }
+module.exports = { scanWorkspace, scanChangedPaths, workspaceChanges, unifiedDiff }

@@ -4,7 +4,7 @@ const Module = require('node:module')
 const path = require('node:path')
 const fs = require('node:fs')
 const os = require('node:os')
-const { scanWorkspace } = require('../workspaceChanges')
+const { scanWorkspace, scanChangedPaths, workspaceChanges } = require('../workspaceChanges')
 
 function makeView(root = '/repo') {
   const vscode = {
@@ -67,6 +67,21 @@ test('shell writes create file edit events and diffs without Codex patch notific
     rpc(view, 'turn/completed', { turnId: 't', turn: { id: 't', status: 'completed' } })
     assert.equal(posted.filter(message => message.params?.item?.id?.startsWith('workspace-change-')).length, 1)
     view.dispose()
+  } finally {
+    if (root.startsWith(os.tmpdir() + path.sep)) fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('targeted file scan reuses untouched snapshots and detects the changed path', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dicode-targeted-scan-'))
+  try {
+    fs.writeFileSync(path.join(root, 'edited.txt'), 'before\n')
+    fs.writeFileSync(path.join(root, 'untouched.txt'), 'keep\n')
+    const before = scanWorkspace(root)
+    fs.writeFileSync(path.join(root, 'edited.txt'), 'after\n')
+    const after = scanChangedPaths(root, before, new Set(['edited.txt']))
+    assert.equal(after.files.get('untouched.txt'), before.files.get('untouched.txt'))
+    assert.deepEqual(workspaceChanges(before, after).map(change => change.path), ['edited.txt'])
   } finally {
     if (root.startsWith(os.tmpdir() + path.sep)) fs.rmSync(root, { recursive: true, force: true })
   }
