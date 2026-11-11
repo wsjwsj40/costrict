@@ -2,7 +2,7 @@
 	"name": "dicode-codex",
 	"displayName": "DiCode",
 	"description": "DiCode coding agent powered by the unmodified Codex CLI",
-	"version": "0.2.35",
+	"version": "0.2.36",
 	"publisher": "atad-apts",
 	"repository": {
 		"type": "git",
@@ -63,10 +63,10 @@
 		}
 	},
 	"scripts": {
-		"build": "esbuild media/main.js --bundle --platform=browser --format=iife --outfile=media/bundle.js --minify",
+		"build": "vite build",
 		"vscode:prepublish": "npm run build",
 		"test": "npm run build && node --test test/*.test.js",
-		"check": "node --check extension.js && node --check threadTitle.js && node --check codexInstaller.js && node --check powerShellInstaller.js && node --check diff.js && node --check workspaceChanges.js && node --check media/conversation.js && node --check media/main.js"
+		"check": "tsc --project tsconfig.json --noEmit && node --check extension.js && node --check fileEditTools.js && node --check media/conversation.js"
 	},
 	"files": [
 		"extension.js",
@@ -74,20 +74,27 @@
 		"codexInstaller.js",
 		"powerShellInstaller.js",
 		"diff.js",
-		"workspaceChanges.js",
+		"fileEditTools.js",
+		"unifiedDiff.js",
 		"dicode-instructions.md",
-		"windows-patch-instructions.md",
+		"file-edit-instructions.md",
 		"media/**",
 		"README.md",
 		"LICENSE"
 	],
 	"dependencies": {
-		"esbuild": "^0.28.2",
 		"highlight.js": "^11.12.0",
-		"markdown-it": "^15.0.3"
+		"markdown-it": "^15.0.3",
+		"react": "^19.3.1",
+		"react-dom": "^19.3.1"
 	},
 	"devDependencies": {
+		"@types/react": "^19.3.0",
+		"@types/react-dom": "^19.3.0",
+		"@vitejs/plugin-react": "^6.3.0",
 		"@vscode/vsce": "^4.1.0",
-		"jsdom": "^29.1.1"
+		"jsdom": "^29.1.1",
+		"typescript": "^5.9.3",
+		"vite": "^8.3.8"
 	}
 }

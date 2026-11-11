@@ -35,23 +35,20 @@ test('Codex app-server starts with interactive input and plan tools enabled', as
   assert.ok(overrides.includes('features.default_mode_request_user_input=true'))
   assert.ok(overrides.includes('tools.update_plan.enabled=true'))
   assert.ok(overrides.includes('model_catalog_json="/tmp/catalog.json"'))
-  assert.ok(overrides.includes('developer_instructions="你是 DiCode"'))
+  assert.ok(overrides.some(value => value.startsWith('developer_instructions=') && value.includes('write_file')))
   assert.equal(overrides.some(value => value.startsWith('model_instructions_file=')), false)
   const nativeModels = [
     { slug: 'native-default', priority: 1, model_messages: { instructions_template: 'CLI default instructions', tools: { apply_patch: { description: 'Native patch guidance' } } } },
     { slug: 'known-model', priority: 2, model_messages: { instructions_template: 'CLI model instructions' } },
   ]
   const catalogModel = modelCatalog([{ id: 'dicode-model', name: 'DiCode Model' }], nativeModels, 'linux').models[0]
-  assert.equal(catalogModel.apply_patch_tool_type, 'freeform')
+  assert.equal(catalogModel.apply_patch_tool_type, null)
   assert.equal(catalogModel.base_instructions, 'CLI default instructions')
   assert.equal(catalogModel.supports_reasoning_summaries, false)
   assert.equal(catalogModel.supports_parallel_tool_calls, false)
   assert.equal(catalogModel.model_messages.instructions_template, 'CLI default instructions')
   assert.deepEqual(catalogModel.model_messages.tools.apply_patch, nativeModels[0].model_messages.tools.apply_patch)
-  const patchGuidance = catalogModel.model_messages.tools.functions_namespace_functions_description_prefixes.apply_patch
-  assert.ok(patchGuidance.includes('*** Add File: index.html\n+<!DOCTYPE html>'))
-  assert.ok(patchGuidance.includes('there is no write tool'))
-  assert.ok(Buffer.byteLength(patchGuidance, 'utf8') <= 256)
+  assert.equal(catalogModel.model_messages.tools.functions_namespace_functions_description_prefixes.apply_patch, undefined)
   assert.equal(modelCatalog([{ id: 'known-model' }], nativeModels).models[0].base_instructions, 'CLI model instructions')
   const windowsModel = modelCatalog([{ id: 'dicode-model' }], nativeModels, 'win32').models[0]
   assert.equal(windowsModel.apply_patch_tool_type, null)
@@ -59,6 +56,7 @@ test('Codex app-server starts with interactive input and plan tools enabled', as
   assert.equal(windowsModel.model_messages.tools.functions_namespace_functions_description_prefixes.apply_patch, undefined)
   await client.initialize('0.2.8')
   assert.deepEqual(writes.map(message => message.method), ['initialize', 'initialized'])
+  assert.equal(writes[0].params.capabilities.experimentalApi, true)
   client.dispose()
 })
 
@@ -82,9 +80,9 @@ test('Windows Codex prefers MXC and enables a legacy sandbox fallback', () => {
   assert.ok(args.includes('features.prefer_mxc=true'))
   assert.ok(args.includes('windows.sandbox="unelevated"'))
   const windowsInstructions = args.find(value => value.startsWith('developer_instructions='))
-  assert.ok(windowsInstructions.includes('Windows 文件编辑'))
-  assert.ok(windowsInstructions.includes('[System.IO.File]::WriteAllText'))
-  assert.ok(windowsInstructions.includes('比较工作区文件的前后内容'))
+  assert.ok(windowsInstructions.includes('write_file'))
+  assert.ok(windowsInstructions.includes('replace_file_text'))
+  assert.ok(windowsInstructions.includes('delete_file'))
   assert.equal(windowsInstructions.includes('\\ncodex --codex-run-as-apply-patch $patch'), false)
   client.dispose()
   const elevated = new CodexClient('codex', 'https://example.test', 'token', 'identity', 'catalog.json', () => {}, null, 'win32', 'elevated')

@@ -4,7 +4,7 @@ const Module = require('node:module')
 const path = require('node:path')
 const fs = require('node:fs')
 const os = require('node:os')
-const { scanWorkspace, scanChangedPaths, workspaceChanges } = require('../workspaceChanges')
+const { dynamicTools, editFile } = require('../fileEditTools')
 
 function makeView(root = '/repo') {
   const vscode = {
@@ -15,7 +15,7 @@ function makeView(root = '/repo') {
   Module._load = function (request, parent, isMain) { return request === 'vscode' ? vscode : originalLoad.call(this, request, parent, isMain) }
   let DicodeView
   try { delete require.cache[require.resolve('../extension')]; ({ DicodeView } = require('../extension')) } finally { Module._load = originalLoad }
-  const data = new Map([['dicodeCodex.thread', { id: 'thread', cwd: root }]])
+  const data = new Map([['dicodeCodex.thread', { id: 'thread', cwd: root, dynamicToolsEnabled: true }]])
   const context = {
     extensionPath: path.join(__dirname, '..'),
     globalState: { get: (key, fallback) => data.has(key) ? data.get(key) : fallback, update: async (key, value) => { data.set(key, value) } },
@@ -43,48 +43,85 @@ test('item diagnostics identify command actions and real file changes without co
   view.dispose()
 })
 
-test('shell writes create file edit events and diffs without Codex patch notifications', () => {
+test('shell writes retain only the Codex command event', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dicode-shell-edit-'))
   try {
     fs.writeFileSync(path.join(root, 'existing.txt'), 'before\n')
     fs.writeFileSync(path.join(root, 'removed.txt'), 'gone\n')
     const { view, posted } = makeView(root)
-    view.changeWorkspace = root
-    view.changeSnapshot = scanWorkspace(root)
     rpc(view, 'turn/started', { turn: { id: 't' } })
     rpc(view, 'item/started', { turnId: 't', item: { id: 'cmd', type: 'commandExecution', command: 'write files' } })
     fs.writeFileSync(path.join(root, 'existing.txt'), 'after\n')
     fs.writeFileSync(path.join(root, 'created.txt'), 'new\n')
     fs.unlinkSync(path.join(root, 'removed.txt'))
     rpc(view, 'item/completed', { turnId: 't', item: { id: 'cmd', type: 'commandExecution', status: 'completed', exitCode: 0 } })
-    const edit = posted.find(message => message.method === 'item/completed' && message.params?.item?.id?.startsWith('workspace-change-'))
-    assert.ok(edit)
-    assert.equal(edit.params.item.type, 'fileChange')
-    assert.deepEqual(edit.params.item.changes.map(change => change.path).sort(), ['created.txt', 'existing.txt', 'removed.txt'])
-    assert.match(edit.params.item.changes.find(change => change.path === 'existing.txt').diff, /-before\n\+after/)
-    assert.match(edit.params.item.changes.find(change => change.path === 'created.txt').diff, /--- \/dev\/null/)
-    assert.match(edit.params.item.changes.find(change => change.path === 'removed.txt').diff, /\+\+\+ \/dev\/null/)
     rpc(view, 'turn/completed', { turnId: 't', turn: { id: 't', status: 'completed' } })
-    assert.equal(posted.filter(message => message.params?.item?.id?.startsWith('workspace-change-')).length, 1)
+    assert.equal(posted.some(message => message.params?.item?.type === 'fileChange'), false)
+    assert.ok(posted.some(message => message.params?.item?.type === 'commandExecution'))
     view.dispose()
   } finally {
     if (root.startsWith(os.tmpdir() + path.sep)) fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('targeted file scan reuses untouched snapshots and detects the changed path', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dicode-targeted-scan-'))
+test('dynamic file tools create, replace and delete with precise diffs', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dicode-tools-'))
   try {
-    fs.writeFileSync(path.join(root, 'edited.txt'), 'before\n')
-    fs.writeFileSync(path.join(root, 'untouched.txt'), 'keep\n')
-    const before = scanWorkspace(root)
-    fs.writeFileSync(path.join(root, 'edited.txt'), 'after\n')
-    const after = scanChangedPaths(root, before, new Set(['edited.txt']))
-    assert.equal(after.files.get('untouched.txt'), before.files.get('untouched.txt'))
-    assert.deepEqual(workspaceChanges(before, after).map(change => change.path), ['edited.txt'])
+    assert.deepEqual(dynamicTools.map(tool => tool.name), ['write_file', 'replace_file_text', 'delete_file'])
+    const created = editFile(root, 'write_file', { path: 'sub/a.txt', content: 'before\n' })
+    assert.equal(created.kind, 'added')
+    assert.match(created.diff, /\+before/)
+    const changed = editFile(root, 'replace_file_text', { path: 'sub/a.txt', oldText: 'before', newText: 'after' })
+    assert.equal(changed.kind, 'modified')
+    assert.match(changed.diff, /-before\n\+after/)
+    assert.equal(fs.readFileSync(path.join(root, 'sub/a.txt'), 'utf8'), 'after\n')
+    const deleted = editFile(root, 'delete_file', { path: 'sub/a.txt' })
+    assert.equal(deleted.kind, 'deleted')
+    assert.match(deleted.diff, /\+\+\+ \/dev\/null/)
+    assert.throws(() => editFile(root, 'write_file', { path: '../escape.txt', content: 'bad' }))
+    fs.writeFileSync(path.join(root, 'binary.bin'), Buffer.from([0, 1, 2]))
+    assert.throws(() => editFile(root, 'write_file', { path: 'binary.bin', content: 'text' }), /二进制/)
   } finally {
     if (root.startsWith(os.tmpdir() + path.sep)) fs.rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('Codex dynamic tool call writes the file and emits a fileChange item', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dicode-tool-rpc-'))
+  try {
+    const { view, posted } = makeView(root)
+    const responses = []
+    view.client = { respond: (id, result) => responses.push({ id, result }), dispose() {} }
+    view.busy = true
+    view.permissionMode = 'auto'
+    view.onCodexEvent({ type: 'rpc', message: { id: 41, method: 'item/tool/call', params: { threadId: 'thread', turnId: 'turn', callId: 'call', tool: 'write_file', arguments: { path: 'a.txt', content: 'hello\n' } } } })
+    await tick()
+    assert.equal(fs.readFileSync(path.join(root, 'a.txt'), 'utf8'), 'hello\n')
+    assert.equal(responses[0].id, 41)
+    assert.equal(responses[0].result.success, true)
+    assert.equal(posted.find(message => message.params?.item?.type === 'fileChange').params.item.changes[0].path, 'a.txt')
+    view.dispose()
+  } finally {
+    if (root.startsWith(os.tmpdir() + path.sep)) fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('old threads are archived before a new tool-enabled thread starts', async () => {
+  const { view } = makeView()
+  view.dynamicToolsEnabled = false
+  view.conversation.begin('旧任务')
+  view.conversation.receive('turn/completed', { turn: { id: 'old', status: 'completed' } })
+  const calls = []
+  view.ensureClient = async () => ({ request: async (method, params) => {
+    calls.push({ method, params })
+    return method === 'thread/start' ? { thread: { id: 'new-thread' } } : { turn: { id: 'new-turn' } }
+  } })
+  await view.send('新任务', 'm')
+  assert.equal(calls[0].method, 'thread/start')
+  assert.deepEqual(calls[0].params.dynamicTools.map(tool => tool.name), dynamicTools.map(tool => tool.name))
+  assert.ok(view.threads.some(thread => thread.id === 'thread' && thread.snapshot.turns[0].user === '旧任务'))
+  assert.equal(view.threadId, 'new-thread')
+  view.dispose()
 })
 
 test('Codex permission modes apply to each turn and full access needs explicit confirmation', async () => {

@@ -7,11 +7,11 @@ const fs = require("node:fs")
 const { ensureCodexInstalled } = require("./codexInstaller")
 const { ensurePowerShellInstalled, powerShellEnv } = require("./powerShellInstaller")
 const { beforeFromUnifiedDiff } = require("./diff")
-const { scanWorkspace, scanChangedPaths, workspaceChanges } = require("./workspaceChanges")
+const { dynamicTools, editFile } = require("./fileEditTools")
 const { ConversationStore } = require("./media/conversation")
 const { generateThreadTitle } = require("./threadTitle")
 const EXTENSION_VERSION = require("./package.json").version
-const WINDOWS_PATCH_INSTRUCTIONS = fs.readFileSync(path.join(__dirname, "windows-patch-instructions.md"), "utf8").trim()
+const FILE_EDIT_INSTRUCTIONS = fs.readFileSync(path.join(__dirname, "file-edit-instructions.md"), "utf8").trim()
 
 const TOKEN_KEY = "dicodeCodex.tokens"
 const CLIENT_KEY = "dicodeCodex.machineId"
@@ -43,8 +43,6 @@ function nativeInstructions(model) {
 	return model?.model_messages?.instructions_template || model?.base_instructions || ""
 }
 
-const PATCH_TOOL_GUIDANCE = "Use only apply_patch for this tool (there is no write tool). Send raw patch text, not JSON or a code fence. Example:\n*** Begin Patch\n*** Add File: index.html\n+<!DOCTYPE html>\n+<html></html>\n*** End Patch\nEvery added file line starts with +."
-
 function modelCatalog(models, nativeModels, platform = process.platform) {
 	// Codex rejects custom model entries without a base template, so reuse the
 	// template bundled with the exact CLI binary that will run this catalog.
@@ -70,9 +68,7 @@ function modelCatalog(models, nativeModels, platform = process.platform) {
 				instructions_template: instructions,
 				tools: {
 					...native.model_messages?.tools,
-					functions_namespace_functions_description_prefixes: platform === "win32"
-						? { ...native.model_messages?.tools?.functions_namespace_functions_description_prefixes }
-						: { ...native.model_messages?.tools?.functions_namespace_functions_description_prefixes, apply_patch: PATCH_TOOL_GUIDANCE },
+					functions_namespace_functions_description_prefixes: { ...native.model_messages?.tools?.functions_namespace_functions_description_prefixes },
 				},
 			},
 			base_instructions: instructions,
@@ -80,7 +76,7 @@ function modelCatalog(models, nativeModels, platform = process.platform) {
 			supports_parallel_tool_calls: false,
 			support_verbosity: false,
 			default_verbosity: null,
-			apply_patch_tool_type: platform === "win32" ? null : "freeform",
+			apply_patch_tool_type: null,
 			truncation_policy: { mode: "bytes", limit: 10000 },
 			experimental_supported_tools: [],
 		}
@@ -100,7 +96,7 @@ class CodexClient {
 				"--listen",
 				"stdio://",
 				"-c",
-				`developer_instructions=${JSON.stringify(platform === "win32" ? `${identity}\n\n${WINDOWS_PATCH_INSTRUCTIONS}` : identity)}`,
+			`developer_instructions=${JSON.stringify(`${identity}\n\n${FILE_EDIT_INSTRUCTIONS}`)}`,
 				"-c",
 				`model_catalog_json=${JSON.stringify(catalogPath)}`,
 				"-c",
@@ -197,7 +193,7 @@ class CodexClient {
 		catch (error) { onWritten?.(error) }
 	}
 	async initialize(version) {
-		await this.request("initialize", { clientInfo: { name: "dicode", title: "DiCode", version } })
+		await this.request("initialize", { clientInfo: { name: "dicode", title: "DiCode", version }, capabilities: { experimentalApi: true } })
 		this.notify("initialized")
 	}
 	fail(error) {
@@ -246,16 +242,12 @@ class DicodeView {
 		if (!this.threads.length && savedHistory?.threadId)
 			this.threads = [{ id: savedHistory.threadId, cwd: savedHistory.cwd, title: savedHistory.snapshot?.turns?.[0]?.user ? "正在生成标题…" : "历史会话", updatedAt: Date.now(), snapshot: savedHistory.snapshot }]
 		const current = this.threads.find((thread) => thread.id === this.threadId && thread.cwd === this.workspace)
+		this.dynamicToolsEnabled = Boolean(savedThread?.dynamicToolsEnabled || current?.dynamicToolsEnabled)
 		if (current?.snapshot) this.conversation.restore(current.snapshot)
 		this.output = vscode.window.createOutputChannel("DiCode Codex")
 		this.beforeDocuments = new Map()
 		this.afterDocuments = new Map()
-		this.changeSnapshot = null
-		this.changeWorkspace = null
-		this.changeSequence = 0
-		this.changeWatcher = null
-		this.changedPaths = new Set()
-		this.changeNeedsFullScan = false
+		this.editSequence = 0
 	}
 	get serverUrl() {
 		return vscode.workspace.getConfiguration("dicodeCodex").get("serverUrl").replace(/\/$/, "")
@@ -479,9 +471,6 @@ class DicodeView {
 			return
 		}
 		if (event.type === "error") {
-			this.captureWorkspaceChanges("connection-error", this.turnId, true)
-			this.stopChangeWatcher()
-			this.changeSnapshot = null
 			this.output.appendLine(`[Codex error] ${event.message}`)
 			this.output.show?.(true)
 			clearTimeout(this.stopTimer)
@@ -502,6 +491,10 @@ class DicodeView {
 			return
 		}
 		const { message } = event
+		if (message.method === "item/tool/call" && message.id !== undefined) {
+			this.handleDynamicToolCall(message)
+			return
+		}
 		if (message.method === "item/started" || message.method === "item/completed") {
 			const item = message.params?.item
 			const actions = (item?.commandActions || []).map((action) => typeof action === "string" ? action : action?.type || action?.kind).filter(Boolean)
@@ -520,9 +513,6 @@ class DicodeView {
 			this.inputRequests.delete(requestId)
 			this.post({ type: "rpc", method: message.method, params: message.params })
 		} else if (message.method === "turn/completed") {
-			this.captureWorkspaceChanges("turn", message.params?.turnId, true)
-			this.stopChangeWatcher()
-			this.changeSnapshot = null
 			this.output.appendLine(`[Codex turn] completed status=${message.params?.turn?.status || "unknown"} error=${message.params?.turn?.error?.message || "none"}`)
 			const completedThreadId = this.threadId
 			const completedModel = this.activeModel
@@ -556,50 +546,30 @@ class DicodeView {
 			this.conversation.receive(message.method, params)
 			this.scheduleHistory()
 			this.post({ type: "rpc", method: message.method, params })
-			if (message.method === "item/completed" && params?.item?.type === "commandExecution") this.captureWorkspaceChanges(params.item.id, params.turnId)
-			if (message.method === "item/completed" && params?.item?.type === "fileChange" && this.changeSnapshot && this.workspace === this.changeWorkspace) {
-				const paths = (params.item.changes || []).map(change => path.relative(this.changeWorkspace, path.resolve(this.changeWorkspace, change.path || change.filePath || "")))
-				this.changeSnapshot = scanChangedPaths(this.changeWorkspace, this.changeSnapshot, paths) || scanWorkspace(this.changeWorkspace, this.changeSnapshot.files)
-				for (const file of paths) this.changedPaths.delete(file.replace(/\\/g, '/'))
-			}
 		}
 	}
-	startChangeWatcher() {
-		this.stopChangeWatcher()
-		this.changeNeedsFullScan = false
-		if (!this.changeSnapshot) return
+	async handleDynamicToolCall(message) {
+		const client = this.client
+		const { tool, arguments: args, turnId } = message.params || {}
 		try {
-			this.changeWatcher = fs.watch(this.changeWorkspace, { recursive: true }, (_event, filename) => {
-				if (!filename) { this.changeNeedsFullScan = true; return }
-				this.changedPaths.add(String(filename).replace(/\\/g, '/'))
-			})
-			this.changeWatcher.on("error", () => { this.stopChangeWatcher(); this.changeNeedsFullScan = true })
-		} catch { this.changeNeedsFullScan = true }
-	}
-	stopChangeWatcher() {
-		this.changeWatcher?.close()
-		this.changeWatcher = null
-		this.changedPaths.clear()
-	}
-	captureWorkspaceChanges(sourceId, turnId, full = false) {
-		if (!this.changeSnapshot || this.workspace !== this.changeWorkspace) return
-		const paths = this.changedPaths
-		this.changedPaths = new Set()
-		if (!full && this.changeWatcher && !this.changeNeedsFullScan && !paths.size) return
-		const after = full || !this.changeWatcher || this.changeNeedsFullScan
-			? scanWorkspace(this.changeWorkspace, this.changeSnapshot.files)
-			: scanChangedPaths(this.changeWorkspace, this.changeSnapshot, paths) || scanWorkspace(this.changeWorkspace, this.changeSnapshot.files)
-		this.changeNeedsFullScan = false
-		const changes = workspaceChanges(this.changeSnapshot, after)
-		this.changeSnapshot = after
-		if (!changes.length) return
-		const params = {
-			turnId: turnId || this.turnId || this.conversation.turns.at(-1)?.id,
-			item: { id: `workspace-change-${++this.changeSequence}-${sourceId || "command"}`, type: "fileChange", source: "dicodeWorkspaceScan", status: "completed", changes },
+			if (!client || !this.workspace || !this.busy) throw new Error("当前任务不可编辑文件")
+			if (!dynamicTools.some(spec => spec.name === tool)) throw new Error(`不支持的工具：${tool}`)
+			if (this.permissionMode === "request") {
+				const choice = await vscode.window.showWarningMessage(`DiCode 请求${tool === "delete_file" ? "删除" : "编辑"}文件：${args?.path || "未知文件"}`, { modal: true }, "允许")
+				if (choice !== "允许") throw new Error("用户拒绝文件编辑")
+			}
+			if (client !== this.client || !this.busy) throw new Error("任务已结束")
+			const change = editFile(this.workspace, tool, args)
+			if (change.changed) {
+				const params = { turnId, item: { id: `dicode-edit-${++this.editSequence}`, type: "fileChange", source: "dicodeDynamicTool", status: "completed", changes: [change] } }
+				this.conversation.receive("item/completed", params)
+				this.scheduleHistory()
+				this.post({ type: "rpc", method: "item/completed", params })
+			}
+			client.respond(message.id, { success: true, contentItems: [{ type: "inputText", text: change.changed ? `${change.kind} ${change.path}` : `unchanged ${change.path}` }] })
+		} catch (error) {
+			client?.respond(message.id, { success: false, contentItems: [{ type: "inputText", text: error.message }] })
 		}
-		this.conversation.receive("item/completed", params)
-		this.scheduleHistory()
-		this.post({ type: "rpc", method: "item/completed", params })
 	}
 	clearInputRequests() {
 		if (!this.inputRequests.size) return
@@ -648,9 +618,6 @@ class DicodeView {
 	}
 	recoverStoppedTurn(reason = "未收到结束通知，已重连 Agent") {
 		if (!this.busy || !this.stopping) return
-		this.captureWorkspaceChanges("stopped", this.turnId, true)
-		this.stopChangeWatcher()
-		this.changeSnapshot = null
 		clearTimeout(this.stopTimer)
 		this.busy = false
 		this.stopping = false
@@ -680,7 +647,7 @@ class DicodeView {
 		while (snapshot.turns.length > 1 && JSON.stringify(snapshot).length > 2_000_000) snapshot.turns.shift()
 		const previous = this.threads.find((thread) => thread.id === this.threadId && thread.cwd === this.workspace)
 		const title = previous?.title || "正在生成标题…"
-		this.threads = [{ id: this.threadId, cwd: this.workspace, title, updatedAt: Date.now(), snapshot }, ...this.threads.filter((thread) => thread.id !== this.threadId || thread.cwd !== this.workspace)].slice(0, 20)
+		this.threads = [{ id: this.threadId, cwd: this.workspace, title, updatedAt: Date.now(), snapshot, dynamicToolsEnabled: this.dynamicToolsEnabled }, ...this.threads.filter((thread) => thread.id !== this.threadId || thread.cwd !== this.workspace)].slice(0, 20)
 		this.context.globalState.update(THREADS_KEY, this.threads)
 		this.postState()
 	}
@@ -711,6 +678,14 @@ class DicodeView {
 		if (!text) throw new Error("请输入任务")
 		if (!this.workspace) throw new Error("请先打开工作区")
 		if (!this.models?.some((item) => item.id === model)) throw new Error("请选择可用模型")
+		const migrated = Boolean(this.threadId && !this.dynamicToolsEnabled)
+		if (migrated) {
+			this.persistHistory()
+			this.threadId = null
+			this.loadedThreadId = null
+			this.conversation.reset()
+			await this.context.globalState.update(THREAD_KEY, undefined)
+		}
 		this.activeModel = model
 		this.busy = true
 		const runId = ++this.runSequence
@@ -719,6 +694,7 @@ class DicodeView {
 		this.interruptSent = false
 		this.turnId = null
 		this.conversation.begin(text)
+		if (migrated) this.post({ type: "history", snapshot: this.conversation.snapshot() })
 		this.postState()
 		try {
 			const client = await this.ensureClient()
@@ -746,22 +722,17 @@ class DicodeView {
 					cwd: this.workspace,
 					approvalPolicy: permission.approvalPolicy,
 					sandbox: permission.sandbox,
+					dynamicTools,
 				})
 				this.threadId = started.thread.id
 				this.loadedThreadId = this.threadId
-				await this.context.globalState.update(THREAD_KEY, { id: this.threadId, cwd: this.workspace })
+				this.dynamicToolsEnabled = true
+				await this.context.globalState.update(THREAD_KEY, { id: this.threadId, cwd: this.workspace, dynamicToolsEnabled: true })
 			}
 			if (this.activeRunId !== runId) return
 			if (this.stopping) return this.recoverStoppedTurn("已取消")
 			this.conversation.threadId = this.threadId
 			this.persistHistory()
-			this.changeWorkspace = this.workspace
-			this.changeSnapshot = scanWorkspace(this.changeWorkspace)
-			if (!this.changeSnapshot.complete) {
-				this.output.appendLine("[DiCode files] 工作区快照超过限制，本轮无法从命令生成文件差异")
-				this.changeSnapshot = null
-			}
-			this.startChangeWatcher()
 			const result = await client.request("turn/start", {
 				threadId: this.threadId,
 				cwd: this.workspace,
@@ -778,8 +749,6 @@ class DicodeView {
 			}
 		} catch (error) {
 			if (this.activeRunId !== runId) return
-			this.stopChangeWatcher()
-			this.changeSnapshot = null
 			clearTimeout(this.stopTimer)
 			this.busy = false
 			this.stopping = false
@@ -859,6 +828,7 @@ class DicodeView {
 			if (this.busy) throw new Error("请先停止当前任务")
 			this.threadId = null
 			this.loadedThreadId = null
+			this.dynamicToolsEnabled = false
 			this.conversation.reset()
 			await this.context.globalState.update(THREAD_KEY, undefined)
 			await this.postState()
@@ -870,8 +840,9 @@ class DicodeView {
 			if (!selected) throw new Error("会话不存在")
 			this.threadId = selected.id
 			this.loadedThreadId = null
+			this.dynamicToolsEnabled = Boolean(selected.dynamicToolsEnabled)
 			this.conversation.restore(selected.snapshot)
-			await this.context.globalState.update(THREAD_KEY, { id: this.threadId, cwd: this.workspace })
+			await this.context.globalState.update(THREAD_KEY, { id: this.threadId, cwd: this.workspace, dynamicToolsEnabled: this.dynamicToolsEnabled })
 			await this.postState()
 			this.post({ type: "history", snapshot: this.conversation.snapshot() })
 			this.maybeGenerateTitle(this.threadId, this.models?.[0]?.id)
@@ -938,7 +909,6 @@ class DicodeView {
 		}
 	}
 	dispose() {
-		this.stopChangeWatcher()
 		clearTimeout(this.stopTimer)
 		clearTimeout(this.historyTimer)
 		this.persistHistory()
