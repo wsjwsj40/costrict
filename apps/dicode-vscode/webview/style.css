@@ -1,4 +1,4 @@
-:root { color-scheme: light dark; --fg: var(--vscode-foreground); --muted: var(--vscode-descriptionForeground); --surface: var(--vscode-sideBar-background, var(--vscode-editor-background)); --editor: var(--vscode-editor-background); --border: var(--vscode-panel-border, var(--vscode-editorGroup-border)); --hover: var(--vscode-list-hoverBackground, var(--vscode-editor-background)); --green: var(--vscode-gitDecoration-addedResourceForeground, var(--fg)); --font: var(--vscode-font-family, sans-serif); --mono: var(--vscode-editor-font-family, monospace); --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --activity-indent: 21px; }
+:root { color-scheme: light dark; --fg: var(--vscode-foreground); --muted: var(--vscode-descriptionForeground); --surface: var(--vscode-sideBar-background, var(--vscode-editor-background)); --editor: var(--vscode-editor-background); --border: var(--vscode-panel-border, var(--vscode-editorGroup-border)); --hover: var(--vscode-list-hoverBackground, var(--vscode-editor-background)); --green: var(--vscode-gitDecoration-addedResourceForeground, var(--fg)); --font: var(--vscode-font-family, sans-serif); --mono: var(--vscode-editor-font-family, monospace); --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --line-gap: 6px; --block-gap: 12px; --activity-indent: 21px; }
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; }
 body { background: var(--surface); color: var(--fg); font: 12px/1.5 var(--font); }
@@ -33,11 +33,12 @@ button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 1p
 .turn-content { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .process-section { color: var(--muted); }
 .process-toggle { display: inline-flex; align-items: center; gap: 7px; padding: 3px 0; color: var(--muted); font-size: 11px; }
-.process-content { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.process-content { display: flex; flex-direction: column; gap: var(--block-gap); min-width: 0; }
+.process-section .process-content { margin-top: var(--block-gap); }
 .assistant-comment { color: var(--muted); }
 .answer-label { margin-bottom: 5px; color: var(--muted); font-size: 11px; font-weight: 600; }
-.markdown { overflow-wrap: anywhere; font-size: 12px; line-height: 1.65; }
-.markdown p { margin: 0 0 8px; }
+.markdown { overflow-wrap: anywhere; font-size: 13px; line-height: 22px; }
+.markdown p { margin: 0 0 var(--block-gap); }
 .markdown p:last-child { margin-bottom: 0; }
 .markdown pre, .command-detail pre, .tool-detail { overflow: auto; margin: 6px 0 0; padding: 8px 10px; border-radius: 5px; background: var(--vscode-textCodeBlock-background, var(--editor)); font: 11px/1.5 var(--mono); }
 .markdown code { font-family: var(--mono); font-size: 11px; }
@@ -104,12 +105,12 @@ button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 1p
 .composer select:hover { color: var(--fg); }
 .send-button { width: 26px; height: 26px; margin-left: auto; border-radius: 6px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); font-size: 15px; }
 .status-line { min-height: 20px; padding: 4px 2px 0; color: var(--muted); font-size: 10px; }
-.process-content { gap: 10px; }
-.process-content > .assistant-comment + :is(.activity-list, .activity-group), .process-content > :is(.activity-list, .activity-group) + .assistant-comment { margin-top: 8px; }
+.process-content { gap: var(--block-gap); }
 .assistant-comment { color: var(--fg); }
 .assistant-comment .markdown { font-size: inherit; }
-.group-content { margin-left: 0; gap: 8px; }
-.activity-list { display: flex; flex-direction: column; gap: 8px; }
+.group-content { margin-left: 0; gap: var(--line-gap); }
+.activity-list { display: flex; flex-direction: column; gap: var(--line-gap); }
+.activity-toggle { min-height: 16px; padding: 0; line-height: 16px; }
 .activity-content { margin-left: 0; }
 .activity-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .activity-line .activity-toggle { width: auto; flex: none; gap: 8px; }
