@@ -28,4 +28,23 @@ function beforeFromUnifiedDiff(current, diff) {
   }
   return lines.join(newline) + (trailing ? newline : '')
 }
-module.exports = { beforeFromUnifiedDiff }
+function historicalDiff(current, turns, { turnId, itemId, changeIndex, path }) {
+  const changes = []
+  for (const turn of turns) for (const item of turn.items || []) {
+    if (item.type !== 'fileChange') continue
+    for (const [index, change] of (item.raw?.changes || []).entries()) {
+      if ((change.path || change.filePath) === path) changes.push({ turnId: turn.id, itemId: item.id, index, diff: change.diff })
+    }
+  }
+  const selected = changes.findIndex(change => change.turnId === turnId && change.itemId === itemId && change.index === changeIndex)
+  if (selected < 0) throw new Error('找不到这次文件修改')
+  let after = current
+  for (let index = changes.length - 1; index > selected; index--) {
+    if (!changes[index].diff) throw new Error('后续修改缺少差异内容，无法还原历史版本')
+    after = beforeFromUnifiedDiff(after, changes[index].diff)
+  }
+  const diff = changes[selected].diff
+  if (!diff) throw new Error('这次修改缺少差异内容')
+  return { before: beforeFromUnifiedDiff(after, diff), after }
+}
+module.exports = { beforeFromUnifiedDiff, historicalDiff }

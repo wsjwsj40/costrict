@@ -5,6 +5,7 @@ const path = require('node:path')
 const fs = require('node:fs')
 const os = require('node:os')
 const { dynamicTools, editFile } = require('../fileEditTools')
+const { unifiedDiff } = require('../unifiedDiff')
 
 function makeView(root = '/repo') {
   const vscode = {
@@ -100,6 +101,29 @@ test('Codex dynamic tool call writes the file and emits a fileChange item', asyn
     assert.equal(responses[0].id, 41)
     assert.equal(responses[0].result.success, true)
     assert.equal(posted.find(message => message.params?.item?.type === 'fileChange').params.item.changes[0].path, 'a.txt')
+    view.dispose()
+  } finally {
+    if (root.startsWith(os.tmpdir() + path.sep)) fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('clicking an earlier edit opens its historical before and after in VS Code diff', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dicode-historical-diff-'))
+  try {
+    const { view, vscode } = makeView(root)
+    const calls = []
+    vscode.Uri = { from: value => value, file: value => ({ scheme: 'file', path: value }) }
+    vscode.commands = { executeCommand: (...args) => calls.push(args) }
+    const first = unifiedDiff('a.txt', 'one\n', 'two\n')
+    const second = unifiedDiff('a.txt', 'two\n', 'three\n')
+    fs.writeFileSync(path.join(root, 'a.txt'), 'three\n')
+    rpc(view, 'item/completed', { turnId: 'turn', item: { id: 'first', type: 'fileChange', changes: [{ path: 'a.txt', diff: first }] } })
+    rpc(view, 'item/completed', { turnId: 'turn', item: { id: 'second', type: 'fileChange', changes: [{ path: 'a.txt', diff: second }] } })
+    await view.handle({ type: 'openDiff', path: 'a.txt', diff: first, turnId: 'turn', itemId: 'first', changeIndex: 0 })
+    assert.equal(calls[0][0], 'vscode.diff')
+    const beforeUri = calls[0][1], afterUri = calls[0][2]
+    assert.equal(view.beforeDocuments.get(beforeUri.query), 'one\n')
+    assert.equal(view.afterDocuments.get(afterUri.query), 'two\n')
     view.dispose()
   } finally {
     if (root.startsWith(os.tmpdir() + path.sep)) fs.rmSync(root, { recursive: true, force: true })

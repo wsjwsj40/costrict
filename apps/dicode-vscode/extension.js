@@ -6,7 +6,7 @@ const path = require("node:path")
 const fs = require("node:fs")
 const { ensureCodexInstalled } = require("./codexInstaller")
 const { ensurePowerShellInstalled, powerShellEnv } = require("./powerShellInstaller")
-const { beforeFromUnifiedDiff } = require("./diff")
+const { beforeFromUnifiedDiff, historicalDiff } = require("./diff")
 const { dynamicTools, editFile } = require("./fileEditTools")
 const { ConversationStore } = require("./media/conversation")
 const { generateThreadTitle } = require("./threadTitle")
@@ -867,14 +867,18 @@ class DicodeView {
 				const exists = fs.existsSync(file)
 				const current = exists ? fs.readFileSync(file, "utf8") : ""
 				const diff = String(message.diff || "")
-				const before = /^--- \/dev\/null$/m.test(diff) ? "" : beforeFromUnifiedDiff(current, diff)
+				const historical = message.turnId && message.itemId
+					? historicalDiff(current, this.conversation.turns, { turnId: message.turnId, itemId: message.itemId, changeIndex: message.changeIndex, path: relative.replace(/\\/g, "/") })
+					: null
+				const after = historical?.after ?? current
+				const before = historical?.before ?? (/^--- \/dev\/null$/m.test(diff) ? "" : beforeFromUnifiedDiff(current, diff))
 				const id = crypto.randomUUID()
 				this.beforeDocuments.set(id, before)
 				if (this.beforeDocuments.size > 20) this.beforeDocuments.delete(this.beforeDocuments.keys().next().value)
 				const beforeUri = vscode.Uri.from({ scheme: "dicode-before", path: `/${relative}`, query: id })
-				if (!exists) this.afterDocuments.set(id, current)
+				if (historical || !exists) this.afterDocuments.set(id, after)
 				if (this.afterDocuments.size > 20) this.afterDocuments.delete(this.afterDocuments.keys().next().value)
-				const afterUri = exists ? vscode.Uri.file(file) : vscode.Uri.from({ scheme: "dicode-after", path: `/${relative}`, query: id })
+				const afterUri = historical || !exists ? vscode.Uri.from({ scheme: "dicode-after", path: `/${relative}`, query: id }) : vscode.Uri.file(file)
 				await vscode.commands.executeCommand("vscode.diff", beforeUri, afterUri, `${relative} · DiCode 变更`)
 				return
 			}

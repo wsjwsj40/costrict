@@ -61,16 +61,17 @@ function Diff({ diff }: { diff: string }) {
   }
   return <div className="diff-lines">{lines}</div>
 }
-function FileRow({ change, status, turn }: { change: any; status: string; turn: any }) {
+function FileRow({ change, status, turn, itemId, changeIndex }: { change: any; status: string; turn: any; itemId: string; changeIndex: number }) {
   const file = change.path || change.filePath || ''
   const diff = change.diff || parseDiff(turn.diff || '').find((part: any) => part.path === file)?.diff || ''
   const parsed = diff ? parseDiff(diff.startsWith('diff --git ') ? diff : `diff --git a/${file} b/${file}\n${diff}`)[0] : null
   const [open, setOpen] = useState(false)
   const kind = change.kind || change.type || 'modified'
+  const openChange = () => post(diff ? 'openDiff' : 'openFile', { path: file, diff, turnId: turn.id, itemId, changeIndex })
   const verb = `${status === 'inProgress' ? '正在' : status === 'failed' ? '未能' : '已'}${kind === 'added' || kind === 'created' ? '创建' : kind === 'deleted' ? '删除' : '编辑'}`
   return <div className="activity-row file-activity">
-    <div className="activity-line"><button className="activity-toggle" aria-expanded={open} onClick={() => setOpen(!open)}><Icon kind="edit" /><span className="activity-title">{verb}</span></button><button className="activity-file-link" onClick={() => post(kind === 'deleted' ? 'openDiff' : 'openFile', { path: file, diff })}>{file || '文件'}</button><button className="activity-chevron" aria-label={open ? '折叠文件变动' : '展开文件变动'} onClick={() => setOpen(!open)}><span className={`chevron ${open ? 'expanded' : ''}`} /></button>{!open && parsed && <span className="change-count"><span className="plus">+{parsed.additions}</span> <span>-{parsed.deletions}</span></span>}</div>
-    {open && <div className="activity-content"><div className="diff-panel"><div className="diff-head"><button className="file-name" onClick={() => post(diff ? 'openDiff' : 'openFile', { path: file, diff })}>{file || '文件'}</button>{parsed && <><span className="plus">+{parsed.additions}</span><span>-{parsed.deletions}</span></>}<button className="copy" title="复制差异" onClick={() => navigator.clipboard?.writeText(diff)}><Icon kind="copy" /></button></div>{diff ? <Diff diff={diff} /> : <div className="no-diff">暂无差异内容</div>}</div></div>}
+    <div className="activity-line"><button className="activity-toggle" aria-expanded={open} onClick={() => setOpen(!open)}><Icon kind="edit" /><span className="activity-title">{verb}</span></button><button className="activity-file-link" onClick={openChange}>{file || '文件'}</button><button className="activity-chevron" aria-label={open ? '折叠文件变动' : '展开文件变动'} onClick={() => setOpen(!open)}><span className={`chevron ${open ? 'expanded' : ''}`} /></button>{!open && parsed && <span className="change-count"><span className="plus">+{parsed.additions}</span> <span>-{parsed.deletions}</span></span>}</div>
+    {open && <div className="activity-content"><div className="diff-panel"><div className="diff-head"><button className="file-name" onClick={openChange}>{file || '文件'}</button>{parsed && <><span className="plus">+{parsed.additions}</span><span>-{parsed.deletions}</span></>}<button className="copy" title="复制差异" onClick={() => navigator.clipboard?.writeText(diff)}><Icon kind="copy" /></button></div>{diff ? <Diff diff={diff} /> : <div className="no-diff">暂无差异内容</div>}</div></div>}
   </div>
 }
 function visibleCommand(raw: unknown) {
@@ -99,13 +100,13 @@ function ToolRow({ item }: { item: any }) {
 }
 function Activities({ items, turn }: { items: any[]; turn: any }) {
   const [open, setOpen] = useState(turn.status !== 'completed')
-  const entries = items.flatMap(item => item.type === 'fileChange' && item.raw?.changes?.length ? item.raw.changes.map((change: any, index: number) => ({ item, change, key: `${item.id}:${index}` })) : [{ item, key: item.id }])
+  const entries = items.flatMap(item => item.type === 'fileChange' && item.raw?.changes?.length ? item.raw.changes.map((change: any, index: number) => ({ item, change, changeIndex: index, key: `${item.id}:${index}` })) : [{ item, changeIndex: 0, key: item.id }])
   const visible = entries.filter(({ item }) => item.type !== 'reasoning' && !(item.type === 'dynamicToolCall' && editTools.has(item.raw?.tool)))
   if (!visible.length) return null
   const commands = visible.filter(({ item }) => item.type === 'commandExecution').length
   const edits = visible.filter(({ item }) => item.type === 'fileChange').length
   const label = <>{commands > 0 && <>已运行 <small>{commands} 条命令</small></>}{commands > 0 && edits > 0 && '、'}{edits > 0 && <>已编辑 <small>{edits} 个文件</small></>}{!commands && !edits && <>已执行 <small>{visible.length} 项操作</small></>}</>
-  const rows = visible.map(({ item, change, key }) => <React.Fragment key={key}>{item.type === 'commandExecution' ? <CommandRow item={item} /> : item.type === 'fileChange' ? <FileRow change={change || item.raw?.changes?.[0] || {}} status={item.status} turn={turn} /> : <ToolRow item={item} />}</React.Fragment>)
+  const rows = visible.map(({ item, change, changeIndex, key }) => <React.Fragment key={key}>{item.type === 'commandExecution' ? <CommandRow item={item} /> : item.type === 'fileChange' ? <FileRow change={change || item.raw?.changes?.[0] || {}} status={item.status} turn={turn} itemId={item.id} changeIndex={changeIndex} /> : <ToolRow item={item} />}</React.Fragment>)
   if (visible.length === 1) return <div className="activity-list">{rows}</div>
   return <div className="activity-group"><button className="group-toggle" aria-expanded={open} onClick={() => setOpen(!open)}><Icon kind={edits ? 'edit' : 'command'} /><span>{label}</span><span className={`chevron ${open ? 'expanded' : ''}`} /></button>{open && <div className="group-content">{rows}</div>}</div>
 }
