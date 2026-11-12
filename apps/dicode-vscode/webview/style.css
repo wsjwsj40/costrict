@@ -8,15 +8,17 @@ button:disabled { opacity: .55; cursor: default; }
 button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: 2px; }
 #root { display: flex; flex-direction: column; }
 .topbar { height: 42px; flex: none; padding: 0 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
-.brand { font-size: 13px; letter-spacing: .01em; }
+.brand { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; letter-spacing: .01em; }
 .brand strong { font-weight: 600; }
+.brand .icon { width: 18px; height: 18px; color: var(--fg); }
 .top-actions { display: flex; align-items: center; gap: 4px; }
-.top-actions button { width: 28px; height: 28px; border-radius: 5px; color: var(--muted); font-size: 17px; }
+.top-actions button { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 5px; color: var(--muted); }
 .top-actions button:hover, .toolbar button:hover { background: var(--hover); color: var(--fg); }
 .app { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .login, .empty { margin: auto; padding: 24px; text-align: center; color: var(--muted); }
 .login h2, .empty h2 { color: var(--fg); font-size: 17px; font-weight: 600; }
 .empty > div { font-size: 27px; }
+.empty .icon { width: 32px; height: 32px; margin: 0 auto; }
 .primary { margin-top: 12px; padding: 7px 14px; border-radius: 6px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); }
 .toolbar { height: 34px; display: flex; flex: none; align-items: center; justify-content: space-between; padding: 0 16px; color: var(--muted); font-size: 11px; }
 .workspace { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -139,6 +141,7 @@ button:hover > .chevron, button:focus-visible > .chevron { visibility: visible; 
 .summary-top { display: flex; align-items: center; min-height: 74px; gap: 12px; padding: 12px 14px; cursor: pointer; border-bottom: 1px solid var(--border); }
 .summary-top:hover { background: var(--hover); }
 .summary-icon { display: grid; place-items: center; width: 22px; height: 22px; color: var(--muted); font-size: 18px; }
+.summary-icon .icon { width: 20px; height: 20px; }
 .summary-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .summary-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .summary-title small { font-size: 11px; }
