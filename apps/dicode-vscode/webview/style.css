@@ -1,4 +1,4 @@
-:root { color-scheme: light dark; --fg: var(--vscode-foreground); --muted: var(--vscode-descriptionForeground); --surface: var(--vscode-sideBar-background, var(--vscode-editor-background)); --editor: var(--vscode-editor-background); --border: var(--vscode-panel-border, var(--vscode-editorGroup-border)); --hover: var(--vscode-list-hoverBackground, var(--vscode-editor-background)); --green: var(--vscode-gitDecoration-addedResourceForeground, var(--fg)); --font: var(--vscode-font-family, sans-serif); --mono: var(--vscode-editor-font-family, monospace); --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --line-gap: 6px; --block-gap: 12px; --turn-gap: 24px; --activity-indent: 21px; }
+:root { color-scheme: light dark; --fg: var(--vscode-foreground); --muted: var(--vscode-descriptionForeground); --surface: var(--vscode-sideBar-background, var(--vscode-editor-background)); --editor: var(--vscode-editor-background); --border: var(--vscode-panel-border, var(--vscode-editorGroup-border)); --hover: var(--vscode-list-hoverBackground, var(--vscode-editor-background)); --green: var(--vscode-gitDecoration-addedResourceForeground, var(--fg)); --font: var(--vscode-font-family, sans-serif); --mono: var(--vscode-editor-font-family, monospace); --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --line-gap: 6px; --text-line-gap: 3px; --block-gap: 12px; --turn-gap: 24px; --activity-indent: 21px; }
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; }
 body { background: var(--surface); color: var(--fg); font: 12px/1.5 var(--font); }
@@ -37,7 +37,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 1p
 .process-section .process-content { margin-top: var(--block-gap); }
 .assistant-comment { color: var(--muted); }
 .answer-label { margin-bottom: 5px; color: var(--muted); font-size: 11px; font-weight: 600; }
-.markdown { overflow-wrap: anywhere; font-size: 13px; line-height: 22px; }
+.markdown { overflow-wrap: anywhere; font-size: 13px; line-height: calc(13px + var(--text-line-gap)); }
 .markdown p { margin: 0 0 var(--block-gap); }
 .markdown p:last-child { margin-bottom: 0; }
 .markdown pre, .command-detail pre, .tool-detail { overflow: auto; margin: 6px 0 0; padding: 8px 10px; border-radius: 5px; background: var(--vscode-textCodeBlock-background, var(--editor)); font: 11px/1.5 var(--mono); }
@@ -129,8 +129,34 @@ button:hover > .chevron, button:focus-visible > .chevron { visibility: visible; 
 @keyframes dicode-flow { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 @media (prefers-reduced-motion: reduce) { .flowing { animation: none; color: var(--muted); background: none; } }
 .file-summary { font-size: 12px; }
+.final-answer + .file-summary { margin-top: calc(6px - var(--block-gap)); }
 .summary-file { display: flex !important; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
 .summary-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-textLink-foreground, var(--fg)); }
 .summary-count { flex: none; font-family: var(--mono); font-size: 11px; }
 .minus { color: var(--vscode-gitDecoration-deletedResourceForeground, var(--fg)); }
 .summary-more { color: var(--muted); display: flex !important; align-items: center; gap: 6px; }
+.file-summary { padding: 0; overflow: hidden; border-radius: 11px; background: var(--vscode-editor-background); }
+.summary-top { display: flex; align-items: center; min-height: 74px; gap: 12px; padding: 12px 14px; cursor: pointer; border-bottom: 1px solid var(--border); }
+.summary-top:hover { background: var(--hover); }
+.summary-icon { display: grid; place-items: center; width: 22px; height: 22px; color: var(--muted); font-size: 18px; }
+.summary-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.summary-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.summary-title small { font-size: 11px; }
+.summary-undo, .summary-view { flex: none; color: var(--muted); }
+.summary-undo { opacity: .6; }
+.summary-view { padding: 5px 8px !important; border: 1px solid var(--border); border-radius: 6px; }
+.summary-file { min-height: 37px; padding: 8px 12px !important; }
+.summary-file:hover { background: var(--hover); text-decoration: none !important; }
+.summary-file-name { color: var(--muted); }
+.summary-more { width: 100%; min-height: 35px; padding: 7px 12px !important; border-top: 1px solid var(--border); }
+.summary-more:hover { text-decoration: none !important; background: var(--hover); }
+.changes-viewer { width: 100%; height: 100%; overflow: auto; padding: 18px 14px 32px; background: var(--editor); }
+.changes-header { margin-bottom: 14px; color: var(--muted); font-size: 13px; }
+.changes-nav { display: flex; flex-direction: column; gap: 3px; margin-bottom: 20px; }
+.changes-nav button { padding: 9px 16px; text-align: left; border-radius: 8px; font-size: 13px; }
+.changes-nav button:hover { background: var(--hover); }
+.changes-file { margin-bottom: 26px; scroll-margin-top: 12px; }
+.changes-file-title { display: flex; justify-content: space-between; padding: 9px 12px; color: var(--fg); font-size: 13px; }
+.changes-viewer .diff-lines { max-height: none; padding: 0; font-size: 13px; line-height: 22px; }
+.changes-viewer .diff-line { min-height: 22px; }
+.changes-viewer .line-no { width: 40px; }

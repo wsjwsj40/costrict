@@ -43,7 +43,7 @@ function Markdown({ text }: { text: string }) {
   const onClick = (event: React.MouseEvent) => {
     const target = event.target as HTMLElement
     const link = target.closest('a[href]') as HTMLAnchorElement | null
-    if (link) { event.preventDefault(); post('openLink', { href: link.getAttribute('href') || '' }); return }
+    if (link) { event.preventDefault(); const href = link.getAttribute('href') || ''; post(link.classList.contains('local-file-link') ? 'openFile' : 'openLink', link.classList.contains('local-file-link') ? { path: href } : { href }); return }
     const code = target.closest('code')
     if (code && !code.closest('pre') && /^(?:[\w.\-]+[\\/])*[\w.\-]+\.[\w-]+(?::\d+|#L\d+)?$/.test(code.textContent || '')) post('openFile', { path: code.textContent || '' })
   }
@@ -67,7 +67,7 @@ function FileRow({ change, status, turn, itemId, changeIndex }: { change: any; s
   const parsed = diff ? parseDiff(diff.startsWith('diff --git ') ? diff : `diff --git a/${file} b/${file}\n${diff}`)[0] : null
   const [open, setOpen] = useState(false)
   const kind = change.kind || change.type || 'modified'
-  const openChange = () => post(diff ? 'openDiff' : 'openFile', { path: file, diff, turnId: turn.id, itemId, changeIndex })
+  const openChange = () => post(kind === 'deleted' ? 'openDiff' : 'openFile', { path: file, diff, turnId: turn.id, itemId, changeIndex })
   const verb = `${status === 'inProgress' ? '正在' : status === 'failed' ? '未能' : '已'}${kind === 'added' || kind === 'created' ? '创建' : kind === 'deleted' ? '删除' : '编辑'}`
   return <div className="activity-row file-activity">
     <div className="activity-line"><button className="activity-toggle" aria-expanded={open} onClick={() => setOpen(!open)}><Icon kind="edit" /><span className="activity-title">{verb}</span></button><button className="activity-file-link" onClick={openChange}>{file || '文件'}</button><button className="activity-chevron" aria-label={open ? '折叠文件变动' : '展开文件变动'} onClick={() => setOpen(!open)}><span className={`chevron ${open ? 'expanded' : ''}`} /></button>{!open && parsed && <span className="change-count"><span className="plus">+{parsed.additions}</span> <span>-{parsed.deletions}</span></span>}</div>
@@ -124,12 +124,33 @@ function FileSummary({ turn }: { turn: any }) {
   const files = finalDiff.length ? finalDiff : [...byPath.values()].filter(change => !(change.initiallyCreated && change.kind === 'deleted'))
   if (!files.length) return null
   const shown = expanded ? files : files.slice(0, 3)
-  return <div className="file-summary"><div className="summary-heading">{files.length} 个文件已变动</div>{shown.map((change: any) => {
+  const totals = files.reduce((sum: { added: number; deleted: number }, change: any) => {
+    const file = change.path || change.filePath || ''
+    const diff = change.diff || ''
+    const parsed = parseDiff(diff.startsWith('diff --git ') ? diff : `diff --git a/${file} b/${file}\n${diff}`)[0]
+    return { added: sum.added + (parsed?.additions || 0), deleted: sum.deleted + (parsed?.deletions || 0) }
+  }, { added: 0, deleted: 0 })
+  const openChanges = (selectedPath?: string) => post('openChanges', { turnId: turn.id, selectedPath })
+  return <div className="file-summary"><div className="summary-top" role="button" tabIndex={0} onClick={() => openChanges()} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openChanges() } }}><span className="summary-icon">⊞</span><span className="summary-title"><strong>{files.length === 1 ? `编辑了 ${files[0].path || files[0].filePath}` : `编辑了 ${files.length} 个文件`}</strong><small><span className="plus">+{totals.added}</span> <span className="minus">-{totals.deleted}</span></small></span><button className="summary-undo" disabled title="暂不支持从此处撤销">撤销 ↶</button><button className="summary-view" onClick={event => { event.stopPropagation(); openChanges() }}>查看改动</button></div>{shown.map((change: any) => {
     const file = change.path || change.filePath
     const diff = change.diff || ''
     const counts = parseDiff(diff.startsWith('diff --git ') ? diff : `diff --git a/${file} b/${file}\n${diff}`)[0]
-    return <button className="summary-file" key={file} onClick={() => post(diff ? 'openDiff' : 'openFile', { path: file, diff })}><span className="summary-file-name">{file}</span>{diff && <span className="summary-count"><span className="plus">+{counts?.additions || 0}</span> <span className="minus">-{counts?.deletions || 0}</span></span>}</button>
+    return <button className="summary-file" key={file} onClick={() => openChanges(file)}><span className="summary-file-name">{file}</span>{diff && <span className="summary-count"><span className="plus">+{counts?.additions || 0}</span> <span className="minus">-{counts?.deletions || 0}</span></span>}</button>
   })}{files.length > 3 && <button className="summary-more" onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : `显示其余 ${files.length - 3} 个文件`} <span className={`chevron ${expanded ? 'expanded' : ''}`} /></button>}</div>
+}
+
+function ChangesViewer() {
+  const [payload, setPayload] = useState<{ diff: string; selectedPath?: string } | null>(null)
+  useEffect(() => {
+    const receive = (event: MessageEvent) => { if (event.data?.type === 'changes') setPayload(event.data) }
+    window.addEventListener('message', receive)
+    post('ready')
+    return () => window.removeEventListener('message', receive)
+  }, [])
+  const files = parseDiff(payload?.diff || '')
+  const total = files.reduce((sum: { added: number; deleted: number }, file: any) => ({ added: sum.added + file.additions, deleted: sum.deleted + file.deletions }), { added: 0, deleted: 0 })
+  useEffect(() => { if (payload?.selectedPath) document.getElementById(`change-${files.findIndex((file: any) => file.path === payload.selectedPath)}`)?.scrollIntoView?.() }, [payload])
+  return <main className="changes-viewer"><header className="changes-header">{files.length} 个文件已修改 <span className="plus">+{total.added}</span> <span className="minus">-{total.deleted}</span></header><nav className="changes-nav">{files.map((file: any, index: number) => <button key={file.path} onClick={() => document.getElementById(`change-${index}`)?.scrollIntoView({ behavior: 'smooth' })}>{file.path}</button>)}</nav>{files.map((file: any, index: number) => <section className="changes-file" id={`change-${index}`} key={file.path}><div className="changes-file-title">{file.path}<span><span className="plus">+{file.additions}</span> <span className="minus">-{file.deletions}</span></span></div><Diff diff={file.diff} /></section>)}</main>
 }
 function TurnView({ turn }: { turn: any }) {
   const [processOpen, setProcessOpen] = useState(false)
@@ -234,4 +255,4 @@ function App() {
   return <><header className="topbar"><span className="brand"><strong>DiCode</strong></span><div className="top-actions"><button title="最近会话" onClick={() => setThreadsOpen(!threadsOpen)}>☰</button><button title="新会话" onClick={() => { if (!busy) { store.reset(); setRevision(n => n + 1); post('newThread') } }}>＋</button></div></header>{!state.loggedIn ? <div className="login"><h2>让想法成为代码。</h2><p>登录后，在当前工作区和 DiCode 一起完成任务。</p><button className="primary" onClick={() => post('login')}>登录 DiCode</button></div> : <main className="app"><div className="toolbar"><span className="workspace">{state.workspace || '未打开工作区'}</span><button onClick={() => { store.reset(); setRevision(n => n + 1); post('logout') }}>退出</button></div>{threadsOpen && <nav className="thread-list">{(state.threads || []).map((thread: any) => <button key={thread.id} onClick={() => { if (!busy) { setThreadsOpen(false); post('switchThread', { threadId: thread.id }) } }}>{thread.title || '新会话'}</button>)}</nav>}<div className="conversation-area"><div className="messages" ref={messages} onScroll={() => { const node = messages.current; if (node) follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80 }}>{store.turns.length > visibleLimit && <button className="earlier" onClick={() => setVisibleLimit(n => n + 30)}>显示更早的消息</button>}{store.turns.length ? store.turns.slice(-visibleLimit).map((turn: any) => <TurnView key={turn.id} turn={turn} />) : <div className="empty"><div></div><h2>从一个问题开始</h2><p>描述任务，DiCode 会在工作区中逐步完成。</p></div>}</div></div>{approval && <div className="approval"><strong>需要授权</strong><p>{approval.params?.reason || approval.params?.command || approval.params?.path || '继续执行此操作？'}</p><div className="approval-actions">{(approval.params?.availableDecisions || ['accept', 'decline']).map((decision: any) => { const value = typeof decision === 'string' ? decision : decision.decision; return <button key={value} onClick={() => post('approve', { id: approval.id, decision: value })}>{value === 'accept' ? '允许' : value === 'decline' ? '拒绝' : value}</button> })}</div></div>}{question && <UserInputCard key={question.id} request={question} />}{plan && <div className="plan-dock"><button onClick={() => setPlanOpen(!planOpen)}>执行计划 · {plan.steps.filter((step: any) => step.status === 'completed').length}/{plan.steps.length} <span className={`chevron ${planOpen ? 'up' : ''}`} /></button>{planOpen && <ol>{plan.steps.map((step: any, i: number) => <li key={i}>{step.step || step.text}</li>)}</ol>}</div>}<div className="composer-shell"><div className="composer"><textarea value={prompt} onChange={e => setPrompt(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} placeholder="询问后续修改…" rows={2} /><div className="composer-bottom"><select value={state.permissionMode || 'request'} disabled={busy} onChange={e => post('setPermissionMode', { mode: e.target.value })} aria-label="授权模式"><option value="request">请求授权</option><option value="auto">自动授权</option><option value="full">完全访问</option></select><select value={model} onChange={e => { setModel(e.target.value); vscode.setState?.({ modelId: e.target.value }) }} aria-label="选择模型">{(state.models || []).map((entry: any) => <option key={entry.id} value={entry.id}>{entry.name || entry.id}</option>)}</select>{busy ? <button className="send-button" disabled={stopping} onClick={() => { setStopping(true); post('stop') }}>{stopping ? '···' : '■'}</button> : <button className="send-button" disabled={!prompt.trim() || !model} onClick={send}>↑</button>}</div></div><div className="status-line">{status}</div></div></main>}</>
 }
 
-createRoot(document.getElementById('root')!).render(<App />)
+createRoot(document.getElementById('root')!).render(document.querySelector('meta[name="dicode-view"][content="changes"]') ? <ChangesViewer /> : <App />)

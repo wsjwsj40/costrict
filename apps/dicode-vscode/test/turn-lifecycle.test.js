@@ -130,6 +130,34 @@ test('clicking an earlier edit opens its historical before and after in VS Code 
   }
 })
 
+test('summary panel combines all files and repeated edits into one turn diff', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dicode-summary-diff-'))
+  try {
+    const { view, vscode } = makeView(root)
+    fs.writeFileSync(path.join(root, 'a.txt'), 'three\n')
+    fs.writeFileSync(path.join(root, 'b.txt'), 'new\n')
+    const first = unifiedDiff('a.txt', 'one\n', 'two\n')
+    const second = unifiedDiff('a.txt', 'two\n', 'three\n')
+    const other = unifiedDiff('b.txt', null, 'new\n')
+    rpc(view, 'item/completed', { turnId: 'turn', item: { id: 'first', type: 'fileChange', changes: [{ path: 'a.txt', diff: first }] } })
+    rpc(view, 'item/completed', { turnId: 'turn', item: { id: 'second', type: 'fileChange', changes: [{ path: 'a.txt', diff: second }, { path: 'b.txt', diff: other }] } })
+    let receive, payload
+    vscode.Uri = { file: file => ({ toString: () => file }) }
+    vscode.ViewColumn = { One: 1 }
+    vscode.window.createWebviewPanel = () => ({ webview: { cspSource: 'vscode-resource:', asWebviewUri: uri => uri, onDidReceiveMessage: callback => { receive = callback }, postMessage: value => { payload = value } } })
+    view.openChanges('turn', 'a.txt')
+    receive({ type: 'ready' })
+    assert.equal(payload.type, 'changes')
+    assert.equal(payload.selectedPath, 'a.txt')
+    assert.match(payload.diff, /diff --git a\/a\.txt b\/a\.txt/)
+    assert.match(payload.diff, /-one\n\+three/)
+    assert.match(payload.diff, /diff --git a\/b\.txt b\/b\.txt/)
+    view.dispose()
+  } finally {
+    if (root.startsWith(os.tmpdir() + path.sep)) fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('old threads are archived before a new tool-enabled thread starts', async () => {
   const { view } = makeView()
   view.dynamicToolsEnabled = false

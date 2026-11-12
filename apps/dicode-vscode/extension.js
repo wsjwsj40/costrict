@@ -7,6 +7,7 @@ const fs = require("node:fs")
 const { ensureCodexInstalled } = require("./codexInstaller")
 const { ensurePowerShellInstalled, powerShellEnv } = require("./powerShellInstaller")
 const { beforeFromUnifiedDiff, historicalDiff } = require("./diff")
+const { unifiedDiff } = require("./unifiedDiff")
 const { dynamicTools, editFile } = require("./fileEditTools")
 const { ConversationStore } = require("./media/conversation")
 const { generateThreadTitle } = require("./threadTitle")
@@ -254,6 +255,58 @@ class DicodeView {
 	}
 	get workspace() {
 		return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+	}
+	summaryDiff(turn) {
+		if (turn.diff?.trim()) return turn.diff
+		const files = new Map()
+		for (const item of turn.items || []) {
+			if (item.type !== "fileChange") continue
+			for (const [index, change] of (item.raw?.changes || []).entries()) {
+				const file = change.path || change.filePath
+				if (!file) continue
+				const marker = { turnId: turn.id, itemId: item.id, changeIndex: index, path: file }
+				const found = files.get(file)
+				files.set(file, { first: found?.first || marker, last: marker, fallback: change.diff || found?.fallback })
+			}
+		}
+		const diffs = []
+		for (const [file, entry] of files) {
+			try {
+				const absolute = path.resolve(this.workspace, file)
+				const relative = path.relative(this.workspace, absolute)
+				if (relative.startsWith("..") || path.isAbsolute(relative)) continue
+				const current = fs.existsSync(absolute) ? fs.readFileSync(absolute, "utf8") : ""
+				const before = historicalDiff(current, this.conversation.turns, entry.first).before
+				const after = historicalDiff(current, this.conversation.turns, entry.last).after
+				const diff = unifiedDiff(file, before, after)
+				if (diff) diffs.push(diff)
+			} catch {
+				if (entry.fallback) diffs.push(entry.fallback)
+			}
+		}
+		return diffs.join("\n")
+	}
+	openChanges(turnId, selectedPath) {
+		const turn = this.conversation.turns.find((entry) => entry.id === turnId)
+		if (!turn) throw new Error("找不到这轮修改")
+		const diff = this.summaryDiff(turn)
+		if (!diff) throw new Error("这轮没有可显示的文件差异")
+		const panel = vscode.window.createWebviewPanel("dicodeChanges", "DiCode 改动", vscode.ViewColumn.One, {
+			enableScripts: true,
+			localResourceRoots: [vscode.Uri.file(path.join(this.context.extensionPath, "media"))],
+		})
+		const nonce = crypto.randomBytes(16).toString("base64")
+		const media = (name) => panel.webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, "media", name)))
+		panel.webview.onDidReceiveMessage((message) => {
+			if (message.type === "ready") panel.webview.postMessage({ type: "changes", diff, selectedPath })
+			else this.handle(message).catch((error) => vscode.window.showErrorMessage(error.message))
+		})
+		panel.webview.html = fs.readFileSync(path.join(this.context.extensionPath, "media", "index.html"), "utf8")
+			.replace("</head>", '<meta name="dicode-view" content="changes"></head>')
+			.replaceAll("{{NONCE}}", nonce)
+			.replaceAll("{{CSP}}", panel.webview.cspSource)
+			.replaceAll("{{CSS}}", media("style.css").toString())
+			.replaceAll("{{JS}}", media("bundle.js").toString())
 	}
 	post(message) {
 		this.view?.webview.postMessage(message)
@@ -850,6 +903,10 @@ class DicodeView {
 		}
 		if (message.type === "send") {
 			await this.send(String(message.text || "").trim(), message.model)
+			return
+		}
+		if (message.type === "openChanges") {
+			this.openChanges(message.turnId, message.selectedPath)
 			return
 		}
 		if (message.type === "openFile" || message.type === "openLink" || message.type === "openDiff") {
