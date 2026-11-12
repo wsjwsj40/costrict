@@ -1,7 +1,7 @@
 // App-server notifications become stable thread / turn / item records here.
 class ConversationStore {
   constructor() { this.reset() }
-  reset() { this.threadId = null; this.turns = []; this.items = new Map(); this.sequence = 0; this.pendingTurn = null }
+  reset() { this.threadId = null; this.tokenUsage = null; this.turns = []; this.items = new Map(); this.sequence = 0; this.pendingTurn = null }
   begin(text) {
     const turn = { id: `local-${++this.sequence}`, user: text, status: 'starting', startedAt: Date.now(), completedAt: null, items: [], plan: null, diff: '', error: null }
     this.turns.push(turn); this.pendingTurn = turn.id; return turn
@@ -66,12 +66,13 @@ class ConversationStore {
     return turn
   }
   snapshot() {
-    return { threadId: this.threadId, turns: this.turns.slice(-100).map(turn => ({ ...turn, items: (turn.items || []).map(item => ({ ...item, output: String(item.output || '').slice(-30000), raw: { ...item.raw, aggregatedOutput: typeof item.raw?.aggregatedOutput === 'string' ? item.raw.aggregatedOutput.slice(-30000) : item.raw?.aggregatedOutput } })) })) }
+    return { threadId: this.threadId, tokenUsage: this.tokenUsage, turns: this.turns.slice(-100).map(turn => ({ ...turn, items: (turn.items || []).map(item => ({ ...item, output: String(item.output || '').slice(-30000), raw: { ...item.raw, aggregatedOutput: typeof item.raw?.aggregatedOutput === 'string' ? item.raw.aggregatedOutput.slice(-30000) : item.raw?.aggregatedOutput } })) })) }
   }
   restore(snapshot) {
     this.reset()
     if (!snapshot || !Array.isArray(snapshot.turns)) return
     this.threadId = snapshot.threadId
+    this.tokenUsage = snapshot.tokenUsage || null
     this.turns = snapshot.turns
     for (const turn of this.turns) for (const item of turn.items || []) this.items.set(`${turn.id}:${item.id}`, item)
   }

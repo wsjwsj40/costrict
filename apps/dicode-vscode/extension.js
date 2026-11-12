@@ -57,7 +57,9 @@ function modelCatalog(models, nativeModels, platform = process.platform) {
 			slug: item.id,
 			display_name: item.name || item.id,
 			description: null,
-			supported_reasoning_levels: [],
+			supported_reasoning_levels: ["low", "medium", "high"].map(effort => ({ effort, description: effort })),
+			default_reasoning_level: "medium",
+			...(Number.isFinite(item.contextWindow) && item.contextWindow > 0 ? { context_window: item.contextWindow, effective_context_window_percent: native.effective_context_window_percent ?? 95 } : {}),
 			shell_type: "unified_exec",
 			visibility: "list",
 			supported_in_api: true,
@@ -245,6 +247,7 @@ class DicodeView {
 		const current = this.threads.find((thread) => thread.id === this.threadId && thread.cwd === this.workspace)
 		this.dynamicToolsEnabled = Boolean(savedThread?.dynamicToolsEnabled || current?.dynamicToolsEnabled)
 		if (current?.snapshot) this.conversation.restore(current.snapshot)
+		this.activeModel = this.conversation.tokenUsage?.modelId || null
 		this.output = vscode.window.createOutputChannel("DiCode Codex")
 		this.beforeDocuments = new Map()
 		this.afterDocuments = new Map()
@@ -357,6 +360,7 @@ class DicodeView {
 			permissionMode: this.permissionMode,
 			workspace: this.workspace || "",
 			models: this.models || [],
+			tokenUsage: this.conversation.tokenUsage || null,
 			threads: this.threads.filter((thread) => thread.cwd === this.workspace).map(({ id, title, updatedAt }) => ({ id, title, updatedAt })),
 		}
 		state.loggedIn = !!(await this.tokens())?.access_token
@@ -544,6 +548,14 @@ class DicodeView {
 			return
 		}
 		const { message } = event
+		if (message.method === "thread/tokenUsage/updated") {
+			if (message.params?.threadId === this.threadId) {
+				this.conversation.tokenUsage = { ...message.params.tokenUsage, modelId: this.activeModel || null }
+				this.scheduleHistory()
+				this.post({ type: "tokenUsage", tokenUsage: this.conversation.tokenUsage })
+			}
+			return
+		}
 		if (message.method === "item/tool/call" && message.id !== undefined) {
 			this.handleDynamicToolCall(message)
 			return
@@ -726,7 +738,7 @@ class DicodeView {
 			this.titleJobs.delete(threadId)
 		}
 	}
-	async send(text, model) {
+	async send(text, model, effort = "medium") {
 		if (this.busy) throw new Error("当前任务仍在执行")
 		if (!text) throw new Error("请输入任务")
 		if (!this.workspace) throw new Error("请先打开工作区")
@@ -790,6 +802,7 @@ class DicodeView {
 				threadId: this.threadId,
 				cwd: this.workspace,
 				model,
+				effort: ["low", "medium", "high"].includes(effort) ? effort : "medium",
 				approvalPolicy: PERMISSION_MODES[this.permissionMode].approvalPolicy,
 				sandboxPolicy: this.permissionMode === "auto"
 					? { ...PERMISSION_MODES.auto.sandboxPolicy, writableRoots: [this.workspace] }
@@ -813,6 +826,26 @@ class DicodeView {
 		}
 	}
 	async handle(message) {
+		if (message.type === "compactContext") {
+			if (this.busy) throw new Error("请等待当前任务结束")
+			if (!this.threadId) throw new Error("当前没有可压缩的会话")
+			if (message.model && this.activeModel && message.model !== this.activeModel) throw new Error("请先使用所选模型发送消息")
+			this.busy = true
+			await this.postState()
+			try {
+				const client = await this.ensureClient()
+				if (this.loadedThreadId !== this.threadId) {
+					await client.request("thread/resume", { threadId: this.threadId, excludeTurns: true })
+					this.loadedThreadId = this.threadId
+				}
+				await client.request("thread/compact/start", { threadId: this.threadId })
+			} catch (error) {
+				this.busy = false
+				await this.postState()
+				throw error
+			}
+			return
+		}
 		if (message.type === "ready") {
 			await this.postState()
 			if (this.conversation.turns.length) this.post({ type: "history", snapshot: this.conversation.snapshot() })
@@ -869,6 +902,7 @@ class DicodeView {
 			this.loadedThreadId = null
 			this.models = []
 			this.conversation.reset()
+			this.activeModel = null
 			this.threads = []
 			await this.context.secrets.delete(TOKEN_KEY)
 			await this.context.globalState.update(THREAD_KEY, undefined)
@@ -883,6 +917,7 @@ class DicodeView {
 			this.loadedThreadId = null
 			this.dynamicToolsEnabled = false
 			this.conversation.reset()
+			this.activeModel = null
 			await this.context.globalState.update(THREAD_KEY, undefined)
 			await this.postState()
 			return
@@ -895,6 +930,7 @@ class DicodeView {
 			this.loadedThreadId = null
 			this.dynamicToolsEnabled = Boolean(selected.dynamicToolsEnabled)
 			this.conversation.restore(selected.snapshot)
+			this.activeModel = this.conversation.tokenUsage?.modelId || null
 			await this.context.globalState.update(THREAD_KEY, { id: this.threadId, cwd: this.workspace, dynamicToolsEnabled: this.dynamicToolsEnabled })
 			await this.postState()
 			this.post({ type: "history", snapshot: this.conversation.snapshot() })
@@ -902,7 +938,7 @@ class DicodeView {
 			return
 		}
 		if (message.type === "send") {
-			await this.send(String(message.text || "").trim(), message.model)
+			await this.send(String(message.text || "").trim(), message.model, message.effort)
 			return
 		}
 		if (message.type === "openChanges") {

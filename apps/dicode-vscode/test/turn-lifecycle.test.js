@@ -44,6 +44,51 @@ test('item diagnostics identify command actions and real file changes without co
   view.dispose()
 })
 
+test('thread usage follows the active thread and survives history snapshots', () => {
+  const { view, posted } = makeView()
+  view.activeModel = 'm'
+  const usage = { last: { totalTokens: 45000, inputTokens: 40000, outputTokens: 5000 }, total: { totalTokens: 90000 }, modelContextWindow: 128000 }
+  rpc(view, 'thread/tokenUsage/updated', { threadId: 'other', tokenUsage: usage })
+  assert.equal(view.conversation.tokenUsage, null)
+  rpc(view, 'thread/tokenUsage/updated', { threadId: 'thread', tokenUsage: usage })
+  assert.equal(posted.at(-1).tokenUsage.last.totalTokens, 45000)
+  assert.equal(view.conversation.snapshot().tokenUsage.modelId, 'm')
+  view.dispose()
+})
+
+test('manual compaction calls the CLI and its item events settle the turn', async () => {
+  const { view, posted } = makeView()
+  const calls = []
+  view.ensureClient = async () => ({ request: async (method, params) => { calls.push({ method, params }); return {} } })
+  await view.handle({ type: 'compactContext' })
+  assert.equal(view.busy, true)
+  assert.deepEqual(calls, [{ method: 'thread/compact/start', params: { threadId: 'thread' } }])
+  rpc(view, 'turn/started', { threadId: 'thread', turn: { id: 'compact-turn', status: 'inProgress' } })
+  rpc(view, 'item/started', { turnId: 'compact-turn', item: { id: 'compact-item', type: 'contextCompaction' } })
+  rpc(view, 'item/completed', { turnId: 'compact-turn', item: { id: 'compact-item', type: 'contextCompaction' } })
+  rpc(view, 'turn/completed', { turnId: 'compact-turn', turn: { id: 'compact-turn', status: 'completed' } })
+  assert.equal(view.busy, false)
+  assert.ok(posted.some(message => message.params?.item?.type === 'contextCompaction'))
+  view.dispose()
+})
+
+test('selected reasoning effort is sent to the CLI for the turn', async () => {
+  const { view } = makeView()
+  const calls = []
+  view.ensureClient = async () => ({ request: async (method, params) => { calls.push({ method, params }); return { turn: { id: 'turn' } } } })
+  await view.send('hello', 'm', 'high')
+  assert.equal(calls.find(call => call.method === 'turn/start').params.effort, 'high')
+  view.dispose()
+})
+
+test('failed manual compaction clears busy state', async () => {
+  const { view } = makeView()
+  view.ensureClient = async () => ({ request: async () => { throw new Error('unavailable') } })
+  await assert.rejects(view.handle({ type: 'compactContext' }), /unavailable/)
+  assert.equal(view.busy, false)
+  view.dispose()
+})
+
 test('shell writes retain only the Codex command event', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dicode-shell-edit-'))
   try {

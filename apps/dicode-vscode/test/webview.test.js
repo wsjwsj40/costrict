@@ -34,6 +34,36 @@ test('React webview starts and uses VS Code theme tokens', async () => {
   assert.match(css, /--vscode-diffEditor-insertedLineBackground/)
   view.dom.window.close()
 })
+test('context menu displays live usage and requests real compaction', async () => {
+  const view = setup(); await display(view, [], 'completed')
+  view.emit({ type: 'state', loggedIn: true, busy: false, threadId: 'thread', permissionMode: 'request', models: [{ id: 'm', name: 'Model', contextWindow: 100000, maxTokens: 8192 }], tokenUsage: { modelId: 'm', modelContextWindow: 95000, last: { totalTokens: 27000, inputTokens: 25000, outputTokens: 2000, cachedInputTokens: 10000 } } })
+  await tick()
+  assert.match(view.doc.querySelector('.context-trigger').textContent, /27%/)
+  view.doc.querySelector('.context-trigger').click(); await tick()
+  assert.match(view.doc.querySelector('.context-menu').textContent, /27,000\s*\/\s*100,000/)
+  assert.match(view.doc.querySelector('.context-menu').textContent, /8,192/)
+  view.doc.querySelector('.compact-button').click()
+  assert.equal(view.sent.at(-1).type, 'compactContext')
+  view.dom.window.close()
+})
+test('compaction events appear in the active conversation', async () => {
+  const view = setup()
+  await display(view, [{ ...item('compact', 'contextCompaction'), status: 'inProgress' }])
+  assert.match(view.doc.querySelector('.compact-event').textContent, /正在压缩上下文/)
+  view.dom.window.close()
+})
+test('context indicator changes color at 25, 50, 75 and 90 percent', async () => {
+  const view = setup(); await display(view, [], 'completed')
+  for (const [used, expected] of [[24000, 'blue'], [25000, 'green'], [50000, 'yellow'], [75000, 'orange'], [90000, 'red']]) {
+    view.emit({ type: 'state', models: [{ id: 'm', contextWindow: 100000 }], tokenUsage: { modelId: 'm', last: { totalTokens: used } } })
+    await tick()
+    assert.equal(view.doc.querySelector('.context-ring').dataset.level, expected)
+  }
+  view.emit({ type: 'state', tokenUsage: { modelId: 'm', last: { totalTokens: 120000 } } })
+  await tick()
+  assert.match(view.doc.querySelector('.context-trigger').textContent, /120%/)
+  view.dom.window.close()
+})
 test('shell writes stay ordinary command rows with foldable output', async () => {
   const view = setup(); await display(view, [item('cmd', 'commandExecution', { command: 'pwsh -c "Set-Content a.txt done"', aggregatedOutput: 'done', exitCode: 0 })])
   const button = view.doc.querySelector('.command-activity .activity-toggle')

@@ -54,6 +54,10 @@ test('Codex app-server starts with interactive input and plan tools enabled', as
   assert.equal(windowsModel.apply_patch_tool_type, null)
   assert.equal(windowsModel.model_messages.instructions_template, 'CLI default instructions')
   assert.equal(windowsModel.model_messages.tools.functions_namespace_functions_description_prefixes.apply_patch, undefined)
+  const configured = modelCatalog([{ id: 'test-model', contextWindow: 128000, maxTokens: 8192 }], nativeModels).models[0]
+  assert.equal(configured.context_window, 128000)
+  assert.equal(configured.effective_context_window_percent, 95)
+  assert.deepEqual(configured.supported_reasoning_levels.map(level => level.effort), ['low', 'medium', 'high'])
   await client.initialize('0.2.8')
   assert.deepEqual(writes.map(message => message.method), ['initialize', 'initialized'])
   assert.equal(writes[0].params.capabilities.experimentalApi, true)

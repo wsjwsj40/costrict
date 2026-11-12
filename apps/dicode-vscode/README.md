@@ -10,6 +10,8 @@ The extension does not scan the workspace to infer edits made by shell commands.
 
 The UI renders command and file rows from Codex item events, folds command output, and hides the portable PowerShell launcher from displayed commands while keeping the working directory visible. File names in text and edit events open the current file in VS Code. The final file summary opens a separate panel containing the turn's combined diff across all changed files. It shows up to three files by default and uses the turn's cumulative diff to omit intermediate changes. Process activity folds below the elapsed time after a turn completes; the final answer stays visible.
 
+The composer offers low, medium and high reasoning effort. The context indicator uses the current thread's latest `thread/tokenUsage/updated` value and the selected model's `contextWindow` from the model endpoint; the details also show the CLI's usable window and the model's `maxTokens`. Model catalog entries pass the real context window to Codex, which controls automatic compaction using its own threshold. Manual compaction sends `thread/compact/start`; both paths display Codex's `contextCompaction` items in the conversation. Until the CLI reports usage, the indicator shows an unknown value rather than an estimate.
+
 ## Build and test
 
 ```text
