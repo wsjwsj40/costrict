@@ -8,7 +8,7 @@ Each new Codex thread registers three dynamic tools through `thread/start`: `wri
 
 The extension does not scan the workspace to infer edits made by shell commands. A shell command that writes a file remains a command event in the conversation. Native Codex `fileChange` events also render as file edits. A saved thread from an older DiCode version is archived when the next task starts, then a new thread is created with dynamic tools. Its previous conversation remains available in recent threads.
 
-The UI renders command and file rows from Codex item events, folds command output, shows file diffs inside the conversation, and opens the file in VS Code when its name is clicked. Process activity folds below the elapsed time after a turn completes; the final answer stays visible.
+The UI renders command and file rows from Codex item events, folds command output, and hides the portable PowerShell launcher from displayed commands while keeping the working directory visible. File names open in VS Code; the final file summary opens a VS Code diff when a diff is available. The summary shows up to three files by default and uses the turn's cumulative diff to omit intermediate changes. Process activity folds below the elapsed time after a turn completes; the final answer stays visible.
 
 ## Build and test
 

@@ -7,7 +7,7 @@ const { JSDOM, VirtualConsole } = require('jsdom')
 const root = path.join(__dirname, '..')
 const html = fs.readFileSync(path.join(root, 'media/index.html'), 'utf8')
 const bundle = fs.readFileSync(path.join(root, 'media/bundle.js'), 'utf8')
-const tick = () => new Promise(resolve => setTimeout(resolve, 25))
+const tick = () => new Promise(resolve => setTimeout(resolve, 50))
 function setup() {
   const errors = [], virtualConsole = new VirtualConsole()
   virtualConsole.on('jsdomError', error => errors.push(error))
@@ -18,10 +18,10 @@ function setup() {
   return { dom, sent, errors, doc: dom.window.document, emit: message => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: message })) }
 }
 function item(id, type, raw = {}) { return { id, type, raw: { id, type, ...raw }, status: 'completed', text: raw.text || '', output: raw.aggregatedOutput || '' } }
-async function display(view, items, status = 'inProgress') {
+async function display(view, items, status = 'inProgress', diff = '') {
   await tick()
   view.emit({ type: 'state', loggedIn: true, busy: status !== 'completed', workspace: '/repo', models: [{ id: 'm', name: 'Model' }] })
-  view.emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{ id: 'turn', user: '修改文件', status, startedAt: Date.now() - 1000, completedAt: status === 'completed' ? Date.now() : null, items, diff: '' }] } })
+  view.emit({ type: 'history', snapshot: { threadId: 'thread', turns: [{ id: 'turn', user: '修改文件', status, startedAt: Date.now() - 1000, completedAt: status === 'completed' ? Date.now() : null, items, diff }] } })
   await tick()
 }
 test('React webview starts and uses VS Code theme tokens', async () => {
@@ -39,10 +39,47 @@ test('shell writes stay ordinary command rows with foldable output', async () =>
   const button = view.doc.querySelector('.command-activity .activity-toggle')
   assert.ok(button)
   assert.match(button.textContent, /Set-Content a\.txt/)
+  assert.doesNotMatch(button.textContent, /pwsh|(?:^|\s)-c(?:\s|$)/i)
   assert.equal(view.doc.querySelector('.command-detail'), null)
   button.click(); await tick()
   assert.match(view.doc.querySelector('.command-detail').textContent, /done/)
+  assert.doesNotMatch(view.doc.querySelector('.command-detail pre').textContent, /pwsh|(?:^|\s)-c(?:\s|$)/i)
   assert.equal(view.doc.querySelector('.file-activity'), null)
+  view.dom.window.close()
+})
+test('portable PowerShell launcher is removed from command title and expanded command', async () => {
+  const view = setup()
+  const command = '& "C:\\Users\\Me\\AppData\\DiCode\\powershell\\package\\pwsh.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-ChildItem src | Select-Object Name"'
+  await display(view, [item('cmd', 'commandExecution', { command, cwd: 'C:\\repo' })])
+  const button = view.doc.querySelector('.command-activity .activity-toggle')
+  assert.match(button.textContent, /Get-ChildItem src/)
+  assert.doesNotMatch(button.textContent, /AppData|NoProfile|pwsh/)
+  button.click(); await tick()
+  assert.equal(view.doc.querySelector('.command-detail pre').textContent, 'Get-ChildItem src | Select-Object Name')
+  assert.match(view.doc.querySelector('.detail-meta').textContent, /C:\\repo/)
+  assert.doesNotMatch(view.doc.querySelector('.command-detail pre').textContent, /AppData|pwsh|NoProfile/)
+  view.dom.window.close()
+})
+test('full VS Code storage path and -Command are hidden while cwd remains visible', async () => {
+  const view = setup()
+  const command = '"c:\\Users\\Example\\AppData\\Roaming\\Code\\User\\globalStorage\\atad-apts.dicode-codex\\powershell\\7.6.6-b4b1aff2e2b8\\package\\pwsh.exe" -Command \'Get-ChildItem -Name\''
+  await display(view, [item('cmd', 'commandExecution', { command, cwd: 'C:\\workspaces\\project' })])
+  const button = view.doc.querySelector('.command-activity .activity-toggle')
+  assert.equal(button.textContent.trim(), '已运行 Get-ChildItem -Name')
+  button.click(); await tick()
+  assert.equal(view.doc.querySelector('.command-detail pre').textContent, 'Get-ChildItem -Name')
+  assert.match(view.doc.querySelector('.detail-meta').textContent, /C:\\workspaces\\project/)
+  view.dom.window.close()
+})
+test('nested Windows shell quoting also shows only the actual command', async () => {
+  const view = setup()
+  const command = 'cmd.exe /d /s /c ""C:\\Program Files\\PowerShell\\7\\pwsh.exe" -NoProfile -Command "Get-Location""'
+  await display(view, [item('cmd', 'commandExecution', { command })])
+  const button = view.doc.querySelector('.command-activity .activity-toggle')
+  assert.match(button.textContent, /Get-Location/)
+  assert.doesNotMatch(button.textContent, /Program Files|pwsh|NoProfile/)
+  button.click(); await tick()
+  assert.equal(view.doc.querySelector('.command-detail pre').textContent, 'Get-Location')
   view.dom.window.close()
 })
 test('dynamic edit renders a file row, inline diff and clickable filename', async () => {
@@ -51,13 +88,53 @@ test('dynamic edit renders a file row, inline diff and clickable filename', asyn
   await display(view, [item('edit', 'fileChange', { changes: [{ path: 'a.txt', kind: 'modified', diff }] })])
   const button = view.doc.querySelector('.file-activity .activity-toggle')
   assert.ok(button)
-  assert.match(button.textContent, /a\.txt/)
+  assert.match(view.doc.querySelector('.activity-file-link').textContent, /a\.txt/)
+  view.doc.querySelector('.activity-file-link').click()
+  assert.equal(view.sent.at(-1).type, 'openFile')
+  assert.equal(view.doc.querySelector('.diff-line.added'), null)
   button.click(); await tick()
   assert.ok(view.doc.querySelector('.diff-line.added'))
   assert.ok(view.doc.querySelector('.diff-line.deleted'))
   view.doc.querySelector('.file-name').click()
-  assert.equal(view.sent.at(-1).type, 'openFile')
+  assert.equal(view.sent.at(-1).type, 'openDiff')
   assert.equal(view.sent.at(-1).path, 'a.txt')
+  view.dom.window.close()
+})
+test('running turn has one animated thinking status and no duration', async () => {
+  const view = setup(); await display(view, [item('reason', 'reasoning'), { ...item('cmd', 'commandExecution', { command: 'rg --files' }), status: 'inProgress' }])
+  assert.equal(view.doc.querySelectorAll('.thinking').length, 1)
+  assert.equal(view.doc.querySelector('.thinking').textContent, '正在思考')
+  assert.ok(view.doc.querySelector('.command-activity .flowing'))
+  assert.equal(view.doc.querySelector('.process-toggle'), null)
+  view.dom.window.close()
+})
+test('final file summary uses net diff, folds after three files and opens DiCode diff', async () => {
+  const view = setup()
+  const diff = ['a.txt', 'b.txt', 'c.txt', 'd.txt'].map(name => `diff --git a/${name} b/${name}\n--- a/${name}\n+++ b/${name}\n@@ -1 +1 @@\n-old\n+new`).join('\n')
+  const events = ['a.txt', 'temporary.txt'].map((name, n) => item(`e${n}`, 'fileChange', { changes: [{ path: name, kind: 'added' }] }))
+  await display(view, [...events, item('answer', 'agentMessage', { text: '已更新 a.txt', phase: 'final_answer' })], 'completed', diff)
+  assert.equal(view.doc.querySelectorAll('.summary-file').length, 3)
+  assert.match(view.doc.querySelector('.summary-heading').textContent, /4 个文件/)
+  assert.doesNotMatch(view.doc.querySelector('.file-summary').textContent, /temporary/)
+  view.doc.querySelector('.summary-file').click()
+  assert.equal(view.sent.at(-1).type, 'openDiff')
+  assert.match(view.sent.at(-1).diff, /@@ -1/)
+  view.doc.querySelector('.summary-more').click(); await tick()
+  assert.equal(view.doc.querySelectorAll('.summary-file').length, 4)
+  view.doc.querySelector('.final-answer .local-file-link').click()
+  assert.equal(view.sent.at(-1).type, 'openLink')
+  assert.equal(view.sent.at(-1).href, 'a.txt')
+  view.dom.window.close()
+})
+test('created then deleted temporary file is absent when no final diff arrives', async () => {
+  const view = setup()
+  await display(view, [
+    item('create', 'fileChange', { changes: [{ path: 'temporary.txt', kind: 'added' }] }),
+    item('delete', 'fileChange', { changes: [{ path: 'temporary.txt', kind: 'deleted' }] }),
+    item('keep', 'fileChange', { changes: [{ path: 'kept.txt', kind: 'added' }] }),
+  ], 'completed')
+  assert.equal(view.doc.querySelectorAll('.summary-file').length, 1)
+  assert.equal(view.doc.querySelector('.summary-file-name').textContent, 'kept.txt')
   view.dom.window.close()
 })
 test('completed process folds while final answer remains visible', async () => {

@@ -104,3 +104,32 @@ button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 1p
 .composer select:hover { color: var(--fg); }
 .send-button { width: 26px; height: 26px; margin-left: auto; border-radius: 6px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); font-size: 15px; }
 .status-line { min-height: 20px; padding: 4px 2px 0; color: var(--muted); font-size: 10px; }
+.process-content { gap: 10px; }
+.process-content > .assistant-comment + :is(.activity-list, .activity-group), .process-content > :is(.activity-list, .activity-group) + .assistant-comment { margin-top: 8px; }
+.assistant-comment { color: var(--fg); }
+.assistant-comment .markdown { font-size: inherit; }
+.group-content { margin-left: 0; gap: 8px; }
+.activity-list { display: flex; flex-direction: column; gap: 8px; }
+.activity-content { margin-left: 0; }
+.activity-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.activity-line .activity-toggle { width: auto; flex: none; gap: 8px; }
+.activity-chevron { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 20px; flex: none; padding: 0; }
+.activity-line:hover .chevron, .activity-line:focus-within .chevron { visibility: visible; }
+.activity-file-link { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; padding: 2px 0; color: var(--vscode-textLink-foreground, var(--fg)); text-align: left; }
+.activity-file-link:hover, .markdown .local-file-link:hover { text-decoration: underline; }
+.activity-line .change-count { flex: none; }
+.group-toggle, .activity-toggle { font-size: 12px; }
+.group-toggle small { font-size: 11px; font-weight: inherit; }
+.chevron { transform: rotate(-45deg); visibility: hidden; }
+.chevron.expanded { transform: rotate(45deg); visibility: visible; }
+button:hover > .chevron, button:focus-visible > .chevron { visibility: visible; }
+.process-toggle, .thinking { font-size: 12px; }
+.flowing { background: linear-gradient(105deg, var(--muted) 15%, var(--fg) 45%, var(--muted) 75%); background-size: 250% 100%; background-clip: text; -webkit-background-clip: text; color: transparent; animation: dicode-flow 2.2s linear infinite; }
+@keyframes dicode-flow { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .flowing { animation: none; color: var(--muted); background: none; } }
+.file-summary { font-size: 12px; }
+.summary-file { display: flex !important; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
+.summary-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-textLink-foreground, var(--fg)); }
+.summary-count { flex: none; font-family: var(--mono); font-size: 11px; }
+.minus { color: var(--vscode-gitDecoration-deletedResourceForeground, var(--fg)); }
+.summary-more { color: var(--muted); display: flex !important; align-items: center; gap: 6px; }

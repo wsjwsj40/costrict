@@ -8,6 +8,29 @@ declare global { interface Window { acquireVsCodeApi: () => { postMessage: (mess
 const vscode = window.acquireVsCodeApi()
 const store = new ConversationStore()
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+const fileToken = /(?:[\w.-]+[\\/])*[\w.-]+\.[A-Za-z0-9]{1,10}(?::\d+|#L\d+)?/g
+md.core.ruler.after('inline', 'local-file-links', state => {
+  for (const block of state.tokens) {
+    if (block.type !== 'inline' || !block.children) continue
+    const children = [] as any[]
+    let inLink = false
+    for (const token of block.children) {
+      if (token.type === 'link_open') inLink = true
+      if (token.type !== 'text' || inLink) { children.push(token); if (token.type === 'link_close') inLink = false; continue }
+      let start = 0
+      for (const match of token.content.matchAll(fileToken)) {
+        const index = match.index || 0
+        if (index > start) { const plain = new state.Token('text', '', 0); plain.content = token.content.slice(start, index); children.push(plain) }
+        const open = new state.Token('link_open', 'a', 1); open.attrSet('href', match[0]); open.attrSet('class', 'local-file-link')
+        const name = new state.Token('text', '', 0); name.content = match[0]
+        children.push(open, name, new state.Token('link_close', 'a', -1))
+        start = index + match[0].length
+      }
+      if (start < token.content.length) { const plain = new state.Token('text', '', 0); plain.content = token.content.slice(start); children.push(plain) }
+    }
+    block.children = children
+  }
+})
 const post = (type: string, data: Record<string, unknown> = {}) => vscode.postMessage({ type, ...data })
 const editTools = new Set(['write_file', 'replace_file_text', 'delete_file'])
 const iconPaths: Record<string, string> = {
@@ -22,7 +45,7 @@ function Markdown({ text }: { text: string }) {
     const link = target.closest('a[href]') as HTMLAnchorElement | null
     if (link) { event.preventDefault(); post('openLink', { href: link.getAttribute('href') || '' }); return }
     const code = target.closest('code')
-    if (code && !code.closest('pre') && /^(?:[\w.\-]+[\\/])+[\w.\-]+(?::\d+|#L\d+)?$/.test(code.textContent || '')) post('openFile', { path: code.textContent || '' })
+    if (code && !code.closest('pre') && /^(?:[\w.\-]+[\\/])*[\w.\-]+\.[\w-]+(?::\d+|#L\d+)?$/.test(code.textContent || '')) post('openFile', { path: code.textContent || '' })
   }
   return <div className="markdown" onClick={onClick} dangerouslySetInnerHTML={{ __html: md.render(text || '') }} />
 }
@@ -43,33 +66,69 @@ function FileRow({ change, status, turn }: { change: any; status: string; turn: 
   const diff = change.diff || parseDiff(turn.diff || '').find((part: any) => part.path === file)?.diff || ''
   const parsed = diff ? parseDiff(diff.startsWith('diff --git ') ? diff : `diff --git a/${file} b/${file}\n${diff}`)[0] : null
   const [open, setOpen] = useState(false)
-  const verb = status === 'inProgress' ? '正在编辑' : status === 'failed' ? '编辑失败' : '已编辑'
+  const kind = change.kind || change.type || 'modified'
+  const verb = `${status === 'inProgress' ? '正在' : status === 'failed' ? '未能' : '已'}${kind === 'added' || kind === 'created' ? '创建' : kind === 'deleted' ? '删除' : '编辑'}`
   return <div className="activity-row file-activity">
-    <button className="activity-toggle" aria-expanded={open} onClick={() => setOpen(!open)}><Icon kind="edit" /><span className="activity-title">{verb} {open ? '文件' : file || '文件'}</span>{!open && parsed && <span className="change-count"><span className="plus">+{parsed.additions}</span> <span>-{parsed.deletions}</span></span>}<span className={`chevron ${open ? 'up' : ''}`} /></button>
-    {open && <div className="activity-content"><div className="diff-panel"><div className="diff-head"><button className="file-name" disabled={change.kind === 'deleted'} onClick={() => post('openFile', { path: file })}>{file || '文件'}</button>{parsed && <><span className="plus">+{parsed.additions}</span><span>-{parsed.deletions}</span></>}<button className="copy" title="复制差异" onClick={() => navigator.clipboard?.writeText(diff)}><Icon kind="copy" /></button></div>{diff ? <Diff diff={diff} /> : <div className="no-diff">暂无差异内容</div>}</div></div>}
+    <div className="activity-line"><button className="activity-toggle" aria-expanded={open} onClick={() => setOpen(!open)}><Icon kind="edit" /><span className="activity-title">{verb}</span></button><button className="activity-file-link" onClick={() => post(kind === 'deleted' ? 'openDiff' : 'openFile', { path: file, diff })}>{file || '文件'}</button><button className="activity-chevron" aria-label={open ? '折叠文件变动' : '展开文件变动'} onClick={() => setOpen(!open)}><span className={`chevron ${open ? 'expanded' : ''}`} /></button>{!open && parsed && <span className="change-count"><span className="plus">+{parsed.additions}</span> <span>-{parsed.deletions}</span></span>}</div>
+    {open && <div className="activity-content"><div className="diff-panel"><div className="diff-head"><button className="file-name" onClick={() => post(diff ? 'openDiff' : 'openFile', { path: file, diff })}>{file || '文件'}</button>{parsed && <><span className="plus">+{parsed.additions}</span><span>-{parsed.deletions}</span></>}<button className="copy" title="复制差异" onClick={() => navigator.clipboard?.writeText(diff)}><Icon kind="copy" /></button></div>{diff ? <Diff diff={diff} /> : <div className="no-diff">暂无差异内容</div>}</div></div>}
   </div>
+}
+function visibleCommand(raw: unknown) {
+  if (typeof raw !== 'string') return ''
+  // Codex can report the shell invocation in several quoting styles. Find the
+  // PowerShell executable first, then display only its -Command/-File payload.
+  const shell = /(?:^|[\\/\s"'`])(?:pwsh|powershell)(?:\.exe)?(?=$|[\s"'`])/i.exec(raw)
+  if (!shell) return raw
+  const afterShell = raw.slice(shell.index + shell[0].length)
+  const option = /(?:^|\s)-(?:CommandWithArgs|Command|c|File|f)\b\s*/i.exec(afterShell)
+  if (!option) return raw
+  let text = afterShell.slice(option.index + option[0].length).trim()
+  if (text.startsWith('"') && text.endsWith('""')) text = text.slice(0, -1)
+  while (text.length > 1 && ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'")))) text = text.slice(1, -1)
+  return text.replace(/\\"/g, '"') || raw
 }
 function CommandRow({ item }: { item: any }) {
   const [open, setOpen] = useState(false)
-  const command = item.raw?.command || ''
+  const command = visibleCommand(item.raw?.command)
   const action = item.status === 'inProgress' ? '正在运行' : item.status === 'failed' || (Number.isInteger(item.raw?.exitCode) && item.raw.exitCode !== 0) ? '运行失败' : '已运行'
-  return <div className="activity-row command-activity"><button className="activity-toggle" aria-expanded={open} onClick={() => setOpen(!open)}><Icon kind="command" /><span className="activity-title">{action} {command.replace(/\s+/g, ' ').trim() || '命令'}</span><span className={`chevron ${open ? 'up' : ''}`} /></button>{open && <div className="activity-content command-detail"><div className="detail-meta">{[item.raw?.cwd, item.raw?.exitCode !== undefined ? `退出码 ${item.raw.exitCode}` : ''].filter(Boolean).join(' · ')}</div><pre>{command}</pre>{item.output && <pre className="output">{item.output}</pre>}</div>}</div>
+  return <div className="activity-row command-activity"><button className="activity-toggle" aria-expanded={open} onClick={() => setOpen(!open)}><Icon kind="command" /><span className={`activity-title ${item.status === 'inProgress' ? 'flowing' : ''}`}>{action} {command.replace(/\s+/g, ' ').trim() || '命令'}</span><span className={`chevron ${open ? 'expanded' : ''}`} /></button>{open && <div className="activity-content command-detail"><div className="detail-meta">{[item.raw?.cwd, item.raw?.exitCode !== undefined ? `退出码 ${item.raw.exitCode}` : ''].filter(Boolean).join(' · ')}</div><pre>{command}</pre>{item.output && <pre className="output">{item.output}</pre>}</div>}</div>
 }
 function ToolRow({ item }: { item: any }) {
   const [open, setOpen] = useState(false)
-  return <div className="activity-row"><button className="activity-toggle" onClick={() => setOpen(!open)}><Icon kind="command" /><span className="activity-title">{item.raw?.tool || item.type} · {item.status === 'inProgress' ? '正在运行' : '已完成'}</span><span className={`chevron ${open ? 'up' : ''}`} /></button>{open && <pre className="activity-content tool-detail">{JSON.stringify(item.raw || {}, null, 2)}</pre>}</div>
+  return <div className="activity-row"><button className="activity-toggle" onClick={() => setOpen(!open)}><Icon kind="command" /><span className={`activity-title ${item.status === 'inProgress' ? 'flowing' : ''}`}>{item.raw?.tool || item.type} · {item.status === 'inProgress' ? '正在运行' : '已完成'}</span><span className={`chevron ${open ? 'expanded' : ''}`} /></button>{open && <pre className="activity-content tool-detail">{JSON.stringify(item.raw || {}, null, 2)}</pre>}</div>
 }
 function Activities({ items, turn }: { items: any[]; turn: any }) {
   const [open, setOpen] = useState(turn.status !== 'completed')
   const entries = items.flatMap(item => item.type === 'fileChange' && item.raw?.changes?.length ? item.raw.changes.map((change: any, index: number) => ({ item, change, key: `${item.id}:${index}` })) : [{ item, key: item.id }])
   const visible = entries.filter(({ item }) => item.type !== 'reasoning' && !(item.type === 'dynamicToolCall' && editTools.has(item.raw?.tool)))
-  if (!visible.length) return turn.status === 'inProgress' ? <div className="thinking">思考中</div> : null
+  if (!visible.length) return null
   const commands = visible.filter(({ item }) => item.type === 'commandExecution').length
   const edits = visible.filter(({ item }) => item.type === 'fileChange').length
-  const label = [commands ? `已运行 ${commands} 条命令` : '', edits ? `已编辑 ${edits} 个文件` : ''].filter(Boolean).join('、') || `已执行 ${visible.length} 项操作`
+  const label = <>{commands > 0 && <>已运行 <small>{commands} 条命令</small></>}{commands > 0 && edits > 0 && '、'}{edits > 0 && <>已编辑 <small>{edits} 个文件</small></>}{!commands && !edits && <>已执行 <small>{visible.length} 项操作</small></>}</>
   const rows = visible.map(({ item, change, key }) => <React.Fragment key={key}>{item.type === 'commandExecution' ? <CommandRow item={item} /> : item.type === 'fileChange' ? <FileRow change={change || item.raw?.changes?.[0] || {}} status={item.status} turn={turn} /> : <ToolRow item={item} />}</React.Fragment>)
   if (visible.length === 1) return <div className="activity-list">{rows}</div>
-  return <div className="activity-group"><button className="group-toggle" aria-expanded={open} onClick={() => setOpen(!open)}><Icon kind={edits ? 'edit' : 'command'} /><span>{label}</span><span className={`chevron ${open ? 'up' : ''}`} /></button>{open && <div className="group-content">{rows}</div>}</div>
+  return <div className="activity-group"><button className="group-toggle" aria-expanded={open} onClick={() => setOpen(!open)}><Icon kind={edits ? 'edit' : 'command'} /><span>{label}</span><span className={`chevron ${open ? 'expanded' : ''}`} /></button>{open && <div className="group-content">{rows}</div>}</div>
+}
+function FileSummary({ turn }: { turn: any }) {
+  const [expanded, setExpanded] = useState(false)
+  const events = (turn.items || []).filter((item: any) => item.type === 'fileChange').flatMap((item: any) => item.raw?.changes || [])
+  const byPath = new Map<string, any>()
+  for (const change of events) {
+    const file = change.path || change.filePath
+    if (!file) continue
+    const first = byPath.get(file)
+    byPath.set(file, { ...change, initiallyCreated: first?.initiallyCreated ?? ['added', 'created'].includes(change.kind) })
+  }
+  const finalDiff = parseDiff(turn.diff || '')
+  const files = finalDiff.length ? finalDiff : [...byPath.values()].filter(change => !(change.initiallyCreated && change.kind === 'deleted'))
+  if (!files.length) return null
+  const shown = expanded ? files : files.slice(0, 3)
+  return <div className="file-summary"><div className="summary-heading">{files.length} 个文件已变动</div>{shown.map((change: any) => {
+    const file = change.path || change.filePath
+    const diff = change.diff || ''
+    const counts = parseDiff(diff.startsWith('diff --git ') ? diff : `diff --git a/${file} b/${file}\n${diff}`)[0]
+    return <button className="summary-file" key={file} onClick={() => post(diff ? 'openDiff' : 'openFile', { path: file, diff })}><span className="summary-file-name">{file}</span>{diff && <span className="summary-count"><span className="plus">+{counts?.additions || 0}</span> <span className="minus">-{counts?.deletions || 0}</span></span>}</button>
+  })}{files.length > 3 && <button className="summary-more" onClick={() => setExpanded(!expanded)}>{expanded ? '收起' : `显示其余 ${files.length - 3} 个文件`} <span className={`chevron ${expanded ? 'expanded' : ''}`} /></button>}</div>
 }
 function TurnView({ turn }: { turn: any }) {
   const [processOpen, setProcessOpen] = useState(false)
@@ -85,13 +144,12 @@ function TurnView({ turn }: { turn: any }) {
     if (item.type === 'agentMessage' && item.text?.trim()) { flush(); process.push(<article key={item.id} className="assistant-comment"><Markdown text={item.text} /></article>) }
   })
   flush()
-  if (['starting', 'inProgress'].includes(turn.status) && items.at(-1)?.type === 'reasoning') process.push(<div key="thinking" className="thinking">思考中</div>)
-  const final = items[fallbackFinal]
   const active = ['starting', 'inProgress'].includes(turn.status)
+  if (active) process.push(<div key="thinking" className="thinking flowing">正在思考</div>)
+  const final = items[fallbackFinal]
   const seconds = Math.max(0, Math.round(((turn.completedAt || Date.now()) - (turn.startedAt || Date.now())) / 1000))
   const duration = seconds < 60 ? `用时${seconds}秒` : `用时${Math.floor(seconds / 60)}分${String(seconds % 60).padStart(2, '0')}秒`
-  const files = items.filter((item: any) => item.type === 'fileChange').flatMap((item: any) => item.raw?.changes || [])
-  return <section className="turn" data-turn-id={turn.id}>{turn.user && <div className="user-message"><Markdown text={turn.user} /></div>}<div className="turn-content">{active ? <div className="process-content">{process.length ? process : <div className="thinking">思考中</div>}</div> : process.length > 0 && <div className="process-section"><button className="process-toggle" onClick={() => setProcessOpen(!processOpen)}><span className={`chevron ${processOpen ? 'up' : ''}`} />{duration}</button>{processOpen && <div className="process-content">{process}</div>}</div>}{final?.text?.trim() && <article className="final-answer"><div className="answer-label">DiCode</div><Markdown text={final.text} /></article>}{!active && files.length > 0 && <div className="file-summary"><div className="summary-heading">{files.length} 个文件已修改</div>{files.map((change: any, i: number) => <button key={i} onClick={() => post('openFile', { path: change.path || change.filePath })}>{change.path || change.filePath}</button>)}</div>}</div></section>
+  return <section className="turn" data-turn-id={turn.id}>{turn.user && <div className="user-message"><Markdown text={turn.user} /></div>}<div className="turn-content">{active ? <div className="process-content">{process}</div> : process.length > 0 && <div className="process-section"><button className="process-toggle" onClick={() => setProcessOpen(!processOpen)}>{duration}<span className={`chevron ${processOpen ? 'expanded' : ''}`} /></button>{processOpen && <div className="process-content">{process}</div>}</div>}{final?.text?.trim() && <article className="final-answer"><Markdown text={final.text} /></article>}{!active && <FileSummary turn={turn} />}</div></section>
 }
 
 function UserInputCard({ request }: { request: any }) {
