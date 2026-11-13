@@ -19,7 +19,7 @@ export default function Composer({ state, model, setModel, prompt, setPrompt, bu
   const [effort, setEffort] = useState('medium')
   const root = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const close = (event: MouseEvent) => { if (!root.current?.contains(event.target as Node)) setMenu(null) }
+    const close = (event: MouseEvent) => { const activePicker = root.current?.querySelector('.picker-menu')?.closest('.picker-wrap'); if (activePicker && !activePicker.contains(event.target as Node)) setMenu(null) }
     const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMenu(null) }
     document.addEventListener('mousedown', close); document.addEventListener('keydown', escape)
     return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', escape) }
@@ -43,7 +43,7 @@ export default function Composer({ state, model, setModel, prompt, setPrompt, bu
           {menu === 'permission' && <div className="picker-menu permission-menu">{permissions.map(entry => <button key={entry.id} className="picker-option" onClick={() => { post('setPermissionMode', { mode: entry.id }); setMenu(null) }}><PermissionIcon mode={entry.id} /><span><strong>{entry.title}</strong><small>{entry.description}</small></span>{state.permissionMode === entry.id && <span className="picker-check">✓</span>}</button>)}</div>}
         </div>
         <div className="composer-spacer" />
-        <div className="picker-wrap"><button className="picker-trigger model-trigger" onClick={() => toggle(state.models?.length ? 'effort' : 'model')} aria-expanded={menu === 'effort' || menu === 'model'}>{selected?.name || selected?.id || (state.modelsLoading ? '正在加载模型' : '选择模型')} <span>{efforts.find(entry => entry.id === effort)?.label}</span> ⌄</button>
+        <div className="picker-wrap"><button className="picker-trigger model-trigger" onClick={() => toggle(menu === 'effort' || menu === 'model' ? menu : state.models?.length ? 'effort' : 'model')} aria-expanded={menu === 'effort' || menu === 'model'}><span className="model-name">{selected?.name || selected?.id || (state.modelsLoading ? '正在加载模型' : '选择模型')}</span><span>{efforts.find(entry => entry.id === effort)?.label}</span><span aria-hidden="true" className={`chevron model-chevron ${menu === 'effort' || menu === 'model' ? 'expanded' : ''}`} /></button>
           {menu === 'effort' && <div className="picker-menu effort-menu"><div className="effort-current">{efforts.find(entry => entry.id === effort)?.label}</div><button className="effort-model" onClick={() => setMenu('model')}>{selected?.name || model || '选择模型'} ›</button><div className="effort-options">{efforts.map(entry => <button key={entry.id} className={effort === entry.id ? 'selected' : ''} onClick={() => setEffort(entry.id)}>{entry.label}</button>)}</div></div>}
           {menu === 'model' && <div className="picker-menu model-menu"><div className="picker-heading">选择模型</div>{(state.models || []).map((entry: any) => <button key={entry.id} className="model-option" onClick={() => { setModel(entry.id); persistModel(entry.id); setMenu('effort') }}>{entry.name || entry.id}{entry.id === model && <span>✓</span>}</button>)}{state.modelsLoading ? <div className="picker-heading">正在加载模型…</div> : state.modelsError && <><div className="picker-heading">{state.modelsError}</div><button className="model-option" onClick={() => post('models')}>重新加载</button></>}</div>}
         </div>

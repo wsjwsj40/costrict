@@ -37,6 +37,7 @@ class ConversationStore {
       this.threadId = params.threadId || this.threadId
     } else if (method === 'turn/completed') {
       turn.status = params.turn?.status || 'completed'; turn.error = params.turn?.error || null
+      if (typeof params.stopRequested === 'boolean') turn.stopRequested = params.stopRequested
       turn.completedAt ||= Date.now()
       for (const item of turn.items) if (item.status === 'inProgress') item.status = turn.status
     } else if (method === 'turn/plan/updated') {

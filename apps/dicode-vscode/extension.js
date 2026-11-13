@@ -358,7 +358,7 @@ class DicodeView {
 			version,
 			busy: this.busy,
 			stopping: this.stopping,
-			lastTurn: lastTurn ? { id: lastTurn.id, status: lastTurn.status, error: lastTurn.error } : null,
+			lastTurn: lastTurn ? { id: lastTurn.id, status: lastTurn.status, error: lastTurn.error, ...(typeof lastTurn.stopRequested === "boolean" ? { stopRequested: lastTurn.stopRequested } : {}) } : null,
 			threadId: this.threadId,
 			permissionMode: this.permissionMode,
 			workspace: this.workspace || "",
@@ -577,7 +577,7 @@ class DicodeView {
 			this.post({ type: "approvalsCleared" })
 			this.clearInputRequests()
 			const turn = this.conversation.turns.at(-1)
-			if (turn && ["starting", "inProgress"].includes(turn.status)) { turn.status = "failed"; turn.error = { message: event.message }; this.persistHistory(); this.post({ type: "history", snapshot: this.conversation.snapshot() }) }
+			if (turn && ["starting", "inProgress"].includes(turn.status)) { turn.status = "failed"; turn.error = { message: event.message }; turn.completedAt = Date.now(); this.persistHistory(); this.post({ type: "history", snapshot: this.conversation.snapshot() }) }
 			this.post(event)
 			this.postState()
 			return
@@ -618,10 +618,12 @@ class DicodeView {
 			const completedThreadId = this.threadId
 			const completedModel = this.activeModel
 			clearTimeout(this.stopTimer)
+			const stopRequested = this.stopping
 			this.stopping = false
 			this.interruptSent = false
 			this.activeRunId = null
-			this.conversation.receive(message.method, message.params)
+			const params = { ...message.params, stopRequested }
+			this.conversation.receive(message.method, params)
 			if (this.approvals.size) {
 				this.approvals.clear()
 				this.post({ type: "approvalsCleared" })
@@ -631,7 +633,7 @@ class DicodeView {
 			if (message.params?.turn?.status === "completed") this.maybeGenerateTitle(completedThreadId, completedModel)
 			this.busy = false
 			this.turnId = null
-			this.post({ type: "rpc", method: message.method, params: message.params })
+			this.post({ type: "rpc", method: message.method, params })
 			this.postState()
 		} else if (message.method === "error") {
 			this.output.appendLine(`[Codex error] ${message.params?.error?.message || "Codex error"}`)
@@ -733,8 +735,9 @@ class DicodeView {
 		this.clearInputRequests()
 		const turn = this.conversation.turns.at(-1)
 		if (turn && ["starting", "inProgress"].includes(turn.status))
-			this.conversation.receive("turn/completed", { turnId: turn.id, turn: { id: turn.id, status: "interrupted" } })
+			this.conversation.receive("turn/completed", { turnId: turn.id, turn: { id: turn.id, status: "interrupted" }, stopRequested: true })
 		this.persistHistory()
+		this.post({ type: "history", snapshot: this.conversation.snapshot() })
 		this.post({ type: "stopped", message: reason })
 		this.postState()
 	}
@@ -857,7 +860,7 @@ class DicodeView {
 			this.stopping = false
 			this.activeRunId = null
 			const turn = this.conversation.turns.at(-1)
-			if (turn?.status === "starting") { turn.status = "failed"; turn.error = { message: error.message }; this.persistHistory() }
+			if (turn?.status === "starting") { turn.status = "failed"; turn.error = { message: error.message }; turn.completedAt = Date.now(); this.persistHistory() }
 			this.postState()
 			throw error
 		}

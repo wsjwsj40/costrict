@@ -35,6 +35,7 @@ button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 1p
 .turn-content { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .process-section { color: var(--muted); }
 .process-toggle { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 28px; padding: 3px 0 7px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 11px; }
+.process-toggle:disabled { opacity: 1; cursor: default; }
 .process-content { display: flex; flex-direction: column; gap: var(--block-gap); min-width: 0; }
 .process-section .process-content { margin-top: var(--block-gap); }
 .assistant-comment { color: var(--muted); }
@@ -110,10 +111,10 @@ button:focus-visible, select:focus-visible, textarea:focus-visible { outline: 1p
 .process-content { gap: var(--block-gap); }
 .assistant-comment { color: var(--fg); }
 .assistant-comment .markdown { font-size: inherit; }
-.group-content { margin-left: 0; gap: var(--line-gap); }
+.group-content { margin-left: 0; padding: var(--line-gap) 0 0; gap: var(--line-gap); }
 .activity-list { display: flex; flex-direction: column; gap: var(--line-gap); }
-.activity-toggle { min-height: 16px; padding: 0; line-height: 16px; }
-.activity-content { margin-left: 0; }
+.group-toggle, .activity-toggle { min-height: 16px; padding: 0; line-height: 16px; }
+.activity-content { margin: var(--line-gap) 0 0; }
 .activity-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .activity-line .activity-toggle { width: auto; flex: none; gap: 8px; }
 .activity-chevron { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 20px; flex: none; padding: 0; }
@@ -159,10 +160,12 @@ button:hover > .chevron, button:focus-visible > .chevron { visibility: visible; 
 .changes-nav button { padding: 9px 16px; text-align: left; border-radius: 8px; font-size: 13px; }
 .changes-nav button:hover { background: var(--hover); }
 .changes-file { margin-bottom: 8px; scroll-margin-top: 12px; border: 1px solid var(--vscode-widget-border, #555); border-radius: 4px; }
-.changes-file-title { display: flex; justify-content: space-between; gap: 12px; padding: 9px 12px; color: var(--fg); font-size: 13px; cursor: pointer; }
-.changes-file-title::before { content: '›'; transition: transform .15s; }
-.changes-file[open] > .changes-file-title::before { transform: rotate(90deg); }
-.changes-file-title > span { margin-left: auto; white-space: nowrap; }
+.changes-file-title { display: flex; align-items: center; gap: 8px; padding: 9px 12px; color: var(--fg); font-size: 13px; cursor: pointer; list-style: none; }
+.changes-file-title::-webkit-details-marker { display: none; }
+.changes-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.changes-file-title .chevron { visibility: visible; }
+.changes-file[open] > .changes-file-title .chevron { transform: rotate(45deg); }
+.changes-count { margin-left: auto; white-space: nowrap; }
 .changes-viewer .diff-lines { max-height: none; padding: 0; font-size: 13px; line-height: 22px; }
 .changes-viewer .diff-line { min-height: 22px; }
 .changes-viewer .line-no { width: 40px; }
@@ -175,8 +178,11 @@ button:hover > .chevron, button:focus-visible > .chevron { visibility: visible; 
 .picker-trigger { display: flex; align-items: center; gap: 4px; min-height: 28px; max-width: 100%; padding: 4px 9px; border-radius: 14px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .picker-trigger:hover, .context-trigger:hover { background: var(--hover); color: var(--fg); }
 .permission-trigger { color: var(--vscode-editorWarning-foreground, var(--fg)); }
-.model-trigger { display: block; overflow: hidden; text-overflow: ellipsis; max-width: min(180px, 34vw); }
+.model-trigger { display: flex; max-width: min(180px, 34vw); }
+.model-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .model-trigger span { color: var(--muted); }
+.model-trigger .model-chevron { visibility: visible; transform: rotate(45deg); margin: -3px 1px 0 3px; }
+.model-trigger .model-chevron.expanded { transform: rotate(225deg); margin-top: 3px; }
 .picker-menu { position: absolute; z-index: 20; bottom: calc(100% + 9px); padding: 6px; border: 1px solid var(--border); border-radius: 14px; background: var(--vscode-menu-background, var(--editor)); color: var(--vscode-menu-foreground, var(--fg)); box-shadow: 0 8px 24px var(--vscode-widget-shadow, transparent); }
 .permission-menu { left: 12px; width: min(360px, calc(100% - 24px)); }
 .picker-option { display: flex; align-items: flex-start; gap: 8px; width: 100%; padding: 8px; border-radius: 7px; text-align: left; }

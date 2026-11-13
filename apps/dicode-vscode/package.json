@@ -2,7 +2,7 @@
 	"name": "dicode-codex",
 	"displayName": "DiCode",
 	"description": "DiCode coding agent powered by the unmodified Codex CLI",
-	"version": "0.2.46",
+	"version": "0.2.47",
 	"publisher": "atad-apts",
 	"icon": "media/extension-icon.png",
 	"repository": {

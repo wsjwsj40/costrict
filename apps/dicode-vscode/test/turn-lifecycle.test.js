@@ -447,6 +447,8 @@ test('stop during turn/start uses turn/started id and allows follow-up in same t
   assert.equal(view.stopping, false)
   assert.equal(view.turnId, null)
   assert.equal(view.conversation.turns[0].status, 'interrupted')
+  assert.equal(view.conversation.turns[0].stopRequested, true)
+  assert.equal(posted.find(message => message.method === 'turn/completed').params.stopRequested, true)
   await view.send('第二问', 'm')
   assert.equal(calls.filter(call => call.method === 'turn/start').length, 2)
   assert.equal(calls.filter(call => call.method === 'thread/start').length, 0)
@@ -473,6 +475,7 @@ test('missing terminal notification resets connection and next turn resumes thre
   assert.equal(disposed, true)
   assert.equal(view.busy, false)
   assert.equal(view.conversation.turns[0].status, 'interrupted')
+  assert.equal(view.conversation.turns[0].stopRequested, true)
   const calls = []
   const secondClient = { request(method) { calls.push(method); return Promise.resolve(method === 'turn/start' ? { turn: { id: 't2' } } : {}) }, dispose() {} }
   view.ensureClient = async () => { view.client = secondClient; return secondClient }

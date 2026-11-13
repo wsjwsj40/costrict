@@ -74,6 +74,46 @@ test('compaction events appear in the active conversation', async () => {
   assert.match(view.doc.querySelector('.compact-event').textContent, /正在压缩上下文/)
   view.dom.window.close()
 })
+test('completed standalone compaction stays visible without a duration header', async () => {
+  const view = setup(); await tick()
+  view.emit({ type: 'state', loggedIn: true, busy: false, models: [{ id: 'm' }] })
+  view.emit({ type: 'history', snapshot: { turns: [{ id: 'compact', user: '', status: 'completed', startedAt: 1000, completedAt: 3000, items: [item('event', 'contextCompaction')] }] } })
+  await tick()
+  assert.match(view.doc.querySelector('.compact-event').textContent, /已压缩上下文/)
+  assert.equal(view.doc.querySelector('.process-toggle'), null)
+  view.dom.window.close()
+})
+test('stopped and failed turns show distinct terminal descriptions even without activity', async () => {
+  const view = setup(); await tick()
+  view.emit({ type: 'state', loggedIn: true, busy: false, models: [{ id: 'm' }] })
+  view.emit({ type: 'history', snapshot: { turns: [
+    { id: 'stopped', user: 'a', status: 'interrupted', stopRequested: true, startedAt: 1000, completedAt: 16000, items: [] },
+    { id: 'interrupted', user: 'b', status: 'interrupted', stopRequested: false, startedAt: 1000, completedAt: 6000, items: [] },
+    { id: 'failed', user: 'c', status: 'failed', error: { message: '连接已断开' }, startedAt: 1000, completedAt: 4000, items: [] },
+  ] } })
+  await tick()
+  const labels = [...view.doc.querySelectorAll('.process-toggle')].map(node => node.textContent)
+  assert.match(labels[0], /你在15秒后停止了任务/)
+  assert.match(labels[1], /意外中断/)
+  assert.match(labels[2], /未能完成：连接已断开/)
+  view.dom.window.close()
+})
+test('picker menus close on composer whitespace and their arrow follows expansion', async () => {
+  const view = setup(); await display(view, [], 'completed')
+  const trigger = view.doc.querySelector('.model-trigger')
+  trigger.click(); await tick()
+  assert.equal(trigger.getAttribute('aria-expanded'), 'true')
+  assert.ok(trigger.querySelector('.model-chevron.expanded'))
+  view.doc.querySelector('.composer textarea').dispatchEvent(new view.dom.window.MouseEvent('mousedown', { bubbles: true }))
+  await tick()
+  assert.equal(trigger.getAttribute('aria-expanded'), 'false')
+  assert.equal(trigger.querySelector('.model-chevron.expanded'), null)
+  view.doc.querySelector('.permission-trigger').click(); await tick()
+  view.doc.querySelector('.composer-spacer').dispatchEvent(new view.dom.window.MouseEvent('mousedown', { bubbles: true }))
+  await tick()
+  assert.equal(view.doc.querySelector('.permission-menu'), null)
+  view.dom.window.close()
+})
 test('context indicator changes color at 25, 50, 75 and 90 percent', async () => {
   const view = setup(); await display(view, [], 'completed')
   for (const [used, expected] of [[24000, 'blue'], [25000, 'green'], [50000, 'yellow'], [75000, 'orange'], [90000, 'red']]) {
@@ -207,6 +247,8 @@ test('aggregate changes panel shows all files in one diff view', async () => {
   assert.match(dom.window.document.querySelector('.changes-header').textContent, /2 个文件/)
   assert.equal(dom.window.document.querySelectorAll('.changes-file[open]').length, 1)
   assert.equal(dom.window.document.querySelector('.changes-file[open] .changes-file-title').textContent.includes('b.txt'), true)
+  const summary = dom.window.document.querySelector('.changes-file summary')
+  assert.ok(summary.querySelector('.changes-path + .chevron'))
   dom.window.document.querySelector('.changes-file summary').click()
   assert.equal(dom.window.document.querySelectorAll('.changes-file[open]').length, 2)
   dom.window.close()

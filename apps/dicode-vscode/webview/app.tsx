@@ -158,7 +158,7 @@ function ChangesViewer() {
   const files = parseDiff(payload?.diff || '')
   const total = files.reduce((sum: { added: number; deleted: number }, file: any) => ({ added: sum.added + file.additions, deleted: sum.deleted + file.deletions }), { added: 0, deleted: 0 })
   useEffect(() => { if (payload?.selectedPath) document.getElementById(`change-${files.findIndex((file: any) => file.path === payload.selectedPath)}`)?.scrollIntoView?.() }, [payload])
-  return <main className="changes-viewer"><header className="changes-header">{files.length} 个文件已修改 <span className="plus">+{total.added}</span> <span className="minus">-{total.deleted}</span></header>{files.map((file: any, index: number) => <details className="changes-file" id={`change-${index}`} key={file.path} open={file.path === payload?.selectedPath}><summary className="changes-file-title">{file.path}<span><span className="plus">+{file.additions}</span> <span className="minus">-{file.deletions}</span></span></summary><Diff diff={file.diff} /></details>)}</main>
+  return <main className="changes-viewer"><header className="changes-header">{files.length} 个文件已修改 <span className="plus">+{total.added}</span> <span className="minus">-{total.deleted}</span></header>{files.map((file: any, index: number) => <details className="changes-file" id={`change-${index}`} key={file.path} open={file.path === payload?.selectedPath}><summary className="changes-file-title"><span className="changes-path">{file.path}</span><span className="chevron" aria-hidden="true"/><span className="changes-count"><span className="plus">+{file.additions}</span> <span className="minus">-{file.deletions}</span></span></summary><Diff diff={file.diff} /></details>)}</main>
 }
 function TurnView({ turn }: { turn: any }) {
   const [processOpen, setProcessOpen] = useState(false)
@@ -176,7 +176,7 @@ function TurnView({ turn }: { turn: any }) {
   const flush = () => { if (activities.length) { process.push(<Activities key={`a${process.length}`} items={activities} turn={turn} />); activities = [] } }
   items.forEach((item: any, index: number) => {
     if (index === fallbackFinal) return
-    if (item.type === 'contextCompaction') { flush(); process.push(<div key={item.id} className="compact-event"><Icon kind="compact" />{item.status === 'inProgress' ? '正在压缩上下文 · 可能需要几分钟' : item.status === 'failed' ? '上下文压缩失败' : '已压缩上下文'}</div>); return }
+    if (item.type === 'contextCompaction') { flush(); process.push(<div key={item.id} className="compact-event"><Icon kind="compact" />{item.status === 'inProgress' ? '正在压缩上下文 · 可能需要几分钟' : item.status === 'failed' ? '上下文压缩失败' : item.status === 'interrupted' ? '上下文压缩已中断' : '已压缩上下文'}</div>); return }
     if (['commandExecution', 'fileChange', 'reasoning', 'dynamicToolCall', 'mcpToolCall', 'webSearch'].includes(item.type)) { activities.push(item); return }
     if (item.type === 'agentMessage' && item.text?.trim()) { flush(); process.push(<article key={item.id} className="assistant-comment"><Markdown text={item.text} /></article>) }
   })
@@ -185,8 +185,11 @@ function TurnView({ turn }: { turn: any }) {
   if (active && !items.some((item: any) => item.type === 'contextCompaction' && item.status === 'inProgress')) process.push(<div key="thinking" className="thinking flowing">正在思考</div>)
   const final = items[fallbackFinal]
   const seconds = Math.max(0, Math.round(((turn.completedAt || Date.now()) - (turn.startedAt || Date.now())) / 1000))
-  const duration = seconds < 60 ? `用时${seconds}秒` : `用时${Math.floor(seconds / 60)}分${String(seconds % 60).padStart(2, '0')}秒`
-  return <section className="turn" data-turn-id={turn.id}>{turn.user && <div className="user-message"><Markdown text={turn.user} /></div>}<div className="turn-content">{active ? <div className="process-section"><div className="process-toggle">正在处理 · {duration}</div><div className="process-content">{process}</div></div> : process.length > 0 && <div className="process-section"><button className="process-toggle" onClick={() => setProcessOpen(!processOpen)}>{duration}<span className={`chevron ${processOpen ? 'expanded' : ''}`} /></button>{processOpen && <div className="process-content">{process}</div>}</div>}{final?.text?.trim() && <article className="final-answer"><Markdown text={final.text} /></article>}{!active && <FileSummary turn={turn} />}</div></section>
+  const elapsed = seconds < 60 ? `${seconds}秒` : `${Math.floor(seconds / 60)}分${String(seconds % 60).padStart(2, '0')}秒`
+  const duration = `用时${elapsed}`
+  const compactOnly = turn.status === 'completed' && !turn.user && items.some((item: any) => item.type === 'contextCompaction') && items.every((item: any) => ['contextCompaction', 'reasoning'].includes(item.type))
+  const terminal = turn.status === 'interrupted' ? (turn.stopRequested === true ? `你在${elapsed}后停止了任务` : `任务在${elapsed}后${turn.stopRequested === false ? '意外' : ''}中断`) : turn.status === 'failed' ? `任务在${elapsed}后未能完成${turn.error?.message ? `：${turn.error.message}` : ''}` : duration
+  return <section className="turn" data-turn-id={turn.id}>{turn.user && <div className="user-message"><Markdown text={turn.user} /></div>}<div className="turn-content">{active ? <div className="process-section"><div className="process-toggle">正在处理 · {duration}</div><div className="process-content">{process}</div></div> : compactOnly ? <div className="process-content">{process}</div> : (process.length > 0 || ['interrupted', 'failed'].includes(turn.status)) && <div className="process-section"><button className="process-toggle" onClick={() => setProcessOpen(!processOpen)} disabled={!process.length}>{terminal}{process.length > 0 && <span className={`chevron ${processOpen ? 'expanded' : ''}`} />}</button>{processOpen && <div className="process-content">{process}</div>}</div>}{final?.text?.trim() && <article className="final-answer"><Markdown text={final.text} /></article>}{!active && <FileSummary turn={turn} />}</div></section>
 }
 
 function UserInputCard({ request }: { request: any }) {
@@ -244,7 +247,7 @@ function App() {
   useEffect(() => {
     const receive = (event: MessageEvent) => {
       const msg = event.data
-      if (msg.type === 'state') { setState((old: any) => ({ ...old, ...msg })); if (msg.models?.length) setModel(current => msg.models.some((entry: any) => entry.id === current) ? current : msg.models[0].id); if (!msg.busy) { setStopping(false); const turn = store.turns.at(-1); if (turn && turn.id === msg.lastTurn?.id && ['starting', 'inProgress'].includes(turn.status) && ['failed', 'interrupted', 'completed'].includes(msg.lastTurn.status)) { turn.status = msg.lastTurn.status; turn.completedAt = Date.now(); setRevision(n => n + 1) } } }
+      if (msg.type === 'state') { setState((old: any) => ({ ...old, ...msg })); if (msg.models?.length) setModel(current => msg.models.some((entry: any) => entry.id === current) ? current : msg.models[0].id); if (!msg.busy) { setStopping(false); const turn = store.turns.at(-1); if (turn && turn.id === msg.lastTurn?.id && ['starting', 'inProgress'].includes(turn.status) && ['failed', 'interrupted', 'completed'].includes(msg.lastTurn.status)) { turn.status = msg.lastTurn.status; turn.error = msg.lastTurn.error; turn.stopRequested = msg.lastTurn.stopRequested; turn.completedAt = Date.now(); setRevision(n => n + 1) } } }
       if (msg.type === 'history') { store.restore(msg.snapshot); setRevision(n => n + 1) }
       if (msg.type === 'tokenUsage') setState((old: any) => ({ ...old, tokenUsage: msg.tokenUsage }))
       if (msg.type === 'rpc') {
@@ -258,7 +261,7 @@ function App() {
       if (msg.type === 'userInputRequest') { setQuestion(msg) }
       if (msg.type === 'userInputsCleared') setQuestion(null)
       if (msg.type === 'notice') setStatus(msg.message)
-      if (msg.type === 'error') { setStatus(`错误：${msg.message}`); if (msg.requestType === 'send') { const turn = store.turns.at(-1); if (turn?.status === 'starting') { turn.status = 'failed'; turn.completedAt = Date.now(); setRevision(n => n + 1) } } }
+      if (msg.type === 'error') { setStatus(`错误：${msg.message}`); if (msg.requestType === 'send') { const turn = store.turns.at(-1); if (turn?.status === 'starting') { turn.status = 'failed'; turn.error = { message: msg.message }; turn.completedAt = Date.now(); setRevision(n => n + 1) } } }
       if (msg.type === 'stopped') { setStopping(false); setStatus(msg.message || '已停止') }
     }
     window.addEventListener('message', receive)
