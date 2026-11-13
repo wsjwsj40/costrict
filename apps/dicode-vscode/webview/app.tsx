@@ -9,7 +9,9 @@ declare global { interface Window { acquireVsCodeApi: () => { postMessage: (mess
 const vscode = window.acquireVsCodeApi()
 const store = new ConversationStore()
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
-const fileToken = /(?:[\w.-]+[\\/])*[\w.-]+\.[A-Za-z0-9]{1,10}(?::\d+|#L\d+)?/g
+const validateLink = md.validateLink.bind(md)
+md.validateLink = (url: string) => /^file:\/\//i.test(url) || validateLink(url)
+const fileToken = /(?:(?:[A-Za-z]:)?[\\/]|\.\.?[\\/])?(?:[\p{L}\p{N}_.\-]+[\\/])*[\p{L}\p{N}_.\-]+\.[A-Za-z0-9]{1,10}(?::\d+|#L\d+)?/gu
 md.core.ruler.after('inline', 'local-file-links', state => {
   for (const block of state.tokens) {
     if (block.type !== 'inline' || !block.children) continue
@@ -35,7 +37,7 @@ md.core.ruler.after('inline', 'local-file-links', state => {
 const post = (type: string, data: Record<string, unknown> = {}) => vscode.postMessage({ type, ...data })
 const editTools = new Set(['write_file', 'replace_file_text', 'delete_file'])
 const iconPaths: Record<string, string> = {
-  brand: 'M5 3.5h6.4c5.1 0 8.1 3.4 8.1 8.5s-3 8.5-8.1 8.5H5v-17Z M14 8.5l-4.5 7',
+  brand: 'M3.2 17.7 9 5.8c.8-1.7 2.5-2.1 3.7-.7l3.1 3.7 M3.2 17.7c-.8 1.7.3 3 2.3 2.4l10-3.7c2.1-.8 3.5-.4 4.4 1.1 M20 9.2v7.9c0 3.1-2.8 3.7-4.5 1.9 M20 4.2h.01',
   edit: 'M3 11.5 2.5 14l2.5-.5 8.1-8.1-2-2L3 11.5Zm7.2-8.1 1.4-1.4a1.4 1.4 0 0 1 2 2l-1.4 1.4',
   command: 'M2 3.2h12v9.6H2zM4.5 6l2.2 2-2.2 2M8.5 10h3',
   copy: 'M5 4h8v10H5zM3 11H2V2h8v1',
@@ -44,14 +46,14 @@ const iconPaths: Record<string, string> = {
   new: 'M2.5 2.5h11v11h-11zM8 5v6M5 8h6',
   compact: 'M4 2h8M4 14h8M3 3v10M6 5h6M6 8h5M6 11h6M1.5 5h2M1.5 11h2',
 }
-function Icon({ kind }: { kind: string }) { return <svg className="icon" viewBox={kind === 'brand' ? '0 0 24 24' : '0 0 16 16'} fill="none" stroke="currentColor" strokeWidth={kind === 'brand' ? 1.8 : 1.35} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={iconPaths[kind] || iconPaths.command} /></svg> }
+function Icon({ kind }: { kind: string }) { if (kind === 'brand') return <svg className="icon" viewBox="0 0 64 64" fill="currentColor" aria-hidden="true"><path d="M5 47 23 13c3-6 8-7 12-2l11 13c2 3-1 7-4 5l-10-6c-2-1-4-1-5 1l-9 14 21-6c6-2 10 0 12 4V24c0-4 3-6 6-6s5 3 5 7v23c0 9-8 12-14 7l-5-5c-2-2-4-2-7-1L14 58C5 61 1 55 5 47Z"/><circle cx="56" cy="9" r="6"/></svg>; return <svg className="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={iconPaths[kind] || iconPaths.command} /></svg> }
 function Markdown({ text }: { text: string }) {
   const onClick = (event: React.MouseEvent) => {
     const target = event.target as HTMLElement
     const link = target.closest('a[href]') as HTMLAnchorElement | null
     if (link) { event.preventDefault(); const href = link.getAttribute('href') || ''; post(link.classList.contains('local-file-link') ? 'openFile' : 'openLink', link.classList.contains('local-file-link') ? { path: href } : { href }); return }
     const code = target.closest('code')
-    if (code && !code.closest('pre') && /^(?:[\w.\-]+[\\/])*[\w.\-]+\.[\w-]+(?::\d+|#L\d+)?$/.test(code.textContent || '')) post('openFile', { path: code.textContent || '' })
+    if (code && !code.closest('pre') && /^(?:(?:[A-Za-z]:)?[\\/]|\.\.?[\\/])?(?:[^\\/]+[\\/])*[^\\/]+\.[\w-]+(?::\d+|#L\d+)?$/.test(code.textContent || '')) post('openFile', { path: code.textContent || '' })
   }
   return <div className="markdown" onClick={onClick} dangerouslySetInnerHTML={{ __html: md.render(text || '') }} />
 }
@@ -73,7 +75,7 @@ function FileRow({ change, status, turn, itemId, changeIndex }: { change: any; s
   const parsed = diff ? parseDiff(diff.startsWith('diff --git ') ? diff : `diff --git a/${file} b/${file}\n${diff}`)[0] : null
   const [open, setOpen] = useState(false)
   const kind = change.kind || change.type || 'modified'
-  const openChange = () => post(kind === 'deleted' ? 'openDiff' : 'openFile', { path: file, diff, turnId: turn.id, itemId, changeIndex })
+  const openChange = () => post('openDiff', { path: file, diff, turnId: turn.id, itemId, changeIndex })
   const verb = `${status === 'inProgress' ? '正在' : status === 'failed' ? '未能' : '已'}${kind === 'added' || kind === 'created' ? '创建' : kind === 'deleted' ? '删除' : '编辑'}`
   return <div className="activity-row file-activity">
     <div className="activity-line"><button className="activity-toggle" aria-expanded={open} onClick={() => setOpen(!open)}><Icon kind="edit" /><span className="activity-title">{verb}</span></button><button className="activity-file-link" onClick={openChange}>{file || '文件'}</button><button className="activity-chevron" aria-label={open ? '折叠文件变动' : '展开文件变动'} onClick={() => setOpen(!open)}><span className={`chevron ${open ? 'expanded' : ''}`} /></button>{!open && parsed && <span className="change-count"><span className="plus">+{parsed.additions}</span> <span>-{parsed.deletions}</span></span>}</div>
@@ -156,10 +158,16 @@ function ChangesViewer() {
   const files = parseDiff(payload?.diff || '')
   const total = files.reduce((sum: { added: number; deleted: number }, file: any) => ({ added: sum.added + file.additions, deleted: sum.deleted + file.deletions }), { added: 0, deleted: 0 })
   useEffect(() => { if (payload?.selectedPath) document.getElementById(`change-${files.findIndex((file: any) => file.path === payload.selectedPath)}`)?.scrollIntoView?.() }, [payload])
-  return <main className="changes-viewer"><header className="changes-header">{files.length} 个文件已修改 <span className="plus">+{total.added}</span> <span className="minus">-{total.deleted}</span></header><nav className="changes-nav">{files.map((file: any, index: number) => <button key={file.path} onClick={() => document.getElementById(`change-${index}`)?.scrollIntoView({ behavior: 'smooth' })}>{file.path}</button>)}</nav>{files.map((file: any, index: number) => <section className="changes-file" id={`change-${index}`} key={file.path}><div className="changes-file-title">{file.path}<span><span className="plus">+{file.additions}</span> <span className="minus">-{file.deletions}</span></span></div><Diff diff={file.diff} /></section>)}</main>
+  return <main className="changes-viewer"><header className="changes-header">{files.length} 个文件已修改 <span className="plus">+{total.added}</span> <span className="minus">-{total.deleted}</span></header>{files.map((file: any, index: number) => <details className="changes-file" id={`change-${index}`} key={file.path} open={file.path === payload?.selectedPath}><summary className="changes-file-title">{file.path}<span><span className="plus">+{file.additions}</span> <span className="minus">-{file.deletions}</span></span></summary><Diff diff={file.diff} /></details>)}</main>
 }
 function TurnView({ turn }: { turn: any }) {
   const [processOpen, setProcessOpen] = useState(false)
+  const [, tick] = useState(0)
+  useEffect(() => {
+    if (!['starting', 'inProgress'].includes(turn.status)) return
+    const timer = window.setInterval(() => tick(value => value + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [turn.status])
   const items = turn.items || []
   const finalIndex = items.findIndex((item: any) => item.type === 'agentMessage' && item.raw?.phase === 'final_answer')
   const fallbackFinal = finalIndex >= 0 ? finalIndex : turn.status === 'completed' ? items.findLastIndex((item: any) => item.type === 'agentMessage') : -1
@@ -178,7 +186,7 @@ function TurnView({ turn }: { turn: any }) {
   const final = items[fallbackFinal]
   const seconds = Math.max(0, Math.round(((turn.completedAt || Date.now()) - (turn.startedAt || Date.now())) / 1000))
   const duration = seconds < 60 ? `用时${seconds}秒` : `用时${Math.floor(seconds / 60)}分${String(seconds % 60).padStart(2, '0')}秒`
-  return <section className="turn" data-turn-id={turn.id}>{turn.user && <div className="user-message"><Markdown text={turn.user} /></div>}<div className="turn-content">{active ? <div className="process-content">{process}</div> : process.length > 0 && <div className="process-section"><button className="process-toggle" onClick={() => setProcessOpen(!processOpen)}>{duration}<span className={`chevron ${processOpen ? 'expanded' : ''}`} /></button>{processOpen && <div className="process-content">{process}</div>}</div>}{final?.text?.trim() && <article className="final-answer"><Markdown text={final.text} /></article>}{!active && <FileSummary turn={turn} />}</div></section>
+  return <section className="turn" data-turn-id={turn.id}>{turn.user && <div className="user-message"><Markdown text={turn.user} /></div>}<div className="turn-content">{active ? <div className="process-section"><div className="process-toggle">正在处理 · {duration}</div><div className="process-content">{process}</div></div> : process.length > 0 && <div className="process-section"><button className="process-toggle" onClick={() => setProcessOpen(!processOpen)}>{duration}<span className={`chevron ${processOpen ? 'expanded' : ''}`} /></button>{processOpen && <div className="process-content">{process}</div>}</div>}{final?.text?.trim() && <article className="final-answer"><Markdown text={final.text} /></article>}{!active && <FileSummary turn={turn} />}</div></section>
 }
 
 function UserInputCard({ request }: { request: any }) {
@@ -236,12 +244,13 @@ function App() {
   useEffect(() => {
     const receive = (event: MessageEvent) => {
       const msg = event.data
-      if (msg.type === 'state') { setState((old: any) => ({ ...old, ...msg })); if (msg.models?.[0]) setModel(current => current || msg.models[0].id); if (!msg.busy) setStopping(false) }
+      if (msg.type === 'state') { setState((old: any) => ({ ...old, ...msg })); if (msg.models?.length) setModel(current => msg.models.some((entry: any) => entry.id === current) ? current : msg.models[0].id); if (!msg.busy) { setStopping(false); const turn = store.turns.at(-1); if (turn && turn.id === msg.lastTurn?.id && ['starting', 'inProgress'].includes(turn.status) && ['failed', 'interrupted', 'completed'].includes(msg.lastTurn.status)) { turn.status = msg.lastTurn.status; turn.completedAt = Date.now(); setRevision(n => n + 1) } } }
       if (msg.type === 'history') { store.restore(msg.snapshot); setRevision(n => n + 1) }
       if (msg.type === 'tokenUsage') setState((old: any) => ({ ...old, tokenUsage: msg.tokenUsage }))
       if (msg.type === 'rpc') {
         if (msg.method !== 'serverRequest/resolved') { store.receive(msg.method, msg.params); setRevision(n => n + 1) }
         else { setApproval((old: any) => String(old?.id) === String(msg.params?.requestId) ? null : old); setQuestion((old: any) => String(old?.id) === String(msg.params?.requestId) ? null : old) }
+        if (msg.method === 'turn/started') setStatus('正在处理…')
         if (msg.method === 'turn/completed') setStatus(msg.params?.turn?.status === 'completed' ? '已完成 · 可以继续提问' : '任务已结束')
       }
       if (msg.type === 'approval') setApproval(msg)
@@ -249,7 +258,7 @@ function App() {
       if (msg.type === 'userInputRequest') { setQuestion(msg) }
       if (msg.type === 'userInputsCleared') setQuestion(null)
       if (msg.type === 'notice') setStatus(msg.message)
-      if (msg.type === 'error') setStatus(`错误：${msg.message}`)
+      if (msg.type === 'error') { setStatus(`错误：${msg.message}`); if (msg.requestType === 'send') { const turn = store.turns.at(-1); if (turn?.status === 'starting') { turn.status = 'failed'; turn.completedAt = Date.now(); setRevision(n => n + 1) } } }
       if (msg.type === 'stopped') { setStopping(false); setStatus(msg.message || '已停止') }
     }
     window.addEventListener('message', receive)
@@ -257,7 +266,7 @@ function App() {
     return () => window.removeEventListener('message', receive)
   }, [])
   useEffect(() => { if (follow.current && messages.current) messages.current.scrollTop = messages.current.scrollHeight }, [revision, state.busy])
-  const send = (effort: string) => { const text = prompt.trim(); if (!text || !model || busy) return; store.begin(text); setRevision(n => n + 1); setPrompt(''); setState((old: any) => ({ ...old, busy: true })); setStatus('正在连接 Agent…'); follow.current = true; post('send', { text, model, effort }) }
+  const send = (effort: string) => { const text = prompt.trim(); if (!text || !state.models?.some((entry: any) => entry.id === model) || busy) return; store.begin(text); setRevision(n => n + 1); setPrompt(''); setState((old: any) => ({ ...old, busy: true })); setStatus('正在连接 Agent…'); follow.current = true; post('send', { text, model, effort }) }
   const latest = store.turns.at(-1)
   const plan = busy && latest?.plan?.steps?.length ? latest.plan : null
   return <><header className="topbar"><span className="brand"><Icon kind="brand" /><strong>DiCode</strong></span><div className="top-actions"><button title="最近会话" onClick={() => setThreadsOpen(!threadsOpen)}><Icon kind="history" /></button><button title="新会话" onClick={() => { if (!busy) { store.reset(); setRevision(n => n + 1); post('newThread') } }}><Icon kind="new" /></button></div></header>{!state.loggedIn ? <div className="login"><h2>让想法成为代码。</h2><p>登录后，在当前工作区和 DiCode 一起完成任务。</p><button className="primary" onClick={() => post('login')}>登录 DiCode</button></div> : <main className="app"><div className="toolbar"><span className="workspace">{state.workspace || '未打开工作区'}</span><button onClick={() => { store.reset(); setRevision(n => n + 1); post('logout') }}>退出</button></div>{threadsOpen && <nav className="thread-list">{(state.threads || []).map((thread: any) => <button key={thread.id} onClick={() => { if (!busy) { setThreadsOpen(false); post('switchThread', { threadId: thread.id }) } }}>{thread.title || '新会话'}</button>)}</nav>}<div className="conversation-area"><div className="messages" ref={messages} onScroll={() => { const node = messages.current; if (node) follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80 }}>{store.turns.length > visibleLimit && <button className="earlier" onClick={() => setVisibleLimit(n => n + 30)}>显示更早的消息</button>}{store.turns.length ? store.turns.slice(-visibleLimit).map((turn: any) => <TurnView key={turn.id} turn={turn} />) : <div className="empty"><div><Icon kind="brand" /></div><h2>从一个问题开始</h2><p>描述任务，DiCode 会在工作区中逐步完成。</p></div>}</div></div>{approval && <div className="approval"><strong>需要授权</strong><p>{approval.params?.reason || approval.params?.command || approval.params?.path || '继续执行此操作？'}</p><div className="approval-actions">{(approval.params?.availableDecisions || ['accept', 'decline']).map((decision: any) => { const value = typeof decision === 'string' ? decision : decision.decision; return <button key={value} onClick={() => post('approve', { id: approval.id, decision: value })}>{value === 'accept' ? '允许' : value === 'decline' ? '拒绝' : value}</button> })}</div></div>}{question && <UserInputCard key={question.id} request={question} />}{plan && <div className="plan-dock"><button onClick={() => setPlanOpen(!planOpen)}>执行计划 · {plan.steps.filter((step: any) => step.status === 'completed').length}/{plan.steps.length} <span className={`chevron ${planOpen ? 'up' : ''}`} /></button>{planOpen && <ol>{plan.steps.map((step: any, i: number) => <li key={i}>{step.step || step.text}</li>)}</ol>}</div>}<Composer state={state} model={model} setModel={setModel} prompt={prompt} setPrompt={setPrompt} busy={busy} stopping={stopping} status={status} send={send} post={(type, data) => { if (type === "stop") setStopping(true); post(type, data) }} persistModel={modelId => vscode.setState?.({ modelId })} /></main>}</>

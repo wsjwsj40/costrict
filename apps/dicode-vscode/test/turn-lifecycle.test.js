@@ -32,6 +32,65 @@ function makeView(root = '/repo') {
 function rpc(view, method, params) { view.onCodexEvent({ type: 'rpc', message: { method, params } }) }
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 
+test('older asynchronous state cannot replace a loaded model list', async () => {
+  const { view, posted } = makeView()
+  const pending = []
+  view.tokens = () => new Promise(resolve => pending.push(resolve))
+  view.models = []
+  const old = view.postState()
+  view.models = [{ id: 'm' }]
+  const latest = view.postState()
+  pending[1]({ access_token: 'token' }); await latest
+  pending[0]({ access_token: 'token' }); await old
+  assert.deepEqual(posted.map(message => message.models), [[{ id: 'm' }]])
+  view.dispose()
+})
+
+test('model loading reports errors and supports retry', async () => {
+  const { view } = makeView()
+  view.accessToken = async () => 'token'
+  view.maybeGenerateTitle = () => {}
+  Object.defineProperty(view, 'serverUrl', { value: 'https://example.test' })
+  view.json = async () => { throw new Error('offline') }
+  await view.loadModels()
+  assert.match(view.modelsError, /offline/)
+  view.json = async () => ({ data: [{ id: 'm', contextWindow: 100000 }] })
+  await view.loadModels()
+  assert.equal(view.modelsError, null)
+  assert.equal(view.models[0].contextWindow, 100000)
+  view.dispose()
+})
+
+test('model authorization failure refreshes once and retries with the new token', async () => {
+  const { view } = makeView()
+  const refreshes = [], requests = []
+  Object.defineProperty(view, 'serverUrl', { value: 'https://example.test' })
+  view.maybeGenerateTitle = () => {}
+  view.accessToken = async force => { refreshes.push(!!force); return force ? 'new' : 'old' }
+  view.json = async (_url, token) => {
+    requests.push(token)
+    if (token === 'old') throw Object.assign(new Error('unauthorized'), { status: 401 })
+    return { data: [{ id: 'm' }] }
+  }
+  await view.loadModels()
+  assert.deepEqual(refreshes, [false, true])
+  assert.deepEqual(requests, ['old', 'new'])
+  assert.equal(view.modelsError, null)
+  view.dispose()
+})
+
+test('rejected model credentials give a relogin prompt without endless retry', async () => {
+  const { view } = makeView()
+  let calls = 0
+  Object.defineProperty(view, 'serverUrl', { value: 'https://example.test' })
+  view.accessToken = async () => 'token'
+  view.json = async () => { calls++; throw Object.assign(new Error('models 返回 401'), { status: 401 }) }
+  await view.loadModels()
+  assert.equal(calls, 2)
+  assert.match(view.modelsError, /重新登录/)
+  view.dispose()
+})
+
 test('item diagnostics identify command actions and real file changes without command text', () => {
   const { view } = makeView()
   const lines = []
@@ -173,6 +232,42 @@ test('clicking an earlier edit opens its historical before and after in VS Code 
   } finally {
     if (root.startsWith(os.tmpdir() + path.sep)) fs.rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('text links open encoded absolute paths and reject paths outside workspace folders', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dicode-links-'))
+  const { view, vscode } = makeView(root)
+  try {
+    const opened = []
+    vscode.workspace.openTextDocument = async file => { opened.push(file); return file }
+    vscode.window.showTextDocument = async () => {}
+    vscode.Range = class { constructor(...args) { this.args = args } }
+    const file = path.join(root, 'new file.txt')
+    const uri = require('node:url').pathToFileURL(file).href
+    await view.handle({ type: 'openLink', href: `${uri}#L12` })
+    await view.handle({ type: 'openLink', href: encodeURI(file) })
+    assert.deepEqual(opened, [file, file])
+    await assert.rejects(view.handle({ type: 'openFile', path: '../outside.txt' }), /不在当前工作区/)
+    view.dispose()
+  } finally {
+    if (root.startsWith(os.tmpdir() + path.sep)) fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('CLI disconnect settles an active turn and the next request resumes its thread', async () => {
+  const { view, posted } = makeView()
+  view.conversation.begin('执行任务')
+  view.busy = true
+  view.onCodexEvent({ type: 'error', message: 'connection closed' })
+  assert.equal(view.busy, false)
+  assert.equal(view.conversation.turns.at(-1).status, 'failed')
+  assert.equal(posted.find(message => message.type === 'history').snapshot.turns.at(-1).status, 'failed')
+  const calls = []
+  view.ensureClient = async () => ({ request: async method => { calls.push(method); return method === 'turn/start' ? { turn: { id: 'next' } } : {} } })
+  await view.send('继续', 'm')
+  assert.deepEqual(calls, ['thread/resume', 'turn/start'])
+  rpc(view, 'turn/completed', { threadId: 'thread', turn: { id: 'next', status: 'completed' } })
+  view.dispose()
 })
 
 test('summary panel combines all files and repeated edits into one turn diff', () => {

@@ -13,12 +13,12 @@ test('Codex app-server starts with interactive input and plan tools enabled', as
   proc.stdout = new EventEmitter()
   proc.stdout.setEncoding = () => {}
   proc.stderr = new EventEmitter()
-  proc.stdin = { write(chunk, callback) {
+  proc.stdin = Object.assign(new EventEmitter(), { write(chunk, callback) {
     const message = JSON.parse(chunk)
     writes.push(message)
     callback?.()
     if (message.method === 'initialize') queueMicrotask(() => proc.stdout.emit('data', JSON.stringify({ id: message.id, result: {} }) + '\n'))
-  } }
+  } })
   proc.kill = () => { proc.killed = true }
   Module._load = function (name, parent, isMain) {
     if (name === 'vscode') return {}
@@ -70,7 +70,7 @@ test('Windows Codex prefers MXC and enables a legacy sandbox fallback', () => {
   proc.exitCode = null; proc.killed = false
   proc.stdout = new EventEmitter(); proc.stdout.setEncoding = () => {}
   proc.stderr = new EventEmitter()
-  proc.stdin = { write() {} }
+  proc.stdin = Object.assign(new EventEmitter(), { write() {} })
   proc.kill = () => { proc.killed = true }
   let args
   Module._load = function (name, parent, isMain) {

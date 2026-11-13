@@ -3,6 +3,7 @@ const { spawn, execFile } = require("node:child_process")
 const { promisify } = require("node:util")
 const crypto = require("node:crypto")
 const path = require("node:path")
+const { fileURLToPath } = require("node:url")
 const fs = require("node:fs")
 const { ensureCodexInstalled } = require("./codexInstaller")
 const { ensurePowerShellInstalled, powerShellEnv } = require("./powerShellInstaller")
@@ -129,6 +130,7 @@ class CodexClient {
 		this.proc.stdout.setEncoding("utf8")
 		this.proc.stdout.on("data", (chunk) => this.consume(chunk))
 		this.proc.stderr.on("data", (chunk) => onEvent({ type: "diagnostic", message: String(chunk).slice(0, 1000) }))
+		this.proc.stdin.on("error", (error) => this.fail(error))
 		this.proc.on("error", (error) =>
 			this.fail(
 				error.code === "ENOENT"
@@ -207,6 +209,7 @@ class CodexClient {
 			pending.reject(error)
 		}
 		this.pending.clear()
+		if (!this.proc.killed) this.proc.kill()
 		this.onEvent({ type: "error", message: error.message })
 	}
 	dispose() {
@@ -330,7 +333,7 @@ class DicodeView {
 			.replaceAll("{{CSS}}", media("style.css").toString())
 			.replaceAll("{{JS}}", media("bundle.js").toString())
 		view.webview.onDidReceiveMessage((message) =>
-			this.handle(message).catch((error) => { this.post({ type: "error", message: error.message }); this.postState() }),
+			this.handle(message).catch((error) => { this.post({ type: "error", message: error.message, requestType: message.type }); this.postState() }),
 		)
 		this.postState()
 		this.tokens()
@@ -360,11 +363,13 @@ class DicodeView {
 			permissionMode: this.permissionMode,
 			workspace: this.workspace || "",
 			models: this.models || [],
+			modelsLoading: !!this.modelsLoading,
+			modelsError: this.modelsError || null,
 			tokenUsage: this.conversation.tokenUsage || null,
 			threads: this.threads.filter((thread) => thread.cwd === this.workspace).map(({ id, title, updatedAt }) => ({ id, title, updatedAt })),
 		}
 		state.loggedIn = !!(await this.tokens())?.access_token
-		this.post(state)
+		if (version === this.stateVersion) this.post(state)
 	}
 	params(state, machineId) {
 		return new URLSearchParams({
@@ -378,7 +383,11 @@ class DicodeView {
 	}
 	async json(url, token) {
 		const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-		if (!response.ok) throw new Error(`DiCode API returned ${response.status}`)
+		if (!response.ok) {
+			const error = new Error(`DiCode API ${new URL(url).pathname} 返回 ${response.status}`)
+			error.status = response.status
+			throw error
+		}
 		return response.json()
 	}
 	async login() {
@@ -423,11 +432,11 @@ class DicodeView {
 		}
 		throw new Error("登录超时")
 	}
-	async accessToken() {
+	async accessToken(forceRefresh = false) {
 		const tokens = await this.tokens()
 		if (!tokens?.access_token) throw new Error("请先登录")
 		const payload = JSON.parse(Buffer.from(tokens.access_token.split(".")[1], "base64url").toString("utf8"))
-		if (payload.exp * 1000 > Date.now() + 5 * 60 * 1000) return tokens.access_token
+		if (!forceRefresh && payload.exp * 1000 > Date.now() + 5 * 60 * 1000) return tokens.access_token
 		const machineId = this.context.globalState.get(CLIENT_KEY)
 		const params = this.params(tokens.state, machineId)
 		params.delete("machine_code")
@@ -444,11 +453,37 @@ class DicodeView {
 		return refreshed.data.access_token
 	}
 	async loadModels() {
-		const token = await this.accessToken()
-		const response = await this.json(`${this.serverUrl}/ai-gateway/api/v1/models`, token)
-		this.models = (response.data || []).filter((item) => item.id && item.id.toLowerCase() !== "auto")
-		await this.postState()
-		if (this.threadId) this.maybeGenerateTitle(this.threadId, this.models[0]?.id)
+		if (this.modelsPromise) return this.modelsPromise
+		this.modelsLoading = true
+		this.modelsError = null
+		this.postState()
+		const pending = (async () => {
+			try {
+				const token = await this.accessToken()
+				const url = `${this.serverUrl}/ai-gateway/api/v1/models`
+				let response
+				try { response = await this.json(url, token) } catch (error) {
+					if (error.status !== 401) throw error
+					try { response = await this.json(url, await this.accessToken(true)) } catch (retryError) {
+						if (retryError.status === 401) throw new Error(`身份认证失败（${retryError.message}），请退出 DiCode 后重新登录`)
+						throw retryError
+					}
+				}
+				if (!Array.isArray(response.data)) throw new Error("模型接口返回的数据格式不正确")
+				this.models = response.data.filter((item) => typeof item?.id === "string" && item.id.toLowerCase() !== "auto")
+				if (!this.models.length) this.modelsError = "模型接口没有返回可用模型"
+				if (this.threadId) this.maybeGenerateTitle(this.threadId, this.models[0]?.id)
+			} catch (error) {
+				this.modelsError = `加载模型失败：${error.message}${error.status === 401 ? '，请退出 DiCode 后重新登录' : ''}`
+				this.output.appendLine(this.modelsError)
+			} finally {
+				this.modelsLoading = false
+				this.modelsPromise = null
+				await this.postState()
+			}
+		})()
+		this.modelsPromise = pending
+		return pending
 	}
 	async ensureClient() {
 		const token = await this.accessToken()
@@ -542,7 +577,7 @@ class DicodeView {
 			this.post({ type: "approvalsCleared" })
 			this.clearInputRequests()
 			const turn = this.conversation.turns.at(-1)
-			if (turn && ["starting", "inProgress"].includes(turn.status)) { turn.status = "failed"; turn.error = { message: event.message }; this.persistHistory() }
+			if (turn && ["starting", "inProgress"].includes(turn.status)) { turn.status = "failed"; turn.error = { message: event.message }; this.persistHistory(); this.post({ type: "history", snapshot: this.conversation.snapshot() }) }
 			this.post(event)
 			this.postState()
 			return
@@ -553,6 +588,7 @@ class DicodeView {
 				this.conversation.tokenUsage = { ...message.params.tokenUsage, modelId: this.activeModel || null }
 				this.scheduleHistory()
 				this.post({ type: "tokenUsage", tokenUsage: this.conversation.tokenUsage })
+				this.postState()
 			}
 			return
 		}
@@ -811,6 +847,7 @@ class DicodeView {
 			})
 			if (this.activeRunId === runId && this.busy) {
 				this.turnId = this.turnId || result.turn.id
+				this.post({ type: "notice", message: "正在处理…" })
 				if (this.stopping) this.interruptCurrentTurn()
 			}
 		} catch (error) {
@@ -953,10 +990,20 @@ class DicodeView {
 			}
 			if (!this.workspace) return
 			const location = /(?:#L|:)(\d+)$/.exec(target)
-			const file = path.resolve(this.workspace, location ? target.slice(0, location.index) : target)
-			const relative = path.relative(this.workspace, file)
-			if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("文件不在当前工作区")
-			if (message.type === "openDiff") {
+			let filename = location ? target.slice(0, location.index) : target
+			try {
+				if (/^file:\/\//i.test(filename)) filename = fileURLToPath(filename)
+				else if (message.type === "openLink") filename = decodeURIComponent(filename)
+			} catch { throw new Error("文件链接格式无效") }
+			const file = path.resolve(this.workspace, filename)
+			const roots = vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) || [this.workspace]
+			const root = roots.find((candidate) => {
+				const relative = path.relative(candidate, file)
+				return relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+			})
+			if (!root) throw new Error("文件不在当前工作区")
+			const relative = path.relative(root, file)
+			if (message.type === "openDiff" || (message.itemId && !fs.existsSync(file))) {
 				const exists = fs.existsSync(file)
 				const current = exists ? fs.readFileSync(file, "utf8") : ""
 				const diff = String(message.diff || "")

@@ -26,6 +26,7 @@ function beforeFromUnifiedDiff(current, diff) {
       throw new Error('文件内容已变化，无法准确还原修改前版本；请查看内联 Diff')
     lines.splice(index, h.next.length, ...h.old)
   }
+  if (/^--- \/dev\/null$/m.test(diff)) return ''
   return lines.join(newline) + (trailing ? newline : '')
 }
 function historicalDiff(current, turns, { turnId, itemId, changeIndex, path }) {

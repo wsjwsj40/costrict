@@ -158,8 +158,11 @@ button:hover > .chevron, button:focus-visible > .chevron { visibility: visible; 
 .changes-nav { display: flex; flex-direction: column; gap: 3px; margin-bottom: 20px; }
 .changes-nav button { padding: 9px 16px; text-align: left; border-radius: 8px; font-size: 13px; }
 .changes-nav button:hover { background: var(--hover); }
-.changes-file { margin-bottom: 26px; scroll-margin-top: 12px; }
-.changes-file-title { display: flex; justify-content: space-between; padding: 9px 12px; color: var(--fg); font-size: 13px; }
+.changes-file { margin-bottom: 8px; scroll-margin-top: 12px; border: 1px solid var(--vscode-widget-border, #555); border-radius: 4px; }
+.changes-file-title { display: flex; justify-content: space-between; gap: 12px; padding: 9px 12px; color: var(--fg); font-size: 13px; cursor: pointer; }
+.changes-file-title::before { content: '›'; transition: transform .15s; }
+.changes-file[open] > .changes-file-title::before { transform: rotate(90deg); }
+.changes-file-title > span { margin-left: auto; white-space: nowrap; }
 .changes-viewer .diff-lines { max-height: none; padding: 0; font-size: 13px; line-height: 22px; }
 .changes-viewer .diff-line { min-height: 22px; }
 .changes-viewer .line-no { width: 40px; }
