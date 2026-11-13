@@ -2,8 +2,8 @@
 class ConversationStore {
   constructor() { this.reset() }
   reset() { this.threadId = null; this.tokenUsage = null; this.turns = []; this.items = new Map(); this.sequence = 0; this.pendingTurn = null }
-  begin(text) {
-    const turn = { id: `local-${++this.sequence}`, user: text, status: 'starting', startedAt: Date.now(), completedAt: null, items: [], plan: null, diff: '', error: null }
+  begin(text, attachments = []) {
+    const turn = { id: `local-${++this.sequence}`, user: text, attachments, status: 'starting', startedAt: Date.now(), completedAt: null, items: [], plan: null, diff: '', error: null }
     this.turns.push(turn); this.pendingTurn = turn.id; return turn
   }
   turn(id, create = true) {

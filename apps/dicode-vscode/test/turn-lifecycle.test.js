@@ -552,3 +552,61 @@ test('idle state includes the terminal turn status for webview reconciliation', 
   assert.deepEqual(state.lastTurn, { id: 't1', status: 'interrupted', error: null })
   view.dispose()
 })
+
+test('account display uses a name claim rather than an employee identifier', async () => {
+  const { view, posted } = makeView()
+  const jwt = claims => `header.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.signature`
+  view.tokens = async () => ({ access_token: jwt({ id: '123456', name: '张三', email: 'user@example.com', picture: 'https://example.com/avatar.png' }), refresh_token: jwt({ id: '123456' }) })
+  await view.postState()
+  assert.deepEqual(posted.at(-1).user, { name: '张三', email: 'user@example.com', picture: 'https://example.com/avatar.png' })
+  view.tokens = async () => ({ access_token: jwt({ id: '123456', name: '123456' }) })
+  await view.postState()
+  assert.equal(posted.at(-1).user.name, undefined)
+  view.dispose()
+})
+
+test('image attachments are sent as image data in the model turn', async () => {
+  const { view } = makeView()
+  const calls = []
+  view.ensureClient = async () => ({ request: async (method, params) => { calls.push({ method, params }); return { turn: { id: 'turn' } } } })
+  const image = 'data:image/png;base64,aGVsbG8='
+  await view.send('看看这张图', 'm', 'medium', [image])
+  assert.deepEqual(calls.find(call => call.method === 'turn/start').params.input, [{ type: 'text', text: '看看这张图' }, { type: 'image', url: image }])
+  view.dispose()
+})
+
+test('general file attachments provide text content and survive history restore', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dicode-attachment-'))
+  const { view } = makeView(root)
+  const attachment = { id: 'file-1', path: path.join(root, 'notes.txt'), name: 'notes.txt', kind: 'file', size: 5 }
+  fs.writeFileSync(attachment.path, 'hello')
+  view.attachmentRecords.set(attachment.id, attachment)
+  let input
+  view.ensureClient = async () => ({ request: async (method, params) => { if (method === 'turn/start') input = params.input; return { turn: { id: 't' } } } })
+  try {
+    await view.handle({ type: 'send', text: '', model: 'm', attachments: ['file-1'] })
+    assert.ok(input.some(part => part.type === 'text' && part.text.includes('hello') && part.text.includes(attachment.path)))
+    const snapshot = view.conversation.snapshot()
+    view.conversation.restore(snapshot)
+    assert.equal(view.conversation.turns.at(-1).attachments[0].name, 'notes.txt')
+    await assert.rejects(view.handle({ type: 'send', model: 'm', attachments: ['unknown'] }), /附件不存在/)
+  } finally { view.dispose(); fs.rmSync(root, { recursive: true, force: true }) }
+})
+
+test('custom titles survive later history updates and skip automatic generation', async () => {
+  const { view, posted } = makeView()
+  view.conversation.begin('original prompt')
+  view.persistHistory()
+  await view.handle({ type: 'renameThread', threadId: 'thread', title: ' 我的任务 ' })
+  assert.equal(view.threads[0].title, '我的任务')
+  view.persistHistory()
+  assert.equal(view.threads[0].title, '我的任务')
+  assert.equal(view.threads[0].customTitle, true)
+  let requested = false
+  view.accessToken = async () => { requested = true; throw new Error('unexpected') }
+  await view.maybeGenerateTitle('thread', 'm')
+  assert.equal(requested, false)
+  await assert.rejects(view.handle({ type: 'renameThread', threadId: 'thread', title: '  ' }), /标题需/)
+  await assert.rejects(view.handle({ type: 'renameThread', threadId: 'missing', title: '名称' }), /会话不存在/)
+  view.dispose()
+})

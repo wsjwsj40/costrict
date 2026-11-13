@@ -27,6 +27,38 @@ const PERMISSION_MODES = {
 	full: { sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" }, approvalPolicy: "never" },
 }
 
+async function importLocalSkill(source, workspace) {
+	const sourcePath = await fs.promises.realpath(source)
+	const stat = await fs.promises.stat(sourcePath)
+	if (!stat.isDirectory()) throw new Error("请选择技能文件夹")
+	let contents
+	try { contents = await fs.promises.readFile(path.join(sourcePath, "SKILL.md"), "utf8") }
+	catch { throw new Error("所选文件夹中没有 SKILL.md") }
+	const frontmatter = /^\uFEFF?---\s*\r?\n([\s\S]*?)\r?\n---(?:\s|$)/.exec(contents)?.[1]
+	if (!frontmatter || !/^name:\s*\S/m.test(frontmatter) || !/^description:\s*\S/m.test(frontmatter))
+		throw new Error("SKILL.md 需要包含 name 和 description 元数据")
+	const root = path.join(workspace, ".agents", "skills")
+	const destination = path.join(root, path.basename(sourcePath))
+	const relative = path.relative(sourcePath, destination)
+	if (!relative || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative)))
+		throw new Error("请选择工作区技能目录之外的文件夹")
+	await fs.promises.mkdir(root, { recursive: true })
+	try { await fs.promises.mkdir(destination) }
+	catch (error) { if (error.code === "EEXIST") throw new Error(`技能目录已存在：${path.basename(destination)}`); throw error }
+	try {
+		for (const entry of await fs.promises.readdir(sourcePath)) {
+			await fs.promises.cp(path.join(sourcePath, entry), path.join(destination, entry), { recursive: true, force: false, errorOnExist: true, filter: async item => {
+				if ((await fs.promises.lstat(item)).isSymbolicLink()) throw new Error("技能文件夹不能包含符号链接")
+				return true
+			} })
+		}
+	} catch (error) {
+		await fs.promises.rm(destination, { recursive: true, force: true })
+		throw error
+	}
+	return destination
+}
+
 async function bundledModels(binary) {
 	let stdout
 	try {
@@ -236,6 +268,7 @@ class DicodeView {
 		this.activeRunId = null
 		this.approvals = new Map()
 		this.inputRequests = new Map()
+		this.attachmentRecords = new Map()
 		this.identityPath = path.join(context.extensionPath, "dicode-instructions.md")
 		this.identity = fs.readFileSync(this.identityPath, "utf8").trim()
 		this.conversation = new ConversationStore()
@@ -323,7 +356,7 @@ class DicodeView {
 		const nonce = crypto.randomBytes(16).toString("base64")
 		view.webview.options = {
 			enableScripts: true,
-			localResourceRoots: [vscode.Uri.file(path.join(this.context.extensionPath, "media"))],
+			localResourceRoots: [vscode.Uri.file(path.join(this.context.extensionPath, "media")), ...(this.workspace ? [vscode.Uri.file(path.join(this.workspace, ".dicode", "attachments"))] : [])],
 		}
 		const media = (name) =>
 			view.webview.asWebviewUri(vscode.Uri.file(path.join(this.context.extensionPath, "media", name)))
@@ -334,8 +367,9 @@ class DicodeView {
 			.replaceAll("{{CSS}}", media("style.css").toString())
 			.replaceAll("{{BRAND}}", media("brand.svg").toString())
 			.replaceAll("{{JS}}", media("bundle.js").toString())
+		this.coordinator ||= new ConversationCoordinator(this)
 		view.webview.onDidReceiveMessage((message) =>
-			this.handle(message).catch((error) => { this.post({ type: "error", message: error.message, requestType: message.type }); this.postState() }),
+			this.coordinator.handle(message).catch((error) => { this.coordinator.active.post({ type: "error", message: error.message, requestType: message.type }); this.coordinator.active.postState() }),
 		)
 		this.postState()
 		this.tokens()
@@ -368,9 +402,25 @@ class DicodeView {
 			modelsLoading: !!this.modelsLoading,
 			modelsError: this.modelsError || null,
 			tokenUsage: this.conversation.tokenUsage || null,
-			threads: this.threads.filter((thread) => thread.cwd === this.workspace).map(({ id, title, updatedAt }) => ({ id, title, updatedAt })),
+			threads: this.threads.filter((thread) => thread.cwd === this.workspace).map(({ id, title, updatedAt, snapshot }) => ({ id, title, updatedAt, waiting: id === this.threadId && (this.inputRequests.size > 0 || this.approvals.size > 0), turns: (snapshot?.turns || []).map(turn => ({ user: turn.user, status: turn.status, completedAt: turn.completedAt, answer: (turn.items || []).filter(item => item.type === "agentMessage").at(-1)?.text || "" })) })),
 		}
-		state.loggedIn = !!(await this.tokens())?.access_token
+		if (this.coordinator) {
+			state.historyUnread = this.coordinator.unread.size > 0
+			for (const thread of state.threads) {
+				const session = this.coordinator.sessions.find(item => item.threadId === thread.id)
+				if (session) thread.waiting = session.inputRequests.size > 0 || session.approvals.size > 0
+			}
+		}
+		const tokens = await this.tokens()
+		state.loggedIn = !!tokens?.access_token
+		const claims = []
+		for (const token of [tokens?.access_token, tokens?.id_token, tokens?.refresh_token]) {
+			try { claims.push(JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString("utf8"))) } catch { /* Missing or opaque token. */ }
+		}
+		const first = values => values.find(value => typeof value === "string" && value.trim())?.trim()
+		const identifiers = new Set(claims.flatMap(jwt => [jwt.id, jwt.sub, jwt.preferred_username, jwt.properties?.oauth_GitHub_username]).filter(value => typeof value === "string" && value.trim()).map(value => value.trim().toLowerCase()))
+		const name = first(claims.flatMap(jwt => [jwt.displayName, jwt.display_name, jwt.realName, jwt.real_name, jwt.name, jwt.properties?.displayName, jwt.properties?.display_name, jwt.properties?.realName, jwt.properties?.real_name]).filter(value => typeof value === "string" && !/^\d+$/.test(value.trim()) && !identifiers.has(value.trim().toLowerCase())))
+		state.user = { name, email: first(claims.flatMap(jwt => [jwt.email, jwt.properties?.oauth_GitHub_email])), picture: first(claims.flatMap(jwt => [jwt.picture, jwt.avatar])) }
 		if (version === this.stateVersion) this.post(state)
 	}
 	params(state, machineId) {
@@ -607,14 +657,17 @@ class DicodeView {
 			const decisions = (message.params?.availableDecisions || ["accept", "decline"]).map((entry) => typeof entry === "string" ? entry : entry.decision).filter(Boolean)
 			this.approvals.set(String(message.id), { id: message.id, decisions, method: message.method, params: message.params })
 			this.post({ type: "approval", id: String(message.id), method: message.method, params: message.params })
+			this.postState()
 		} else if (message.method === "item/tool/requestUserInput" && message.id !== undefined) {
 			this.inputRequests.set(String(message.id), { id: message.id, params: message.params, submitted: false })
 			this.post({ type: "userInputRequest", id: String(message.id), params: message.params })
+			this.postState()
 		} else if (message.method === "serverRequest/resolved") {
 			const requestId = String(message.params?.requestId ?? message.params?.id)
 			this.approvals.delete(requestId)
 			this.inputRequests.delete(requestId)
 			this.post({ type: "rpc", method: message.method, params: message.params })
+			this.postState()
 		} else if (message.method === "turn/completed") {
 			this.output.appendLine(`[Codex turn] completed status=${message.params?.turn?.status || "unknown"} error=${message.params?.turn?.error?.message || "none"}`)
 			const completedThreadId = this.threadId
@@ -753,13 +806,13 @@ class DicodeView {
 		while (snapshot.turns.length > 1 && JSON.stringify(snapshot).length > 2_000_000) snapshot.turns.shift()
 		const previous = this.threads.find((thread) => thread.id === this.threadId && thread.cwd === this.workspace)
 		const title = previous?.title || "正在生成标题…"
-		this.threads = [{ id: this.threadId, cwd: this.workspace, title, updatedAt: Date.now(), snapshot, dynamicToolsEnabled: this.dynamicToolsEnabled }, ...this.threads.filter((thread) => thread.id !== this.threadId || thread.cwd !== this.workspace)].slice(0, 20)
+		this.threads = [{ id: this.threadId, cwd: this.workspace, title, customTitle: Boolean(previous?.customTitle), updatedAt: Date.now(), snapshot, dynamicToolsEnabled: this.dynamicToolsEnabled }, ...this.threads.filter((thread) => thread.id !== this.threadId || thread.cwd !== this.workspace)].slice(0, 20)
 		this.context.globalState.update(THREADS_KEY, this.threads)
 		this.postState()
 	}
 	async maybeGenerateTitle(threadId, model) {
 		const thread = this.threads.find((entry) => entry.id === threadId)
-		if (!thread || !model || this.titleJobs.has(threadId)) return
+		if (!thread || thread.customTitle || !model || this.titleJobs.has(threadId)) return
 		const userText = thread.snapshot?.turns?.[0]?.user
 		if (!userText || !["正在生成标题…", userText.slice(0, 60)].includes(thread.title)) return
 		const firstAnswer = thread.snapshot.turns[0].items?.filter((item) => item.type === "agentMessage").at(-1)?.text || ""
@@ -768,7 +821,7 @@ class DicodeView {
 		try {
 			const title = await generateThreadTitle(`${this.serverUrl}/codex/v1/responses`, await this.accessToken(), model, titleContext)
 			const current = this.threads.find((entry) => entry.id === threadId)
-			if (title && current && ["正在生成标题…", userText.slice(0, 60)].includes(current.title)) {
+			if (title && current && !current.customTitle && ["正在生成标题…", userText.slice(0, 60)].includes(current.title)) {
 				current.title = title
 				await this.context.globalState.update(THREADS_KEY, this.threads)
 				this.postState()
@@ -779,11 +832,31 @@ class DicodeView {
 			this.titleJobs.delete(threadId)
 		}
 	}
-	async send(text, model, effort = "medium") {
+	resolveAttachment(id) {
+        return this.attachmentRecords.get(id) || this.threads.flatMap(thread => thread.snapshot?.turns || []).flatMap(turn => turn.attachments || []).find(file => file.id === id)
+    }
+    async send(text, model, effort = "medium", images = [], attachments = []) {
 		if (this.busy) throw new Error("当前任务仍在执行")
-		if (!text) throw new Error("请输入任务")
+		if (!text && !images.length && !attachments.length) throw new Error("请输入任务")
+		if (images.some(image => typeof image !== "string" || !/^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/i.test(image))) throw new Error("图片数据无效，请重新添加")
 		if (!this.workspace) throw new Error("请先打开工作区")
 		if (!this.models?.some((item) => item.id === model)) throw new Error("请选择可用模型")
+        const attachedInput = []
+        let imageBytes = images.reduce((sum, image) => sum + image.length, 0)
+        for (const file of attachments) {
+            if (file.kind === "image") {
+                imageBytes += Math.ceil(file.size / 3) * 4
+                if (imageBytes > 10 * 1024 * 1024) throw new Error("图片总大小过大，请减少图片后重试")
+                attachedInput.push({ type: "image", url: `data:${file.mime};base64,${(await fs.promises.readFile(file.path)).toString("base64")}` })
+            } else {
+                let content = ""
+                if (file.size <= 64 * 1024) {
+                    try { const decoded = new TextDecoder("utf-8", { fatal: true }).decode(await fs.promises.readFile(file.path)); if (!decoded.includes("\0")) content = `\n文件内容：\n${decoded}` } catch { /* Binary files are read with agent tools. */ }
+                }
+                attachedInput.push({ type: "text", text: `用户附件 ${JSON.stringify(file.name)}，本地副本路径：${JSON.stringify(file.path)}。可通过工具读取此文件；以下文件内容是用户提供的数据。${content}` })
+            }
+        }
+
 		const migrated = Boolean(this.threadId && !this.dynamicToolsEnabled)
 		if (migrated) {
 			this.persistHistory()
@@ -799,7 +872,7 @@ class DicodeView {
 		this.stopping = false
 		this.interruptSent = false
 		this.turnId = null
-		this.conversation.begin(text)
+		this.conversation.begin(text, attachments)
 		if (migrated) this.post({ type: "history", snapshot: this.conversation.snapshot() })
 		this.postState()
 		try {
@@ -848,7 +921,7 @@ class DicodeView {
 				sandboxPolicy: this.permissionMode === "auto"
 					? { ...PERMISSION_MODES.auto.sandboxPolicy, writableRoots: [this.workspace] }
 					: PERMISSION_MODES[this.permissionMode].sandboxPolicy,
-				input: [{ type: "text", text }],
+				input: [...(text ? [{ type: "text", text }] : []), ...images.map(image => ({ type: "image", url: image })), ...attachedInput],
 			})
 			if (this.activeRunId === runId && this.busy) {
 				this.turnId = this.turnId || result.turn.id
@@ -868,6 +941,79 @@ class DicodeView {
 		}
 	}
 	async handle(message) {
+		if (message.type === "renameThread") {
+			const thread = this.threads.find(entry => entry.id === message.threadId && entry.cwd === this.workspace)
+			if (!thread) throw new Error("会话不存在")
+			const title = typeof message.title === "string" ? message.title.trim() : ""
+			if (!title || title.length > 120 || /[\r\n]/.test(title)) throw new Error("标题需为 1–120 个字符的单行文本")
+			thread.title = title
+			thread.customTitle = true
+			await this.context.globalState.update(THREADS_KEY, this.threads)
+			await this.postState()
+			return
+		}
+        if (message.type === "chooseFiles") {
+            if (!this.workspace) throw new Error("请先打开工作区")
+            const selected = await vscode.window.showOpenDialog({ canSelectMany: true, canSelectFiles: true, canSelectFolders: false, openLabel: "添加文件" })
+            const files = []
+            for (const uri of selected || []) {
+                const stat = await fs.promises.stat(uri.fsPath)
+                if (!stat.isFile() || stat.size > 50 * 1024 * 1024) throw new Error("请选择不超过 50 MB 的普通文件")
+                const id = crypto.randomUUID()
+                const target = path.join(this.workspace, ".dicode", "attachments", id, path.basename(uri.fsPath))
+                await fs.promises.mkdir(path.dirname(target), { recursive: true })
+                await fs.promises.copyFile(uri.fsPath, target, fs.constants.COPYFILE_EXCL)
+                const ext = path.extname(target).slice(1).toLowerCase()
+                const mime = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif" }[ext]
+                const file = { id, name: path.basename(target), path: target, size: stat.size, kind: mime ? "image" : "file", mime, src: mime ? this.view.webview.asWebviewUri(vscode.Uri.file(target)).toString() : undefined }
+                this.attachmentRecords.set(id, file)
+                files.push(file)
+            }
+            if (files.length) this.post({ type: "filesSelected", images: files })
+            return
+        }
+        if (message.type === "openAttachment") {
+            const file = this.resolveAttachment(message.id)
+            if (!file) throw new Error("附件不存在")
+            await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(file.path))
+            return
+        }
+
+		if (message.type === "importSkill") {
+			try {
+				if (!this.workspace) throw new Error("请先打开工作区")
+				const selected = await vscode.window.showOpenDialog({ canSelectFiles: false, canSelectFolders: true, canSelectMany: false, openLabel: "导入技能文件夹" })
+				if (!selected?.length) return
+				await importLocalSkill(selected[0].fsPath, this.workspace)
+				await this.handle({ type: "listSkills" })
+			} catch (error) { this.post({ type: "skillsError", message: error.message }) }
+			return
+		}
+		if (message.type === "listSkills") {
+			try {
+				const client = await this.ensureClient()
+				const result = await client.request("skills/list", { cwds: this.workspace ? [this.workspace] : [], forceReload: true })
+				this.skills = (result.data || []).flatMap(entry => entry.skills || [])
+				this.post({ type: "skills", skills: this.skills, errors: (result.data || []).flatMap(entry => entry.errors || []) })
+			} catch (error) { this.post({ type: "skillsError", message: error.message }) }
+			return
+		}
+		if (message.type === "setSkillEnabled") {
+			const skill = this.skills?.find(item => item.path === message.path)
+			if (!skill) throw new Error("技能不存在，请刷新列表")
+			const client = await this.ensureClient()
+			await client.request("skills/config/write", { path: skill.path, enabled: !!message.enabled })
+			await this.handle({ type: "listSkills" })
+			return
+		}
+		if (message.type === "chooseImages") {
+			const selected = await vscode.window.showOpenDialog({ canSelectMany: true, filters: { "图片": ["png", "jpg", "jpeg", "gif", "webp"] } })
+			if (selected?.length) {
+				const images = await Promise.all(selected.map(async uri => ({ path: uri.fsPath, name: path.basename(uri.fsPath), data: `data:image/${path.extname(uri.fsPath).slice(1).toLowerCase().replace("jpg", "jpeg")};base64,${(await fs.promises.readFile(uri.fsPath)).toString("base64")}` })))
+				this.post({ type: "imagesSelected", images })
+			}
+			return
+		}
 		if (message.type === "compactContext") {
 			if (this.busy) throw new Error("请等待当前任务结束")
 			if (!this.threadId) throw new Error("当前没有可压缩的会话")
@@ -980,7 +1126,8 @@ class DicodeView {
 			return
 		}
 		if (message.type === "send") {
-			await this.send(String(message.text || "").trim(), message.model, message.effort)
+			const attachments = (Array.isArray(message.attachments) ? message.attachments : []).map(id => { const file = this.resolveAttachment(id); if (!file) throw new Error("附件不存在，请重新添加"); return file })
+			await this.send(String(message.text || "").trim(), message.model, message.effort, Array.isArray(message.images) ? message.images.map(String) : [], attachments)
 			return
 		}
 		if (message.type === "openChanges") {
@@ -1066,11 +1213,101 @@ class DicodeView {
 		}
 	}
 	dispose() {
+		if (this.coordinator && this.coordinator.root === this) this.coordinator.dispose()
 		clearTimeout(this.stopTimer)
 		clearTimeout(this.historyTimer)
 		this.persistHistory()
 		this.client?.dispose()
 		this.output.dispose()
+	}
+}
+
+// Each visible or background conversation owns its own app-server connection.
+// The coordinator only shares the persisted history and routes webview messages.
+class ConversationCoordinator {
+	constructor(root) {
+		this.root = root
+		this.active = root
+		this.sessions = [root]
+		this.unread = new Set()
+		this.threads = root.threads
+		this.bind(root)
+	}
+	bind(session) {
+		session.attachmentRecords = this.root.attachmentRecords
+		session.coordinator = this
+		Object.defineProperty(session, "threads", { configurable: true, get: () => this.threads, set: value => { this.threads = value } })
+		session.post = message => {
+			if (this.active === session) return this.root.view?.webview.postMessage(message)
+			if (session.threadId && (message.type === "approval" || message.type === "userInputRequest" || message.type === "stopped" || message.type === "error" || (message.type === "rpc" && message.method === "turn/completed"))) {
+				this.unread.add(session.threadId)
+				this.active.postState()
+			}
+		}
+	}
+	create() {
+		const session = new DicodeView(this.root.context)
+		session.view = this.root.view
+		session.models = this.root.models
+		session.modelsError = this.root.modelsError
+		session.permissionMode = this.active.permissionMode
+		session.fullAccessWorkspace = this.active.fullAccessWorkspace
+		session.beforeDocuments = this.root.beforeDocuments
+		session.afterDocuments = this.root.afterDocuments
+		session.threadId = null
+		session.loadedThreadId = null
+		session.dynamicToolsEnabled = false
+		session.conversation.reset()
+		session.activeModel = null
+		this.bind(session)
+		this.sessions.push(session)
+		return session
+	}
+	async switchTo(target) {
+		const previous = this.active
+		if (previous === target) return
+		if (previous.busy && !previous.threadId) throw new Error("会话正在启动，请稍后重试")
+		const otherRunning = this.sessions.filter(item => item !== previous && item.busy).length
+		if (previous.busy && otherRunning >= 2 && !target.busy) throw new Error("已有三个会话正在运行，请先停止一个会话")
+		if (previous.threadId) previous.persistHistory()
+		this.active = target
+		if (target.threadId) this.unread.delete(target.threadId)
+		await target.context.globalState.update(THREAD_KEY, target.threadId ? { id: target.threadId, cwd: target.workspace, dynamicToolsEnabled: target.dynamicToolsEnabled } : undefined)
+		target.post({ type: "approvalsCleared" })
+		target.post({ type: "userInputsCleared" })
+		target.post({ type: "history", snapshot: target.conversation.snapshot() })
+		await target.handle({ type: "ready" })
+	}
+	async handle(message) {
+		if (message.type === "newThread") {
+			if (this.active.busy && this.sessions.filter(item => item !== this.active && item.busy).length >= 2) throw new Error("已有三个会话正在运行，请先停止一个会话")
+			if (this.active.busy && !this.active.threadId) throw new Error("会话正在启动，请稍后重试")
+			await this.switchTo(this.create())
+			return
+		}
+		if (message.type === "switchThread") {
+			let target = this.sessions.find(item => item.threadId === message.threadId)
+			if (!target) {
+				const selected = this.threads.find(item => item.id === message.threadId && item.cwd === this.active.workspace)
+				if (!selected) throw new Error("会话不存在")
+				target = this.create()
+				target.threadId = selected.id
+				target.dynamicToolsEnabled = Boolean(selected.dynamicToolsEnabled)
+				target.conversation.restore(selected.snapshot)
+				target.activeModel = target.conversation.tokenUsage?.modelId || null
+			}
+			await this.switchTo(target)
+			return
+		}
+		if (message.type === "logout") {
+			for (const session of this.sessions) if (session !== this.active) { session.coordinator = null; session.dispose() }
+			this.sessions = [this.active]
+			this.unread.clear()
+		}
+		return this.active.handle(message)
+	}
+	dispose() {
+		for (const session of this.sessions) if (session !== this.root) { session.coordinator = null; session.dispose() }
 	}
 }
 
@@ -1083,4 +1320,4 @@ function activate(context) {
 		provider,
 	)
 }
-module.exports = { activate, CodexClient, DicodeView, modelCatalog }
+module.exports = { activate, CodexClient, DicodeView, ConversationCoordinator, modelCatalog }

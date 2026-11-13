@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import MarkdownIt from 'markdown-it'
 import Composer from './Composer'
+import Attachments, { ImagePreview } from './Attachments'
+import { HistoryList, SkillList } from './Subpages'
 import { ConversationStore, parseDiff } from '../media/conversation'
 import './style.css'
 
@@ -34,6 +36,13 @@ md.core.ruler.after('inline', 'local-file-links', state => {
     block.children = children
   }
 })
+const renderImage = md.renderer.rules.image!
+md.renderer.rules.image = (tokens, index, options, env, renderer) => {
+  tokens[index].attrSet('tabindex', '0')
+  tokens[index].attrSet('role', 'button')
+  tokens[index].attrSet('aria-label', `预览图片：${tokens[index].content || '图片'}`)
+  return renderImage(tokens, index, options, env, renderer)
+}
 const post = (type: string, data: Record<string, unknown> = {}) => vscode.postMessage({ type, ...data })
 const editTools = new Set(['write_file', 'replace_file_text', 'delete_file'])
 const iconPaths: Record<string, string> = {
@@ -44,18 +53,30 @@ const iconPaths: Record<string, string> = {
   changes: 'M3 2.5h7l3 3v8H3zM9.5 2.5v3H13M5.5 9h5M5.5 11.5h4',
   history: 'M8 2a6 6 0 1 1-5.7 4M8 4v4l2.5 1.5M2 3v3h3',
   new: 'M2.5 2.5h11v11h-11zM8 5v6M5 8h6',
+  chat: 'M2 2.5h12v8H7l-4 3v-3H2zM5 5.5h6M5 8h4',
+  right: 'M6 3l5 5-5 5',
+  check: 'M3 8l3 3 7-7',
+  close: 'M4 4l8 8M12 4l-8 8',
+  back: 'M9.5 3 4.5 8l5 5M5 8h8',
+  search: 'M6.8 2.5a4.3 4.3 0 1 0 0 8.6 4.3 4.3 0 0 0 0-8.6zM10 10l3.5 3.5',
+  plus: 'M8 3v10M3 8h10',
+  skills: 'M8 1.5 10 5.5 14.5 6.2 11.2 9.4 12 14 8 11.8 4 14 4.8 9.4 1.5 6.2 6 5.5z',
+  user: 'M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM2.5 14c.3-3 2.3-4.5 5.5-4.5s5.2 1.5 5.5 4.5',
   compact: 'M4 2h8M4 14h8M3 3v10M6 5h6M6 8h5M6 11h6M1.5 5h2M1.5 11h2',
 }
 function Icon({ kind }: { kind: string }) { if (kind === 'brand') return <img className="icon" src={document.querySelector<HTMLMetaElement>('meta[name="dicode-brand"]')?.content || ''} alt="" />; return <svg className="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={iconPaths[kind] || iconPaths.command} /></svg> }
 function Markdown({ text }: { text: string }) {
+  const [preview, setPreview] = useState<{ src: string; name: string } | null>(null)
   const onClick = (event: React.MouseEvent) => {
     const target = event.target as HTMLElement
+    const image = target.closest('img') as HTMLImageElement | null
+    if (image) { event.preventDefault(); setPreview({ src: image.currentSrc || image.src, name: image.alt || image.title || '图片预览' }); return }
     const link = target.closest('a[href]') as HTMLAnchorElement | null
     if (link) { event.preventDefault(); const href = link.getAttribute('href') || ''; post(link.classList.contains('local-file-link') ? 'openFile' : 'openLink', link.classList.contains('local-file-link') ? { path: href } : { href }); return }
     const code = target.closest('code')
     if (code && !code.closest('pre') && /^(?:(?:[A-Za-z]:)?[\\/]|\.\.?[\\/])?(?:[^\\/]+[\\/])*[^\\/]+\.[\w-]+(?::\d+|#L\d+)?$/.test(code.textContent || '')) post('openFile', { path: code.textContent || '' })
   }
-  return <div className="markdown" onClick={onClick} dangerouslySetInnerHTML={{ __html: md.render(text || '') }} />
+  return <><div className="markdown" onClick={onClick} onKeyDown={event => { if ((event.key === 'Enter' || event.key === ' ') && (event.target as HTMLElement).tagName === 'IMG') { event.preventDefault(); const image = event.target as HTMLImageElement; setPreview({ src: image.currentSrc || image.src, name: image.alt || '图片预览' }) } }} dangerouslySetInnerHTML={{ __html: md.render(text || '') }} />{preview && <ImagePreview src={preview.src} name={preview.name} onClose={() => setPreview(null)} />}</>
 }
 function Diff({ diff }: { diff: string }) {
   let oldLine = 0, newLine = 0, inHunk = false
@@ -189,7 +210,7 @@ function TurnView({ turn }: { turn: any }) {
   const duration = `用时${elapsed}`
   const compactOnly = turn.status === 'completed' && !turn.user && items.some((item: any) => item.type === 'contextCompaction') && items.every((item: any) => ['contextCompaction', 'reasoning'].includes(item.type))
   const terminal = turn.status === 'interrupted' ? (turn.stopRequested === true ? `你在${elapsed}后停止了任务` : `任务在${elapsed}后${turn.stopRequested === false ? '意外' : ''}中断`) : turn.status === 'failed' ? `任务在${elapsed}后未能完成${turn.error?.message ? `：${turn.error.message}` : ''}` : duration
-  return <section className="turn" data-turn-id={turn.id}>{turn.user && <div className="user-message"><Markdown text={turn.user} /></div>}<div className="turn-content">{active ? <div className="process-section"><div className="process-toggle">正在处理 · {duration}</div><div className="process-content">{process}</div></div> : compactOnly ? <div className="process-content">{process}</div> : (process.length > 0 || ['interrupted', 'failed'].includes(turn.status)) && <div className="process-section"><button className="process-toggle" onClick={() => setProcessOpen(!processOpen)} disabled={!process.length}>{terminal}{process.length > 0 && <span className={`chevron ${processOpen ? 'expanded' : ''}`} />}</button>{processOpen && <div className="process-content">{process}</div>}</div>}{final?.text?.trim() && <article className="final-answer"><Markdown text={final.text} /></article>}{!active && <FileSummary turn={turn} />}</div></section>
+  return <section className="turn" data-turn-id={turn.id}>{(turn.user || turn.attachments?.length > 0) && <div className="user-message"><Attachments files={turn.attachments || []} post={post} />{turn.user && <Markdown text={turn.user} />}</div>}<div className="turn-content">{active ? <div className="process-section"><div className="process-toggle">正在处理 · {duration}</div><div className="process-content">{process}</div></div> : compactOnly ? <div className="process-content">{process}</div> : (process.length > 0 || ['interrupted', 'failed'].includes(turn.status)) && <div className="process-section"><button className="process-toggle" onClick={() => setProcessOpen(!processOpen)} disabled={!process.length}>{terminal}{process.length > 0 && <span className={`chevron ${processOpen ? 'expanded' : ''}`} />}</button>{processOpen && <div className="process-content">{process}</div>}</div>}{final?.text?.trim() && <article className="final-answer"><Markdown text={final.text} /></article>}{!active && <FileSummary turn={turn} />}</div></section>
 }
 
 function UserInputCard({ request }: { request: any }) {
@@ -229,6 +250,17 @@ function UserInputCard({ request }: { request: any }) {
   </div>
 }
 
+function PageHeader({ title, onBack, action }: { title: string; onBack: () => void; action?: React.ReactNode }) {
+  return <div className="subpage-header"><button className="back-button" title="返回首页" aria-label="返回首页" onClick={onBack}><Icon kind="back" /></button><h2>{title}</h2>{action && <div className="subpage-action">{action}</div>}</div>
+}
+function PageSearch({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }) {
+  return <label className="search-box"><Icon kind="search" /><input className="page-search" placeholder={placeholder} value={value} onChange={event => onChange(event.target.value)} /></label>
+}
+function ProfileAvatar({ picture }: { picture?: string }) {
+  const [failed, setFailed] = useState(false)
+  useEffect(() => setFailed(false), [picture])
+  return <div className="profile-avatar">{picture && /^https:\/\//i.test(picture) && !failed ? <img src={picture} alt="头像" onError={() => setFailed(true)} /> : <Icon kind="user" />}</div>
+}
 function App() {
   const [state, setState] = useState<any>({ loggedIn: false, busy: false, models: [], threads: [], permissionMode: 'request' })
   const [revision, setRevision] = useState(0)
@@ -237,7 +269,12 @@ function App() {
   const [status, setStatus] = useState('准备就绪')
   const [approval, setApproval] = useState<any>(null)
   const [question, setQuestion] = useState<any>(null)
-  const [threadsOpen, setThreadsOpen] = useState(false)
+  const [page, setPage] = useState<'home' | 'history' | 'profile' | 'skills'>('home')
+  const [search, setSearch] = useState('')
+  const [images, setImages] = useState<any[]>([])
+  const [skills, setSkills] = useState<any[]>([])
+  const [skillSearch, setSkillSearch] = useState('')
+  const [skillsMessage, setSkillsMessage] = useState('')
   const [planOpen, setPlanOpen] = useState(false)
   const [visibleLimit, setVisibleLimit] = useState(30)
   const [stopping, setStopping] = useState(false)
@@ -248,6 +285,9 @@ function App() {
     const receive = (event: MessageEvent) => {
       const msg = event.data
       if (msg.type === 'state') { setState((old: any) => ({ ...old, ...msg })); if (msg.models?.length) setModel(current => msg.models.some((entry: any) => entry.id === current) ? current : msg.models[0].id); if (!msg.busy) { setStopping(false); const turn = store.turns.at(-1); if (turn && turn.id === msg.lastTurn?.id && ['starting', 'inProgress'].includes(turn.status) && ['failed', 'interrupted', 'completed'].includes(msg.lastTurn.status)) { turn.status = msg.lastTurn.status; turn.error = msg.lastTurn.error; turn.stopRequested = msg.lastTurn.stopRequested; turn.completedAt = Date.now(); setRevision(n => n + 1) } } }
+      if (msg.type === 'skills') { setSkills(msg.skills || []); setSkillsMessage(msg.errors?.length ? '部分技能加载失败' : '') }
+      if (msg.type === 'skillsError') setSkillsMessage(msg.message)
+      if (msg.type === 'imagesSelected' || msg.type === 'filesSelected') setImages(old => [...old, ...msg.images.filter((image: any) => !old.some(item => item.path === image.path))])
       if (msg.type === 'history') { store.restore(msg.snapshot); setRevision(n => n + 1) }
       if (msg.type === 'tokenUsage') setState((old: any) => ({ ...old, tokenUsage: msg.tokenUsage }))
       if (msg.type === 'rpc') {
@@ -269,10 +309,11 @@ function App() {
     return () => window.removeEventListener('message', receive)
   }, [])
   useEffect(() => { if (follow.current && messages.current) messages.current.scrollTop = messages.current.scrollHeight }, [revision, state.busy])
-  const send = (effort: string) => { const text = prompt.trim(); if (!text || !state.models?.some((entry: any) => entry.id === model) || busy) return; store.begin(text); setRevision(n => n + 1); setPrompt(''); setState((old: any) => ({ ...old, busy: true })); setStatus('正在连接 Agent…'); follow.current = true; post('send', { text, model, effort }) }
+  const send = (effort: string) => { const text = prompt.trim(); if ((!text && !images.length) || !state.models?.some((entry: any) => entry.id === model) || busy) return; store.begin(text, images); setRevision(n => n + 1); setPrompt(''); setState((old: any) => ({ ...old, busy: true })); setStatus('正在连接 Agent…'); follow.current = true; post('send', { text, model, effort, images: images.filter(image => !image.id).map(image => image.data), attachments: images.filter(image => image.id).map(image => image.id) }); setImages([]) }
   const latest = store.turns.at(-1)
   const plan = busy && latest?.plan?.steps?.length ? latest.plan : null
-  return <><header className="topbar"><span className="brand"><Icon kind="brand" /><strong>DiCode</strong></span><div className="top-actions"><button title="最近会话" onClick={() => setThreadsOpen(!threadsOpen)}><Icon kind="history" /></button><button title="新会话" onClick={() => { if (!busy) { store.reset(); setRevision(n => n + 1); post('newThread') } }}><Icon kind="new" /></button></div></header>{!state.loggedIn ? <div className="login"><h2>让想法成为代码。</h2><p>登录后，在当前工作区和 DiCode 一起完成任务。</p><button className="primary" onClick={() => post('login')}>登录 DiCode</button></div> : <main className="app"><div className="toolbar"><span className="workspace">{state.workspace || '未打开工作区'}</span><button onClick={() => { store.reset(); setRevision(n => n + 1); post('logout') }}>退出</button></div>{threadsOpen && <nav className="thread-list">{(state.threads || []).map((thread: any) => <button key={thread.id} onClick={() => { if (!busy) { setThreadsOpen(false); post('switchThread', { threadId: thread.id }) } }}>{thread.title || '新会话'}</button>)}</nav>}<div className="conversation-area"><div className="messages" ref={messages} onScroll={() => { const node = messages.current; if (node) follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80 }}>{store.turns.length > visibleLimit && <button className="earlier" onClick={() => setVisibleLimit(n => n + 30)}>显示更早的消息</button>}{store.turns.length ? store.turns.slice(-visibleLimit).map((turn: any) => <TurnView key={turn.id} turn={turn} />) : <div className="empty"><div><Icon kind="brand" /></div><h2>从一个问题开始</h2><p>描述任务，DiCode 会在工作区中逐步完成。</p></div>}</div></div>{approval && <div className="approval"><strong>需要授权</strong><p>{approval.params?.reason || approval.params?.command || approval.params?.path || '继续执行此操作？'}</p><div className="approval-actions">{(approval.params?.availableDecisions || ['accept', 'decline']).map((decision: any) => { const value = typeof decision === 'string' ? decision : decision.decision; return <button key={value} onClick={() => post('approve', { id: approval.id, decision: value })}>{value === 'accept' ? '允许' : value === 'decline' ? '拒绝' : value}</button> })}</div></div>}{question && <UserInputCard key={question.id} request={question} />}{plan && <div className="plan-dock"><button onClick={() => setPlanOpen(!planOpen)}>执行计划 · {plan.steps.filter((step: any) => step.status === 'completed').length}/{plan.steps.length} <span className={`chevron ${planOpen ? 'up' : ''}`} /></button>{planOpen && <ol>{plan.steps.map((step: any, i: number) => <li key={i}>{step.step || step.text}</li>)}</ol>}</div>}<Composer state={state} model={model} setModel={setModel} prompt={prompt} setPrompt={setPrompt} busy={busy} stopping={stopping} status={status} send={send} post={(type, data) => { if (type === "stop") setStopping(true); post(type, data) }} persistModel={modelId => vscode.setState?.({ modelId })} /></main>}</>
+  const matchingThreads = (state.threads || []).filter((thread: any) => !search.trim() || [thread.title, ...(thread.turns || []).flatMap((turn: any) => [turn.user, turn.answer])].some(value => String(value || '').toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())))
+  return <><header className="topbar"><span className="brand"><Icon kind="brand" /><strong>DiCode</strong></span><div className="top-actions"><button title="新建会话" onClick={() => { post('newThread'); setPage('home') }}><Icon kind="new" /></button><button title="历史会话" onClick={() => setPage('history')}><Icon kind="history" />{state.historyUnread && <span className="history-dot" />}</button><button title="Skill 市场" onClick={() => { setPage('skills'); setSkillsMessage('正在加载…'); post('listSkills') }}><Icon kind="skills" /></button><button title="个人信息" onClick={() => setPage('profile')}><Icon kind="user" /></button></div></header>{page === 'history' ? <main className="subpage"><PageHeader title="历史会话" onBack={() => setPage('home')} /><PageSearch placeholder="搜索标题、输入和回答" value={search} onChange={setSearch} /><HistoryList onRename={(threadId, title) => post('renameThread', { threadId, title })} threads={matchingThreads} query={search} currentId={state.threadId} Icon={Icon} onSelect={threadId => { post('switchThread', { threadId }); setPage('home') }} /></main> : page === 'skills' ? <main className="subpage"><PageHeader title="Skill 市场" onBack={() => setPage('home')} action={<button className="skill-import" onClick={() => { setSkillsMessage(''); post('importSkill') }}><Icon kind="plus" />导入</button>} /><PageSearch placeholder="搜索技能" value={skillSearch} onChange={setSkillSearch} /><SkillList skills={skills} query={skillSearch} message={skillsMessage} Icon={Icon} onToggle={skill => post('setSkillEnabled', { path: skill.path, enabled: !skill.enabled })} /></main> : page === 'profile' ? <main className="subpage"><PageHeader title="个人信息" onBack={() => setPage('home')} /><div className="account-panel"><div className="account-identity"><ProfileAvatar picture={state.user?.picture} /><strong>{state.user?.name || (state.loggedIn ? '姓名未提供' : '未登录')}</strong><span className="account-status"><i />{state.loggedIn ? '已连接 DiCode' : '尚未连接'}</span></div><div className="account-details"><div><span>姓名</span><strong>{state.user?.name || '—'}</strong></div><div><span>邮箱</span><strong>{state.user?.email || '—'}</strong></div></div><button className="account-login" onClick={() => post('login')}><Icon kind="user" />{state.loggedIn ? '重新登录' : '登录 DiCode'}<Icon kind="right" /></button></div></main> : !state.loggedIn ? <div className="login"><h2>让想法成为代码。</h2><p>登录后，在当前工作区和 DiCode 一起完成任务。</p><button className="primary" onClick={() => post('login')}>登录 DiCode</button></div> : <main className="app"><div className="toolbar"><span className="workspace">{state.workspace || '未打开工作区'}</span></div><div className="conversation-area"><div className="messages" ref={messages} onScroll={() => { const node = messages.current; if (node) follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80 }}>{store.turns.length > visibleLimit && <button className="earlier" onClick={() => setVisibleLimit(n => n + 30)}>显示更早的消息</button>}{store.turns.length ? store.turns.slice(-visibleLimit).map((turn: any) => <TurnView key={turn.id} turn={turn} />) : <div className="empty"><div><Icon kind="brand" /></div><h2>从一个问题开始</h2><p>描述任务，DiCode 会在工作区中逐步完成。</p></div>}</div></div>{approval && <div className="approval"><strong>需要授权</strong><p>{approval.params?.reason || approval.params?.command || approval.params?.path || '继续执行此操作？'}</p><div className="approval-actions">{(approval.params?.availableDecisions || ['accept', 'decline']).map((decision: any) => { const value = typeof decision === 'string' ? decision : decision.decision; return <button key={value} onClick={() => post('approve', { id: approval.id, decision: value })}>{value === 'accept' ? '允许' : value === 'decline' ? '拒绝' : value}</button> })}</div></div>}{question && <UserInputCard key={question.id} request={question} />}{plan && <div className="plan-dock"><button onClick={() => setPlanOpen(!planOpen)}>执行计划 · {plan.steps.filter((step: any) => step.status === 'completed').length}/{plan.steps.length} <span className={`chevron ${planOpen ? 'up' : ''}`} /></button>{planOpen && <ol>{plan.steps.map((step: any, i: number) => <li key={i}>{step.step || step.text}</li>)}</ol>}</div>}<Composer images={images} setImages={setImages} state={state} model={model} setModel={setModel} prompt={prompt} setPrompt={setPrompt} busy={busy} stopping={stopping} status={status} send={send} post={(type, data) => { if (type === "stop") setStopping(true); post(type, data) }} persistModel={modelId => vscode.setState?.({ modelId })} /></main>}</>
 }
 
 createRoot(document.getElementById('root')!).render(document.querySelector('meta[name="dicode-view"][content="changes"]') ? <ChangesViewer /> : <App />)

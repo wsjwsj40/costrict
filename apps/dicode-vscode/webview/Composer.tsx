@@ -1,6 +1,7 @@
+import Attachments from './Attachments'
 import React, { useEffect, useRef, useState } from 'react'
 
-type Props = { state: any; model: string; setModel: (value: string) => void; prompt: string; setPrompt: (value: string) => void; busy: boolean; stopping: boolean; status: string; send: (effort: string) => void; post: (type: string, data?: Record<string, unknown>) => void; persistModel: (value: string) => void }
+type Props = { state: any; model: string; setModel: (value: string) => void; prompt: string; setPrompt: (value: string) => void; images: any[]; setImages: (value: any[]) => void; busy: boolean; stopping: boolean; status: string; send: (effort: string) => void; post: (type: string, data?: Record<string, unknown>) => void; persistModel: (value: string) => void }
 const permissions = [
   { id: 'request', title: '请求授权', description: '修改文件和执行操作前请求授权' },
   { id: 'auto', title: '自动授权', description: '在工作区内自动执行，必要时请求授权' },
@@ -14,8 +15,8 @@ function PermissionIcon({ mode }: { mode: string }) {
   return <svg className="permission-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={mode === 'request' ? hand : shield} /></svg>
 }
 
-export default function Composer({ state, model, setModel, prompt, setPrompt, busy, stopping, status, send, post, persistModel }: Props) {
-  const [menu, setMenu] = useState<'permission' | 'effort' | 'model' | 'context' | null>(null)
+export default function Composer({ state, model, setModel, prompt, setPrompt, images, setImages, busy, stopping, status, send, post, persistModel }: Props) {
+  const [menu, setMenu] = useState<'permission' | 'effort' | 'model' | 'context' | 'attach' | null>(null)
   const [effort, setEffort] = useState('medium')
   const root = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -37,8 +38,10 @@ export default function Composer({ state, model, setModel, prompt, setPrompt, bu
   const toggle = (value: typeof menu) => setMenu(current => current === value ? null : value)
   return <div className="composer-shell" ref={root}>
     <div className="composer">
+      <Attachments files={images} onRemove={file => setImages(images.filter(item => item.path !== file.path))} post={post} />
       <textarea value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(effort) } }} placeholder="询问后续修改…" rows={2} />
       <div className="composer-bottom">
+        <div className="picker-wrap"><button className="picker-trigger attach-trigger" title="添加附件" onClick={() => toggle('attach')}>＋</button>{menu === 'attach' && <div className="picker-menu attachment-menu"><button className="picker-option" onClick={() => { setMenu(null); post('chooseFiles') }}><span>📎</span><span><strong>添加文件</strong><small>图片、文档、代码及其他文件</small></span></button></div>}</div>
         <div className="picker-wrap"><button className="picker-trigger permission-trigger" disabled={busy} onClick={() => toggle('permission')} aria-expanded={menu === 'permission'}><PermissionIcon mode={state.permissionMode || 'request'} /> {permissions.find(entry => entry.id === state.permissionMode)?.title || '请求授权'}</button>
           {menu === 'permission' && <div className="picker-menu permission-menu">{permissions.map(entry => <button key={entry.id} className="picker-option" onClick={() => { post('setPermissionMode', { mode: entry.id }); setMenu(null) }}><PermissionIcon mode={entry.id} /><span><strong>{entry.title}</strong><small>{entry.description}</small></span>{state.permissionMode === entry.id && <span className="picker-check">✓</span>}</button>)}</div>}
         </div>
@@ -50,7 +53,7 @@ export default function Composer({ state, model, setModel, prompt, setPrompt, bu
         <div className="picker-wrap"><button className="context-trigger" title="上下文用量" onClick={() => toggle('context')} aria-label="上下文用量"><span className="context-ring" data-level={band} style={{ background: `conic-gradient(${color} ${Math.min(percent || 0, 100)}%, var(--vscode-widget-border, #555) 0)` }} /><span>{displayedPercent == null ? '—' : `${displayedPercent}%`}</span></button>
           {menu === 'context' && <div className="picker-menu context-menu"><strong>上下文</strong>{!usage && <div className="picker-heading">发送消息后显示实际用量</div>}<div className="context-stat"><span>当前使用</span><span>{format(used)} / {format(limit)}</span></div><div className="context-stat"><span>CLI 可用窗口</span><span>{format(usage?.modelContextWindow)}</span></div><div className="context-stat"><span>输入 token</span><span>{format(usage?.last?.inputTokens)}</span></div><div className="context-stat"><span>输出 token</span><span>{format(usage?.last?.outputTokens)}</span></div><div className="context-stat"><span>缓存输入</span><span>{format(usage?.last?.cachedInputTokens)}</span></div><div className="context-stat"><span>模型最大输出</span><span>{format(selected?.maxTokens)}</span></div><button className="compact-button" disabled={busy || !state.threadId || otherModel} title={otherModel ? '请先使用所选模型发送消息' : '压缩当前会话上下文'} onClick={() => { setMenu(null); post('compactContext', { model }) }}>压缩上下文</button></div>}
         </div>
-        {busy ? <button className="send-button" disabled={stopping} onClick={() => post('stop')}>{stopping ? '···' : '■'}</button> : <button className="send-button" disabled={!prompt.trim() || !selected} onClick={() => send(effort)}>↑</button>}
+        {busy ? <button className="send-button" disabled={stopping} onClick={() => post('stop')}>{stopping ? '···' : '■'}</button> : <button className="send-button" disabled={(!prompt.trim() && !images.length) || !selected} onClick={() => send(effort)}>↑</button>}
       </div>
     </div><div className="status-line">{status}</div>
   </div>

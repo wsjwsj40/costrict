@@ -22,3 +22,9 @@ npx vsce package --no-dependencies
 ```
 
 Set `dicodeCodex.serverUrl` to the DiCode APISIX entry. The extension downloads a verified Codex CLI package from the portal on first activation, or uses `dicodeCodex.codexPath` if configured. Windows also uses a verified portable PowerShell package. The installed Codex CLI must support the experimental app-server dynamic tools protocol used by version 0.164.
+
+### 本地附件
+
+输入框左侧的“添加文件”可选择任意类型的普通文件（单个不超过 50 MB）。附件副本保存在当前工作区的 `.dicode/attachments`，历史消息保留文件卡片；如不希望提交附件，可将该目录加入项目忽略规则。
+
+PNG、JPEG、WebP、GIF 图片作为图片输入提交给模型；小于 64 KB 的 UTF-8 文本会同时提供内容，其他文件通过副本路径供 Agent 工具读取。PDF、Office、压缩包及其他二进制格式的解析取决于环境中的工具，不等同于 Responses API 的原生文件上传。图片可点击放大，其他附件点击后使用 VS Code 打开。
