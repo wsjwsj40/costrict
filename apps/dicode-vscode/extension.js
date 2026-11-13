@@ -312,6 +312,7 @@ class DicodeView {
 			.replaceAll("{{NONCE}}", nonce)
 			.replaceAll("{{CSP}}", panel.webview.cspSource)
 			.replaceAll("{{CSS}}", media("style.css").toString())
+			.replaceAll("{{BRAND}}", media("brand.svg").toString())
 			.replaceAll("{{JS}}", media("bundle.js").toString())
 	}
 	post(message) {
@@ -331,6 +332,7 @@ class DicodeView {
 			.replaceAll("{{NONCE}}", nonce)
 			.replaceAll("{{CSP}}", view.webview.cspSource)
 			.replaceAll("{{CSS}}", media("style.css").toString())
+			.replaceAll("{{BRAND}}", media("brand.svg").toString())
 			.replaceAll("{{JS}}", media("bundle.js").toString())
 		view.webview.onDidReceiveMessage((message) =>
 			this.handle(message).catch((error) => { this.post({ type: "error", message: error.message, requestType: message.type }); this.postState() }),
