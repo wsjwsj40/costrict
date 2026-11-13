@@ -993,9 +993,17 @@ class DicodeView {
 			let filename = location ? target.slice(0, location.index) : target
 			try {
 				if (/^file:\/\//i.test(filename)) filename = fileURLToPath(filename)
-				else if (message.type === "openLink") filename = decodeURIComponent(filename)
+				else filename = decodeURIComponent(filename)
 			} catch { throw new Error("文件链接格式无效") }
-			const file = path.resolve(this.workspace, filename)
+			// Markdown renderers can turn a Windows drive path into /C:/... .
+			if (process.platform === "win32" && /^\/[A-Za-z]:[\\/]/.test(filename)) filename = filename.slice(1)
+			let file = path.resolve(this.workspace, filename)
+			// Some models emit workspace-relative links with a leading slash.
+			if (!fs.existsSync(file) && /^\/(?!\/)/.test(filename) && !/^\/[A-Za-z]:/.test(filename)) {
+				const candidate = path.resolve(this.workspace, `.${filename}`)
+				const relative = path.relative(this.workspace, candidate)
+				if (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative) && fs.existsSync(candidate)) file = candidate
+			}
 			const roots = vscode.workspace.workspaceFolders?.map((folder) => folder.uri.fsPath) || [this.workspace]
 			const root = roots.find((candidate) => {
 				const relative = path.relative(candidate, file)

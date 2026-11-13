@@ -246,7 +246,10 @@ test('text links open encoded absolute paths and reject paths outside workspace 
     const uri = require('node:url').pathToFileURL(file).href
     await view.handle({ type: 'openLink', href: `${uri}#L12` })
     await view.handle({ type: 'openLink', href: encodeURI(file) })
-    assert.deepEqual(opened, [file, file])
+    await view.handle({ type: 'openFile', path: encodeURI(file) })
+    fs.writeFileSync(file, 'test')
+    await view.handle({ type: 'openLink', href: '/new%20file.txt' })
+    assert.deepEqual(opened, [file, file, file, file])
     await assert.rejects(view.handle({ type: 'openFile', path: '../outside.txt' }), /不在当前工作区/)
     view.dispose()
   } finally {
