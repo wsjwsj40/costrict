@@ -11,7 +11,7 @@ const { beforeFromUnifiedDiff, historicalDiff } = require("./diff")
 const { unifiedDiff } = require("./unifiedDiff")
 const { dynamicTools, editFile } = require("./fileEditTools")
 const { ConversationStore } = require("./media/conversation")
-const { generateThreadTitle } = require("./threadTitle")
+const { generateThreadTitle, shortRequestTitle } = require("./threadTitle")
 const EXTENSION_VERSION = require("./package.json").version
 const FILE_EDIT_INSTRUCTIONS = fs.readFileSync(path.join(__dirname, "file-edit-instructions.md"), "utf8").trim()
 
@@ -525,6 +525,7 @@ class DicodeView {
 				if (!Array.isArray(response.data)) throw new Error("模型接口返回的数据格式不正确")
 				this.models = response.data.filter((item) => typeof item?.id === "string" && item.id.toLowerCase() !== "auto")
 				if (!this.models.length) this.modelsError = "模型接口没有返回可用模型"
+			if (this.models.length) this.ensureClient().catch((error) => this.output.appendLine(`[Codex warmup] ${error.message}`))
 				if (this.threadId) this.maybeGenerateTitle(this.threadId, this.models[0]?.id)
 			} catch (error) {
 				this.modelsError = `加载模型失败：${error.message}${error.status === 401 ? '，请退出 DiCode 后重新登录' : ''}`
@@ -831,6 +832,13 @@ class DicodeView {
 		if (!thread || thread.customTitle || !model || this.titleJobs.has(threadId)) return
 		const userText = thread.snapshot?.turns?.[0]?.user
 		if (!userText || !["正在生成标题…", userText.slice(0, 60)].includes(thread.title)) return
+		const directTitle = shortRequestTitle(userText)
+		if (directTitle) {
+			thread.title = directTitle
+			await this.context.globalState.update(THREADS_KEY, this.threads)
+			this.postState()
+			return
+		}
 		const firstAnswer = thread.snapshot.turns[0].items?.filter((item) => item.type === "agentMessage").at(-1)?.text || ""
 		const titleContext = `用户需求：${userText.slice(0, 900)}${firstAnswer ? `\n处理结果：${firstAnswer.slice(0, 300)}` : ""}`
 		this.titleJobs.add(threadId)

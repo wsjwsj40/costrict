@@ -49,6 +49,8 @@ test('older asynchronous state cannot replace a loaded model list', async () => 
 test('model loading reports errors and supports retry', async () => {
   const { view } = makeView()
   view.accessToken = async () => 'token'
+  let warmups = 0
+  view.ensureClient = async () => { warmups++ }
   view.maybeGenerateTitle = () => {}
   Object.defineProperty(view, 'serverUrl', { value: 'https://example.test' })
   view.json = async () => { throw new Error('offline') }
@@ -58,11 +60,13 @@ test('model loading reports errors and supports retry', async () => {
   await view.loadModels()
   assert.equal(view.modelsError, null)
   assert.equal(view.models[0].contextWindow, 100000)
+  assert.equal(warmups, 1)
   view.dispose()
 })
 
 test('model authorization failure refreshes once and retries with the new token', async () => {
   const { view } = makeView()
+  view.ensureClient = async () => {}
   const refreshes = [], requests = []
   Object.defineProperty(view, 'serverUrl', { value: 'https://example.test' })
   view.maybeGenerateTitle = () => {}
@@ -608,5 +612,15 @@ test('custom titles survive later history updates and skip automatic generation'
   assert.equal(requested, false)
   await assert.rejects(view.handle({ type: 'renameThread', threadId: 'thread', title: '  ' }), /标题需/)
   await assert.rejects(view.handle({ type: 'renameThread', threadId: 'missing', title: '名称' }), /会话不存在/)
+  view.dispose()
+})
+
+test('short first request becomes the title without another gateway request', async () => {
+  const { view } = makeView()
+  view.conversation.begin('你好')
+  view.persistHistory()
+  view.accessToken = async () => { throw new Error('title should not call gateway') }
+  await view.maybeGenerateTitle('thread', 'm')
+  assert.equal(view.threads[0].title, '你好')
   view.dispose()
 })

@@ -1,6 +1,13 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { generateThreadTitle, normalizeTitle } = require('../threadTitle')
+const { generateThreadTitle, normalizeTitle, shortRequestTitle } = require('../threadTitle')
+
+test('short single-line requests can serve as their own titles', () => {
+	assert.equal(shortRequestTitle('你好'), '你好')
+	assert.equal(shortRequestTitle('修复登录接口超时。'), '修复登录接口超时')
+	assert.equal(shortRequestTitle('第一行\n第二行'), null)
+	assert.equal(shortRequestTitle('这是一段超过三十六个字符的请求文本，需要继续调用模型生成更合适的简短标题。'), null)
+})
 
 test('generates a concise title from a streamed Responses result', async () => {
 	const originalFetch = global.fetch

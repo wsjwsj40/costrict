@@ -6,6 +6,11 @@ function normalizeTitle(value) {
 	return title ? [...title].slice(0, MAX_TITLE_CHARS).join("") : null
 }
 
+function shortRequestTitle(value) {
+	if (typeof value !== "string" || /[\r\n]/.test(value) || [...value.trim()].length > MAX_TITLE_CHARS) return null
+	return normalizeTitle(value)
+}
+
 function responseText(response) {
 	return (response?.output || []).flatMap((item) => item?.content || []).filter((part) => part?.type === "output_text").map((part) => part.text || "").join("")
 }
@@ -43,4 +48,4 @@ async function generateThreadTitle(url, token, model, userText) {
 	}
 }
 
-module.exports = { generateThreadTitle, normalizeTitle }
+module.exports = { generateThreadTitle, normalizeTitle, shortRequestTitle }

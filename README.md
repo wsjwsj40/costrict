@@ -22,4 +22,6 @@ The bridge v0.1.3 image adds always-on request, gateway status, and gateway erro
 
 Bridge v0.1.4 adds per-stage latency diagnostics, and VS Code extension v0.2.52 adds turn timing in the DiCode Codex output channel.
 
+VS Code extension v0.2.53 starts the local Codex client after the model list loads and uses short single-line requests directly as thread titles, avoiding a separate model request for them.
+
 See [deployment instructions](deploy/README.md) for the internal cluster. `dicodeCodex.serverUrl` must point to the APISIX entry. On first activation, the extension downloads the matching Codex CLI from the portal and verifies its SHA-256 before starting `codex app-server`. Windows and Linux x64/arm64 are supported. Installation occurs on the extension host, including a remote Linux host or WSL when VS Code runs the extension there.
