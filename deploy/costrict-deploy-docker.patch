@@ -144,16 +144,16 @@ index 0000000..c501dc6
 +
 +## Offline artifacts
 +
-+The bridge logging release contains `dicode-codex-bridge-v0.1.3-linux-amd64-image.tar` and a SHA-256 file. The earlier DiCode Codex MVP release contains the CLI asset archive and VSIX. The bridge image is for **linux/amd64** cluster nodes.
++The bridge timing release contains `dicode-codex-bridge-v0.1.4-linux-amd64-image.tar` and a SHA-256 file. The earlier DiCode Codex MVP release contains the CLI asset archive and VSIX. The bridge image is for **linux/amd64** cluster nodes.
 +
 +## Install the new service only
 +
 +1. On a machine with Docker and access to your internal registry, run:
 +
 +   ```sh
-+   docker load -i dicode-codex-bridge-v0.1.3-linux-amd64-image.tar
-+   docker tag costrict/dicode-codex-bridge:v0.1.3 REGISTRY/PROJECT/dicode-codex-bridge:v0.1.3
-+   docker push REGISTRY/PROJECT/dicode-codex-bridge:v0.1.3
++   docker load -i dicode-codex-bridge-v0.1.4-linux-amd64-image.tar
++   docker tag costrict/dicode-codex-bridge:v0.1.4 REGISTRY/PROJECT/dicode-codex-bridge:v0.1.4
++   docker push REGISTRY/PROJECT/dicode-codex-bridge:v0.1.4
 +   ```
 +
 +2. Create a Secret containing the **token exchange service's `NEW-OPEN-TOKEN` credential**. Use the same value as `newTokenAuth.openToken` in the current chat-rag configuration; this is not a gateway API key. Do not put it in `configure.sh` or the VSIX:
@@ -164,7 +164,7 @@ index 0000000..c501dc6
 +     --dry-run=client -o yaml | kubectl apply -f -
 +   ```
 +
-+3. In this deployment repository, set `IMAGE_DICODE_CODEX_BRIDGE` in `scripts/newest-images.list` to `REGISTRY/PROJECT/dicode-codex-bridge:v0.1.3`. Confirm `CODEX_GATEWAY_RESPONSES_URL` points to the gateway's exact `/v1/responses` endpoint and `CODEX_TOKEN_EXCHANGE_URL` matches chat-rag's current `newTokenAuth.endpoint`. The caller's DiCode JWT is used for model authorization; the token exchange service uses its own Secret credential, and the gateway uses the resulting user's key. The bridge reads the existing `redis:6379` service and `chat_rag:new_token_auth` cache.
++3. In this deployment repository, set `IMAGE_DICODE_CODEX_BRIDGE` in `scripts/newest-images.list` to `REGISTRY/PROJECT/dicode-codex-bridge:v0.1.4`. Confirm `CODEX_GATEWAY_RESPONSES_URL` points to the gateway's exact `/v1/responses` endpoint and `CODEX_TOKEN_EXCHANGE_URL` matches chat-rag's current `newTokenAuth.endpoint`. The caller's DiCode JWT is used for model authorization; the token exchange service uses its own Secret credential, and the gateway uses the resulting user's key. The bridge reads the existing `redis:6379` service and `chat_rag:new_token_auth` cache.
 +4. Run `./costrict.sh prepare`. Check the generated `k8s/dicode-codex-bridge.yaml`, then apply only this new service:
 +
 +   ```sh
@@ -333,7 +333,7 @@ index 81226ed..302013e 100644
  IMAGE_POSTGRES=postgres:15-alpine
  IMAGE_NGINX=nginx:1.27.1
  IMAGE_GRAFANA=grafana/grafana:11.2.0
-+IMAGE_DICODE_CODEX_BRIDGE=costrict/dicode-codex-bridge:v0.1.3
++IMAGE_DICODE_CODEX_BRIDGE=costrict/dicode-codex-bridge:v0.1.4
  IMAGE_PROMETHEUS=quay.io/prometheus/prometheus:v2.54.0
  IMAGE_MODEL_PROXY=ghcr.io/zgsm-sangfor/costrict-model-proxy:v0.0.4
  IMAGE_CASDOOR=zgsm/casdoor:v2.1.3

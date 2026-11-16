@@ -49,6 +49,13 @@ type tokenService struct {
 	client    *http.Client
 }
 
+type tokenTiming struct {
+	cacheStatus string
+	cacheRead   time.Duration
+	exchange    time.Duration
+	cacheWrite  time.Duration
+}
+
 func newTokenService(endpoint, openToken string, cache tokenCache) (*tokenService, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
@@ -61,25 +68,36 @@ func newTokenService(endpoint, openToken string, cache tokenCache) (*tokenServic
 		client: &http.Client{Timeout: 3 * time.Second}}, nil
 }
 
-func (s *tokenService) Authorization(ctx context.Context, email string) (string, error) {
+func (s *tokenService) Authorization(ctx context.Context, email string) (string, tokenTiming, error) {
+	timing := tokenTiming{cacheStatus: "disabled"}
 	if s.cache != nil {
+		started := time.Now()
 		cached, err := s.cache.Get(ctx, tokenCacheKey, email)
+		timing.cacheRead = time.Since(started)
 		if err != nil {
+			timing.cacheStatus = "error"
 			log.Printf("gateway token cache read failed: %v", err)
 		} else if strings.TrimSpace(cached) != "" {
-			return formatGatewayAuthorization(cached), nil
+			timing.cacheStatus = "hit"
+			return formatGatewayAuthorization(cached), timing, nil
+		} else {
+			timing.cacheStatus = "miss"
 		}
 	}
+	started := time.Now()
 	token, err := s.fetch(ctx, email)
+	timing.exchange = time.Since(started)
 	if err != nil {
-		return "", err
+		return "", timing, err
 	}
 	if s.cache != nil {
+		started = time.Now()
 		if err := s.cache.Set(ctx, tokenCacheKey, email, token, tokenCacheTTL); err != nil {
 			log.Printf("gateway token cache write failed: %v", err)
 		}
+		timing.cacheWrite = time.Since(started)
 	}
-	return formatGatewayAuthorization(token), nil
+	return formatGatewayAuthorization(token), timing, nil
 }
 
 func (s *tokenService) fetch(ctx context.Context, email string) (string, error) {

@@ -32,7 +32,7 @@ type server struct {
 }
 
 type gatewayTokens interface {
-	Authorization(context.Context, string) (string, error)
+	Authorization(context.Context, string) (string, tokenTiming, error)
 }
 
 func newServer(modelsURL, responsesURL string, tokens gatewayTokens) (*server, error) {
@@ -60,6 +60,16 @@ func (s *server) handler() http.Handler {
 }
 
 func (s *server) responses(w http.ResponseWriter, r *http.Request) {
+	requestStarted := time.Now()
+	traceID := r.Header.Get("X-Request-Id")
+	if traceID == "" {
+		var err error
+		traceID, err = randomUUID()
+		if err != nil {
+			http.Error(w, "could not create trace ID", http.StatusInternalServerError)
+			return
+		}
+	}
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(strings.ToLower(auth), "bearer ") || strings.TrimSpace(auth[7:]) == "" {
 		http.Error(w, "missing bearer token", http.StatusUnauthorized)
@@ -77,7 +87,10 @@ func (s *server) responses(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "model is required", http.StatusBadRequest)
 		return
 	}
+	log.Printf("bridge_timing: trace=%q phase=request_parse elapsed_ms=%d body_bytes=%d", traceID, time.Since(requestStarted).Milliseconds(), len(body))
+	stageStarted := time.Now()
 	allowed, status, err := s.allowedModel(r.Context(), auth, request.Model)
+	log.Printf("bridge_timing: trace=%q phase=model_access elapsed_ms=%d allowed=%t error=%t", traceID, time.Since(stageStarted).Milliseconds(), allowed, err != nil)
 	if err != nil {
 		http.Error(w, "model authorization unavailable", status)
 		return
@@ -92,7 +105,9 @@ func (s *server) responses(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "verified token has no user email", http.StatusUnauthorized)
 		return
 	}
-	gatewayAuth, err := s.tokens.Authorization(r.Context(), email)
+	stageStarted = time.Now()
+	gatewayAuth, tokenTiming, err := s.tokens.Authorization(r.Context(), email)
+	log.Printf("bridge_timing: trace=%q phase=token_auth elapsed_ms=%d cache=%q cache_read_ms=%d exchange_ms=%d cache_write_ms=%d error=%t", traceID, time.Since(stageStarted).Milliseconds(), tokenTiming.cacheStatus, tokenTiming.cacheRead.Milliseconds(), tokenTiming.exchange.Milliseconds(), tokenTiming.cacheWrite.Milliseconds(), err != nil)
 	if err != nil {
 		log.Printf("gateway token exchange failed for user: %v", err)
 		http.Error(w, "gateway token unavailable", http.StatusBadGateway)
@@ -121,18 +136,18 @@ func (s *server) responses(w http.ResponseWriter, r *http.Request) {
 		}
 		upstream.Header.Set(header, value)
 	}
-	if id := r.Header.Get("X-Request-Id"); id != "" {
-		upstream.Header.Set("X-Request-Id", id)
-	}
-	log.Printf("responses request: session=%q thread=%q request=%q %s", upstream.Header.Get("session-id"), upstream.Header.Get("thread-id"), upstream.Header.Get("X-Request-Id"), responsesRequestSummary(body))
+	upstream.Header.Set("X-Request-Id", traceID)
+	log.Printf("responses request: trace=%q session=%q thread=%q request=%q %s", traceID, upstream.Header.Get("session-id"), upstream.Header.Get("thread-id"), upstream.Header.Get("X-Request-Id"), responsesRequestSummary(body))
+	stageStarted = time.Now()
 	response, err := s.client.Do(upstream)
+	log.Printf("bridge_timing: trace=%q phase=gateway_headers elapsed_ms=%d total_ms=%d error=%t", traceID, time.Since(stageStarted).Milliseconds(), time.Since(requestStarted).Milliseconds(), err != nil)
 	if err != nil {
 		log.Printf("responses upstream failed: %v", err)
 		http.Error(w, "responses upstream unavailable", http.StatusBadGateway)
 		return
 	}
 	defer response.Body.Close()
-	responseContext := fmt.Sprintf("session=%q thread=%q request=%q upstream_request=%q", upstream.Header.Get("session-id"), upstream.Header.Get("thread-id"), upstream.Header.Get("X-Request-Id"), response.Header.Get("X-Request-Id"))
+	responseContext := fmt.Sprintf("trace=%q session=%q thread=%q request=%q upstream_request=%q", traceID, upstream.Header.Get("session-id"), upstream.Header.Get("thread-id"), upstream.Header.Get("X-Request-Id"), response.Header.Get("X-Request-Id"))
 	log.Printf("gateway_response: %s status=%d content_type=%q", responseContext, response.StatusCode, response.Header.Get("Content-Type"))
 	for _, key := range []string{"Content-Type", "Cache-Control", "X-Request-Id"} {
 		if value := response.Header.Get(key); value != "" {
@@ -143,23 +158,42 @@ func (s *server) responses(w http.ResponseWriter, r *http.Request) {
 	buffer := make([]byte, 32*1024)
 	events := newGatewayEventLogger(responseContext)
 	var errorBody []byte
+	var streamedBytes int64
+	var downstreamWrite time.Duration
+	var maxDownstreamWrite time.Duration
+	streamStarted := time.Now()
+	firstByteLogged := false
 	for {
 		n, readErr := response.Body.Read(buffer)
 		if n > 0 {
+			if !firstByteLogged {
+				firstByteLogged = true
+				log.Printf("bridge_timing: trace=%q phase=first_byte since_headers_ms=%d total_ms=%d", traceID, time.Since(streamStarted).Milliseconds(), time.Since(requestStarted).Milliseconds())
+			}
+			streamedBytes += int64(n)
 			events.write(buffer[:n])
 			if response.StatusCode >= http.StatusBadRequest && len(errorBody) < maxLoggedErrorBytes {
 				remaining := maxLoggedErrorBytes - len(errorBody)
 				errorBody = append(errorBody, buffer[:min(n, remaining)]...)
 			}
-			if _, err := w.Write(buffer[:n]); err != nil {
+			writeStarted := time.Now()
+			_, err := w.Write(buffer[:n])
+			if err != nil {
+				log.Printf("client_stream_error: %s bytes=%d elapsed=%s total_ms=%d error=%q", responseContext, streamedBytes, time.Since(streamStarted).Round(time.Millisecond), time.Since(requestStarted).Milliseconds(), err)
 				return
 			}
 			if flusher, ok := w.(http.Flusher); ok {
 				flusher.Flush()
 			}
+			writeElapsed := time.Since(writeStarted)
+			downstreamWrite += writeElapsed
+			if writeElapsed > maxDownstreamWrite {
+				maxDownstreamWrite = writeElapsed
+			}
 		}
 		if readErr != nil {
 			events.finish()
+			log.Printf("gateway_stream_end: %s bytes=%d elapsed=%s total_ms=%d first_byte=%t downstream_write_ms=%d max_write_ms=%d last_event=%q error=%q", responseContext, streamedBytes, time.Since(streamStarted).Round(time.Millisecond), time.Since(requestStarted).Milliseconds(), firstByteLogged, downstreamWrite.Milliseconds(), maxDownstreamWrite.Milliseconds(), events.lastEvent, readErr)
 			if response.StatusCode >= http.StatusBadRequest && !events.loggedError {
 				log.Printf("gateway_error: %s status=%d detail=%q", responseContext, response.StatusCode, gatewayErrorDetail(errorBody))
 			}
@@ -178,6 +212,7 @@ type gatewayEventLogger struct {
 	data        []byte
 	dropping    bool
 	loggedError bool
+	lastEvent   string
 }
 
 func newGatewayEventLogger(context string) *gatewayEventLogger {
@@ -221,6 +256,23 @@ func (l *gatewayEventLogger) line(line []byte) {
 }
 
 func (l *gatewayEventLogger) finishEvent() {
+	if l.event != "" {
+		l.lastEvent = l.event
+	}
+	if l.event == "response.output_item.added" {
+		var payload struct {
+			Item struct {
+				Type string `json:"type"`
+				Name string `json:"name"`
+			} `json:"item"`
+		}
+		if json.Unmarshal(l.data, &payload) == nil && payload.Item.Type != "" {
+			log.Printf("gateway_output_item: %s type=%q name=%q", l.context, payload.Item.Type, payload.Item.Name)
+		}
+	}
+	if l.event == "response.completed" {
+		log.Printf("gateway_completed: %s", l.context)
+	}
 	if l.event == "error" || l.event == "response.failed" || l.event == "response.incomplete" {
 		log.Printf("gateway_error: %s event=%q detail=%q", l.context, l.event, gatewayErrorDetail(l.data))
 		l.loggedError = true

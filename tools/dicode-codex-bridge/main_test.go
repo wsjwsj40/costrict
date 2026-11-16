@@ -18,9 +18,9 @@ import (
 
 type fakeGatewayTokens struct{ emails []string }
 
-func (f *fakeGatewayTokens) Authorization(_ context.Context, email string) (string, error) {
+func (f *fakeGatewayTokens) Authorization(_ context.Context, email string) (string, tokenTiming, error) {
 	f.emails = append(f.emails, email)
-	return "Bearer gateway-secret", nil
+	return "Bearer gateway-secret", tokenTiming{cacheStatus: "hit"}, nil
 }
 
 func testJWT(email string) string {
@@ -43,6 +43,9 @@ func TestResponsesAuthorizationAndStreaming(t *testing.T) {
 	defer models.Close()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upstreamCalls++
+		if !regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$`).MatchString(r.Header.Get("X-Request-Id")) {
+			t.Error("trace ID was not forwarded to gateway")
+		}
 		if r.Header.Get("Authorization") != "Bearer gateway-secret" {
 			t.Error("gateway token was not used")
 		}
@@ -175,7 +178,7 @@ func TestGatewayErrorsAreLoggedWithoutChangingResponse(t *testing.T) {
 	if response.Code != http.StatusTooManyRequests || !strings.Contains(response.Body.String(), "limit reached") || response.Header().Get("X-Request-Id") != "upstream-request" {
 		t.Fatalf("upstream error was not forwarded: status=%d body=%q", response.Code, response.Body.String())
 	}
-	for _, expected := range []string{"responses request:", "gateway_response:", "status=429", "gateway_error:", "quota_exceeded", "limit reached", "upstream-request"} {
+	for _, expected := range []string{"responses request:", "gateway_response:", "status=429", "gateway_error:", "quota_exceeded", "limit reached", "upstream-request", "phase=request_parse", "phase=model_access", "phase=token_auth", "phase=gateway_headers", "phase=first_byte", "gateway_stream_end:", "cache=\"hit\""} {
 		if !strings.Contains(logs.String(), expected) {
 			t.Errorf("missing %q in logs: %s", expected, logs.String())
 		}
@@ -196,5 +199,22 @@ func TestGatewaySSEErrorAcrossChunks(t *testing.T) {
 	}
 	if strings.Count(logs.String(), "gateway_error:") != 1 {
 		t.Fatalf("SSE error logged more than once: %s", logs.String())
+	}
+}
+
+func TestGatewayOutputItemLogDistinguishesAvailableToolsFromCalls(t *testing.T) {
+	var logs bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&logs)
+	defer log.SetOutput(previous)
+	logger := newGatewayEventLogger(`session="s"`)
+	logger.write([]byte("event: response.output_item.added\ndata: {\"item\":{\"type\":\"function_call\",\"name\":\"exec_command\",\"arguments\":\"private\"}}\n\n"))
+	logger.write([]byte("event: response.completed\ndata: {\"response\":{\"status\":\"completed\"}}\n\n"))
+	logger.finish()
+	if !strings.Contains(logs.String(), `gateway_output_item: session="s" type="function_call" name="exec_command"`) || !strings.Contains(logs.String(), "gateway_completed:") {
+		t.Fatalf("missing output item diagnostics: %s", logs.String())
+	}
+	if strings.Contains(logs.String(), "private") || logger.lastEvent != "response.completed" {
+		t.Fatalf("output item contents leaked or event tracking failed: %s", logs.String())
 	}
 }

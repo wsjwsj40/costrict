@@ -43,14 +43,17 @@ func TestTokenServiceUsesSharedCacheAndPerUserExchange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct{ email, want string }{
-		{"alice@example.com", "Bearer cached-alice-key"},
-		{"bob@example.com", "Bearer bob-key"},
-		{"bob@example.com", "Bearer bob-key"},
+	for _, tc := range []struct{ email, want, cacheStatus string }{
+		{"alice@example.com", "Bearer cached-alice-key", "hit"},
+		{"bob@example.com", "Bearer bob-key", "miss"},
+		{"bob@example.com", "Bearer bob-key", "hit"},
 	} {
-		got, err := svc.Authorization(context.Background(), tc.email)
+		got, timing, err := svc.Authorization(context.Background(), tc.email)
 		if err != nil || got != tc.want {
 			t.Errorf("%s: got %q, %v", tc.email, got, err)
+		}
+		if timing.cacheStatus != tc.cacheStatus {
+			t.Errorf("%s: unexpected cache timing: %+v", tc.email, timing)
 		}
 	}
 	if requests != 1 || cache.ttl != time.Hour {

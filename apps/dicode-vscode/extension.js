@@ -266,6 +266,7 @@ class DicodeView {
 		this.interruptSent = false
 		this.runSequence = 0
 		this.activeRunId = null
+		this.turnTiming = null
 		this.approvals = new Map()
 		this.inputRequests = new Map()
 		this.attachmentRecords = new Map()
@@ -615,6 +616,8 @@ class DicodeView {
 			return
 		}
 		if (event.type === "error") {
+			this.logTurnTiming("connection_error")
+			this.turnTiming = null
 			this.output.appendLine(`[Codex error] ${event.message}`)
 			this.output.show?.(true)
 			clearTimeout(this.stopTimer)
@@ -649,6 +652,10 @@ class DicodeView {
 			return
 		}
 		if (message.method === "item/started" || message.method === "item/completed") {
+			if (this.turnTiming && !this.turnTiming.firstItemLogged) {
+				this.turnTiming.firstItemLogged = true
+				this.logTurnTiming("first_item")
+			}
 			const item = message.params?.item
 			const actions = (item?.commandActions || []).map((action) => typeof action === "string" ? action : action?.type || action?.kind).filter(Boolean)
 			this.output.appendLine(`[Codex item] ${message.method} type=${item?.type || "unknown"} status=${item?.status || "inProgress"} actions=${actions.join(",") || "none"} changes=${item?.changes?.length || 0}`)
@@ -669,6 +676,8 @@ class DicodeView {
 			this.post({ type: "rpc", method: message.method, params: message.params })
 			this.postState()
 		} else if (message.method === "turn/completed") {
+			this.logTurnTiming("completed", `status=${message.params?.turn?.status || "unknown"}`)
+			this.turnTiming = null
 			this.output.appendLine(`[Codex turn] completed status=${message.params?.turn?.status || "unknown"} error=${message.params?.turn?.error?.message || "none"}`)
 			const completedThreadId = this.threadId
 			const completedModel = this.activeModel
@@ -695,6 +704,7 @@ class DicodeView {
 			this.post({ type: "error", message: message.params?.error?.message || "Codex error" })
 		} else if (/^(turn\/|item\/)/.test(message.method || "")) {
 			if (message.method === "turn/started" && this.busy) {
+				this.logTurnTiming("turn_started")
 				this.turnId = message.params?.turn?.id || this.turnId
 				if (this.stopping) this.interruptCurrentTurn()
 			}
@@ -705,6 +715,10 @@ class DicodeView {
 			this.scheduleHistory()
 			this.post({ type: "rpc", method: message.method, params })
 		}
+	}
+	logTurnTiming(phase, detail = "") {
+		if (!this.turnTiming) return
+		this.output.appendLine(`[Codex timing] run=${this.turnTiming.runId} thread=${this.threadId || "pending"} phase=${phase} elapsed_ms=${Math.round(performance.now() - this.turnTiming.startedAt)}${detail ? ` ${detail}` : ""}`)
 	}
 	async handleDynamicToolCall(message) {
 		const client = this.client
@@ -776,6 +790,8 @@ class DicodeView {
 	}
 	recoverStoppedTurn(reason = "未收到结束通知，已重连 Agent") {
 		if (!this.busy || !this.stopping) return
+		this.logTurnTiming("stopped")
+		this.turnTiming = null
 		clearTimeout(this.stopTimer)
 		this.busy = false
 		this.stopping = false
@@ -836,6 +852,7 @@ class DicodeView {
         return this.attachmentRecords.get(id) || this.threads.flatMap(thread => thread.snapshot?.turns || []).flatMap(turn => turn.attachments || []).find(file => file.id === id)
     }
     async send(text, model, effort = "medium", images = [], attachments = []) {
+		const sendStartedAt = performance.now()
 		if (this.busy) throw new Error("当前任务仍在执行")
 		if (!text && !images.length && !attachments.length) throw new Error("请输入任务")
 		if (images.some(image => typeof image !== "string" || !/^data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/i.test(image))) throw new Error("图片数据无效，请重新添加")
@@ -869,6 +886,8 @@ class DicodeView {
 		this.busy = true
 		const runId = ++this.runSequence
 		this.activeRunId = runId
+		this.turnTiming = { runId, startedAt: sendStartedAt, firstItemLogged: false }
+		this.logTurnTiming("send")
 		this.stopping = false
 		this.interruptSent = false
 		this.turnId = null
@@ -877,6 +896,7 @@ class DicodeView {
 		this.postState()
 		try {
 			const client = await this.ensureClient()
+			this.logTurnTiming("client_ready")
 			if (this.activeRunId !== runId) return
 			if (this.stopping) return this.recoverStoppedTurn("已取消")
 			if (this.threadId && this.loadedThreadId !== this.threadId) {
@@ -912,6 +932,7 @@ class DicodeView {
 			if (this.stopping) return this.recoverStoppedTurn("已取消")
 			this.conversation.threadId = this.threadId
 			this.persistHistory()
+			this.logTurnTiming("turn_start_sent")
 			const result = await client.request("turn/start", {
 				threadId: this.threadId,
 				cwd: this.workspace,
@@ -923,6 +944,7 @@ class DicodeView {
 					: PERMISSION_MODES[this.permissionMode].sandboxPolicy,
 				input: [...(text ? [{ type: "text", text }] : []), ...images.map(image => ({ type: "image", url: image })), ...attachedInput],
 			})
+			this.logTurnTiming("turn_start_ack")
 			if (this.activeRunId === runId && this.busy) {
 				this.turnId = this.turnId || result.turn.id
 				this.post({ type: "notice", message: "正在处理…" })
@@ -930,6 +952,8 @@ class DicodeView {
 			}
 		} catch (error) {
 			if (this.activeRunId !== runId) return
+			this.logTurnTiming("send_error")
+			this.turnTiming = null
 			clearTimeout(this.stopTimer)
 			this.busy = false
 			this.stopping = false
@@ -1083,6 +1107,7 @@ class DicodeView {
 			this.busy = false
 			this.stopping = false
 			this.activeRunId = null
+			this.turnTiming = null
 			this.turnId = null
 			this.approvals.clear()
 			this.clearInputRequests()
