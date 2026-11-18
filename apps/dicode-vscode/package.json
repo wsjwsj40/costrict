@@ -67,7 +67,8 @@
 		"build": "vite build",
 		"vscode:prepublish": "npm run build",
 		"test": "npm run build && node --test test/*.test.js",
-		"check": "tsc --project tsconfig.json --noEmit && node --check extension.js && node --check fileEditTools.js && node --check media/conversation.js"
+		"check": "tsc --project tsconfig.json --noEmit && node scripts/check-syntax.js",
+		"check:syntax": "node scripts/check-syntax.js"
 	},
 	"files": [
 		"extension.js",
@@ -77,6 +78,9 @@
 		"diff.js",
 		"fileEditTools.js",
 		"unifiedDiff.js",
+		"skillsModel.js",
+		"skillsRegistry.js",
+		"skillsJobs.js",
 		"dicode-instructions.md",
 		"file-edit-instructions.md",
 		"media/**",
