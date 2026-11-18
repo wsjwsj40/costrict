@@ -228,3 +228,64 @@ button:hover > .chevron, button:focus-visible > .chevron { visibility: visible; 
 .markdown img{display:block;max-width:100%;height:auto;max-height:360px;object-fit:contain;border:1px solid var(--border);border-radius:8px;cursor:zoom-in;margin:8px 0}.markdown img:hover{border-color:var(--vscode-focusBorder)}.markdown img:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:3px}
 
 .session-title{display:block;width:100%;padding:0;text-align:left;min-width:0}.title-edit-icon{display:inline-flex;vertical-align:middle;margin-left:6px;opacity:0}.session-title:hover .title-edit-icon,.session-title:focus-visible .title-edit-icon{opacity:1}.title-edit-icon .icon{width:12px;height:12px}.session-open{display:flex;flex-direction:column;gap:5px;text-align:left;padding:0;width:100%;min-width:0}.session-preview{display:block;max-width:100%}.session-meta{width:100%}.session-symbol,.row-arrow{padding:0;flex:none}.session-symbol{padding-top:3px}.session-row:focus-within .row-arrow{opacity:1}.session-title-editor{display:flex;align-items:center;gap:4px;min-width:0}.session-title-editor input{min-width:0;flex:1;width:100%;font:inherit;color:var(--fg);background:var(--vscode-input-background);border:1px solid var(--vscode-focusBorder);border-radius:4px;padding:3px 5px}.session-title-editor button{display:grid;place-items:center;width:24px;height:24px;border-radius:4px;flex:none}.session-title-editor button:hover{background:var(--hover)}
+
+/* 左侧导航（阶段 1）：替换原顶栏图标，四项入口 + 左下用户中心/设置 */
+#root{flex-direction:row}
+.workspace-shell{display:flex;flex:1;min-height:0;min-width:0}
+.workspace-main{display:flex;flex:1;min-width:0;min-height:0;flex-direction:column}
+.product-rail{flex:none;width:40px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 0;border-right:1px solid var(--border);background:var(--surface)}
+.product-rail button{position:relative;display:grid;place-items:center;width:30px;height:30px;border-radius:6px;color:var(--muted)}
+.product-rail button:hover{background:var(--hover);color:var(--fg)}
+.product-rail button.selected{background:var(--vscode-list-activeSelectionBackground,var(--hover));color:var(--vscode-list-activeSelectionForeground,var(--fg))}
+.product-rail button.selected::before{content:"";position:absolute;left:-5px;top:6px;bottom:6px;width:2px;border-radius:2px;background:var(--vscode-focusBorder,#75beff)}
+.product-rail .icon{width:16px;height:16px;color:inherit}
+.rail-grow{flex:1}
+.rail-divider{width:18px;height:1px;margin:4px 0;background:var(--border)}
+.rail-dot{position:absolute;top:5px;right:5px;width:5px;height:5px;border-radius:50%;background:var(--vscode-focusBorder,#75beff)}
+
+/* Skill 市场页签：【全部】（阶段 2 接入）与【已安装】 */
+.skill-tabs{margin-top:6px}
+.installed-page{display:flex;flex-direction:column;min-width:0}
+.installed-toolbar{display:flex;align-items:center;gap:10px;margin-top:16px}
+.installed-toolbar .search-box{flex:1;min-width:0}
+.installed-actions{display:flex;gap:6px;flex:none}
+.ghost-button{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border:1px solid var(--border);border-radius:6px;color:var(--fg);font-size:11px;white-space:nowrap}
+.ghost-button:hover:not(:disabled){background:var(--hover)}
+.ghost-button .icon{width:12px;height:12px;color:inherit}
+.ghost-button.danger{color:var(--vscode-errorForeground,#f48771);border-color:var(--vscode-errorForeground,#f48771)}
+.icon-button{display:grid;place-items:center;width:26px;height:26px;border-radius:6px;color:var(--muted)}
+.icon-button:hover{background:var(--hover);color:var(--fg)}
+.inline-link{margin-left:8px;padding:0;color:var(--vscode-textLink-foreground);text-decoration:underline}
+.muted{color:var(--muted);font-size:11px;line-height:1.6}
+
+.skill-card{display:flex;flex-direction:column;gap:7px;padding:14px 2px 12px;border-bottom:1px solid var(--border)}
+.skill-card.is-missing{opacity:.72}
+.skill-card-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.skill-name{font-size:13px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.source-tag{flex:none;padding:1px 6px;border:1px solid currentColor;border-radius:999px;font-size:10px;line-height:16px}
+.tone-market{color:var(--vscode-charts-blue,#75beff)}
+.tone-import{color:var(--vscode-charts-green,#73b991)}
+.tone-external{color:var(--vscode-charts-orange,#d18616)}
+.skill-version{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+.skill-date{margin-left:auto;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+.skill-summary{margin:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;color:var(--muted);font-size:12px;line-height:1.6}
+.skill-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:10px;color:var(--muted)}
+.skill-dir{font-family:var(--mono);overflow-wrap:anywhere}
+.skill-scope{padding:0 5px;border:1px solid var(--border);border-radius:4px}
+.skill-note{padding:0 5px;border-radius:4px;background:var(--hover)}
+.skill-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.skill-actions .skill-switch{margin-top:0;margin-left:auto}
+
+.skill-detail{position:fixed;top:0;right:0;bottom:0;z-index:40;display:flex;flex-direction:column;width:min(420px,94%);border-left:1px solid var(--border);background:var(--editor);box-shadow:-8px 0 24px #00000033}
+.skill-detail-head{display:flex;align-items:flex-start;gap:10px;padding:14px 14px 10px;border-bottom:1px solid var(--border)}
+.skill-detail-head>div{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.skill-detail-head strong{font-size:13px;font-weight:600;overflow-wrap:anywhere}
+.skill-detail-head small{font-family:var(--mono);font-size:10px;color:var(--muted);overflow-wrap:anywhere}
+.skill-detail-meta{display:flex;align-items:center;gap:8px;padding:10px 14px;font-size:10px;color:var(--muted);border-bottom:1px solid var(--border)}
+.skill-detail-body{flex:1;min-height:0;overflow:auto;padding:12px 14px}
+.skill-file-list{list-style:none;margin:0 0 12px;padding:0;font-size:11px}
+.skill-file-list li{display:flex;gap:10px;padding:3px 0;border-bottom:1px dashed var(--border);font-family:var(--mono)}
+.skill-file-list li span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.skill-file-list li small{flex:none;color:var(--muted);font-variant-numeric:tabular-nums}
+.skill-readme{margin:0;padding:10px;border-radius:6px;background:var(--vscode-textCodeBlock-background,var(--surface));font:11px/1.6 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+.skill-detail-foot{padding:10px 14px;border-top:1px solid var(--border)}

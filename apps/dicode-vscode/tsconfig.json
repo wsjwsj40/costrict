@@ -11,5 +11,5 @@
     "strict": false,
     "noEmit": true
   },
-  "include": ["webview/**/*.tsx"]
+  "include": ["webview/**/*.tsx", "webview/**/*.ts"]
 }

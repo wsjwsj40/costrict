@@ -12,6 +12,10 @@ const { unifiedDiff } = require("./unifiedDiff")
 const { dynamicTools, editFile } = require("./fileEditTools")
 const { ConversationStore } = require("./media/conversation")
 const { generateThreadTitle, shortRequestTitle } = require("./threadTitle")
+const { buildInstalledView, scanSkillDirs } = require("./installedView")
+const { readRegistry, upsertRecord, removeRecord, isRegistryIgnored, appendRegistryIgnore, registryPaths } = require("./skillsRegistry")
+const { SOURCES, LOCAL_VERSION, SKILLS_DIR_SEGMENTS, validateDirName } = require("./skillsModel")
+const skillArchive = require("./skillArchive")
 const EXTENSION_VERSION = require("./package.json").version
 const FILE_EDIT_INSTRUCTIONS = fs.readFileSync(path.join(__dirname, "file-edit-instructions.md"), "utf8").trim()
 
@@ -25,38 +29,6 @@ const PERMISSION_MODES = {
 	request: { sandbox: "read-only", sandboxPolicy: { type: "readOnly" }, approvalPolicy: "on-request" },
 	auto: { sandbox: "workspace-write", sandboxPolicy: { type: "workspaceWrite", networkAccess: false }, approvalPolicy: "on-request" },
 	full: { sandbox: "danger-full-access", sandboxPolicy: { type: "dangerFullAccess" }, approvalPolicy: "never" },
-}
-
-async function importLocalSkill(source, workspace) {
-	const sourcePath = await fs.promises.realpath(source)
-	const stat = await fs.promises.stat(sourcePath)
-	if (!stat.isDirectory()) throw new Error("请选择技能文件夹")
-	let contents
-	try { contents = await fs.promises.readFile(path.join(sourcePath, "SKILL.md"), "utf8") }
-	catch { throw new Error("所选文件夹中没有 SKILL.md") }
-	const frontmatter = /^\uFEFF?---\s*\r?\n([\s\S]*?)\r?\n---(?:\s|$)/.exec(contents)?.[1]
-	if (!frontmatter || !/^name:\s*\S/m.test(frontmatter) || !/^description:\s*\S/m.test(frontmatter))
-		throw new Error("SKILL.md 需要包含 name 和 description 元数据")
-	const root = path.join(workspace, ".agents", "skills")
-	const destination = path.join(root, path.basename(sourcePath))
-	const relative = path.relative(sourcePath, destination)
-	if (!relative || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative)))
-		throw new Error("请选择工作区技能目录之外的文件夹")
-	await fs.promises.mkdir(root, { recursive: true })
-	try { await fs.promises.mkdir(destination) }
-	catch (error) { if (error.code === "EEXIST") throw new Error(`技能目录已存在：${path.basename(destination)}`); throw error }
-	try {
-		for (const entry of await fs.promises.readdir(sourcePath)) {
-			await fs.promises.cp(path.join(sourcePath, entry), path.join(destination, entry), { recursive: true, force: false, errorOnExist: true, filter: async item => {
-				if ((await fs.promises.lstat(item)).isSymbolicLink()) throw new Error("技能文件夹不能包含符号链接")
-				return true
-			} })
-		}
-	} catch (error) {
-		await fs.promises.rm(destination, { recursive: true, force: true })
-		throw error
-	}
-	return destination
 }
 
 async function bundledModels(binary) {
@@ -354,6 +326,8 @@ class DicodeView {
 	}
 	resolveWebviewView(view) {
 		this.view = view
+		// 技能 client 不常驻：webview 关掉就释放，安装等后台流程需要时再按需拉起
+		view.onDidDispose?.(() => this.disposeSkillClient())
 		const nonce = crypto.randomBytes(16).toString("base64")
 		view.webview.options = {
 			enableScripts: true,
@@ -575,8 +549,291 @@ class DicodeView {
 		this.clientPromise = pending
 		try { return await pending } finally { if (this.clientPromise === pending) this.clientPromise = null }
 	}
+	/**
+	 * 技能专用 app-server：不调用 accessToken()，只用于 skills/list 与 skills/config/write。
+	 * 未登录时模型目录用 CLI 自带模型构造，够 app-server 起来即可。
+	 */
+	async ensureSkillClient() {
+		if (this.skillClient) return this.skillClient
+		if (this.skillClientPromise) return this.skillClientPromise
+		const pending = (async () => {
+			const [binary, powerShellPath] = await Promise.all([this.ensureBinary(), process.platform === "win32" ? this.ensurePowerShell() : Promise.resolve(null)])
+			const nativeModels = await bundledModels(binary)
+			const models = this.models?.length ? this.models : nativeModels.map((model) => ({ id: model.slug, name: model.slug }))
+			const catalog = modelCatalog(models, nativeModels, process.platform)
+			const catalogPath = path.join(this.context.globalStorageUri.fsPath, "dicode-skill-catalog.json")
+			fs.mkdirSync(path.dirname(catalogPath), { recursive: true })
+			fs.writeFileSync(catalogPath, JSON.stringify(catalog), { encoding: "utf8", mode: 0o600 })
+			const client = new CodexClient(binary, `${this.serverUrl}/codex/v1`, "", this.identity, catalogPath, (event) => {
+				if (event.type === "diagnostic") this.output.appendLine(`[skill client] ${event.message}`)
+			}, powerShellPath, process.platform, process.platform === "win32"
+				? vscode.workspace.getConfiguration("dicodeCodex").get("windowsSandboxFallback", "unelevated")
+				: "unelevated")
+			try {
+				await client.initialize(EXTENSION_VERSION)
+			} catch (error) {
+				client.dispose()
+				throw error
+			}
+			this.skillClient = client
+			return client
+		})()
+		this.skillClientPromise = pending
+		try { return await pending } finally { if (this.skillClientPromise === pending) this.skillClientPromise = null }
+	}
+	disposeSkillClient() {
+		this.skillClient?.dispose()
+		this.skillClient = null
+		this.skillClientPromise = null
+	}
+	get skillsRoot() {
+		return this.workspace ? path.join(this.workspace, ...SKILLS_DIR_SEGMENTS) : ""
+	}
+	/**
+	 * 目录名 → 绝对路径。只接受 5.5 的合法单段名，杜绝 `..` 与绝对路径。
+	 * @param {string} dir
+	 * @returns {string}
+	 */
+	skillDirPath(dir) {
+		const check = validateDirName(String(dir || ""))
+		if (!check.ok) throw Object.assign(new Error(`技能目录名不合法：${dir}`), { code: "ARCHIVE_INVALID" })
+		const root = this.skillsRoot
+		if (!root) throw new Error("请先打开工作区")
+		const target = path.join(root, check.dir)
+		const relative = path.relative(root, target)
+		if (!relative || relative.startsWith("..") || path.isAbsolute(relative))
+			throw Object.assign(new Error("技能目录越界"), { code: "ARCHIVE_INVALID" })
+		return target
+	}
+	/**
+	 * 读 Codex 技能索引。CLI 缺失或未登录都不抛，交给调用方降级为目录扫描。
+	 * @param {boolean} forceReload
+	 * @returns {Promise<{ skills: any[], errors: any[], available: boolean, error?: string }>}
+	 */
+	async readSkillIndex(forceReload = true) {
+		try {
+			const client = await this.ensureSkillClient()
+			const result = await client.request("skills/list", { cwds: this.workspace ? [this.workspace] : [], forceReload })
+			const skills = (result.data || []).flatMap(entry => entry.skills || [])
+			const errors = (result.data || []).flatMap(entry => entry.errors || [])
+			this.skills = skills
+			return { skills, errors, available: true }
+		} catch (error) {
+			this.skills = []
+			this.output.appendLine(`[skills] 索引不可用：${error.message}`)
+			return { skills: [], errors: [], available: false, error: error.message }
+		}
+	}
+	/**
+	 * 【已安装】数据：目录扫描 ∪ 登记 ∪ 索引。不发起任何远程请求。
+	 * @returns {Promise<any>}
+	 */
+	async installedSkillsPayload() {
+		if (!this.workspace) return { type: "installedSkills", skills: [], indexAvailable: false, indexError: "请先打开工作区", registryRecovered: false }
+		const [{ skills: records, recovered }, scanned, index] = await Promise.all([
+			readRegistry(this.workspace),
+			scanSkillDirs(this.skillsRoot),
+			this.readSkillIndex(false),
+		])
+		const skills = buildInstalledView({ workspace: this.workspace, records, index: index.skills, scanned, indexAvailable: index.available })
+		const ignored = await isRegistryIgnored(this.workspace).catch(() => true)
+		return { type: "installedSkills", skills, indexAvailable: index.available, indexError: index.error || null, registryRecovered: recovered, registryIgnored: ignored }
+	}
+	/**
+	 * 刷新列表：先推【已安装】合并结果，再推 Codex 原始索引保持旧 UI 兼容。
+	 * @param {boolean} forceReload
+	 */
+	async refreshSkills(forceReload = true) {
+		const index = await this.readSkillIndex(forceReload)
+		this.post(await this.installedSkillsPayload())
+		this.post({ type: "skills", skills: index.skills, errors: index.errors, indexAvailable: index.available, indexError: index.error || null })
+		return index
+	}
+	/**
+	 * 导入/重新导入的共用落盘流程。
+	 * @param {Object} staged 由 skillArchive 产出
+	 * @param {{ record?: any, requestedDir?: string }} options
+	 * @returns {Promise<{ dir: string, record: any } | null>} null 表示用户取消
+	 */
+	async commitImport(staged, options = {}) {
+		const { record = null, requestedDir = "" } = options
+		const root = this.skillsRoot
+		let dir = requestedDir || staged.dirName
+		// 目标目录已被其他技能占用：市场项直接阻断，其余交给用户当场决定
+		const { skills: records } = await readRegistry(this.workspace)
+		const byDir = records.find(item => item.dir === `${SKILLS_DIR_SEGMENTS.join("/")}/${dir}`)
+		if (byDir && byDir.source === SOURCES.MARKET && (!record || record.skillId !== byDir.skillId)) {
+			await skillArchive.discardStaged(staged.stagingRoot)
+			throw Object.assign(new Error("该目录由市场管理，请先删除市场版本，或换个文件夹名导入"), { code: "DIR_CONFLICT" })
+		}
+
+		let target = path.join(root, dir)
+		const exists = await fs.promises.lstat(target).then(() => true, () => false)
+		let replace = false
+		if (record) {
+			// 重新导入：保持原身份，目录固定为登记目录
+			replace = exists
+		} else if (exists || byDir) {
+			const choice = await vscode.window.showWarningMessage(
+				`技能目录 ${dir} 已存在`,
+				{ modal: true },
+				"覆盖",
+				"重命名",
+				"取消",
+			)
+			if (!choice || choice === "取消") {
+				await skillArchive.discardStaged(staged.stagingRoot)
+				return null
+			}
+			if (choice === "覆盖") replace = true
+			else {
+				const renamed = await this.promptSkillDirName(dir)
+				if (!renamed) {
+					await skillArchive.discardStaged(staged.stagingRoot)
+					return null
+				}
+				dir = renamed
+				target = path.join(root, dir)
+			}
+		}
+
+		await skillArchive.commitStaged({ stagingRoot: staged.stagingRoot, stagingSkillPath: staged.stagingSkillPath, skillsRoot: root, dirName: dir, replace })
+		const nextRecord = {
+			skillId: record?.skillId || `local/${dir}`,
+			name: staged.meta.name || dir,
+			summary: staged.meta.description || "",
+			version: record?.version || LOCAL_VERSION,
+			digest: record?.digest || null,
+			dirDigest: staged.digest,
+			dir: `${SKILLS_DIR_SEGMENTS.join("/")}/${dir}`,
+			source: record?.source || SOURCES.IMPORT,
+			origin: record?.origin || dir,
+			installedAt: record?.installedAt || Date.now(),
+			altered: false,
+			indexStale: false,
+		}
+		await upsertRecord(this.workspace, nextRecord)
+		const index = await this.readSkillIndex(true)
+		if (!index.available) {
+			nextRecord.indexStale = true
+			await upsertRecord(this.workspace, nextRecord)
+		}
+		return { dir, record: nextRecord }
+	}
+	/**
+	 * 重命名时循环要名字，直到合法且不冲突。用户取消返回空串。
+	 * @param {string} base
+	 * @returns {Promise<string>}
+	 */
+	async promptSkillDirName(base) {
+		let suggestion = `${base}-copy`
+		for (;;) {
+			const value = await vscode.window.showInputBox({ prompt: "新的技能目录名", value: suggestion, validateInput: (input) => {
+				const check = validateDirName(String(input || "").trim())
+				return check.ok ? null : `目录名不合法（${check.kind}）`
+			} })
+			if (!value) return ""
+			const trimmed = value.trim()
+			const exists = await fs.promises.lstat(path.join(this.skillsRoot, trimmed)).then(() => true, () => false)
+			if (!exists) return trimmed
+			suggestion = trimmed
+			await vscode.window.showWarningMessage(`目录 ${trimmed} 已存在，请换一个名字`)
+		}
+	}
+	/**
+	 * 选择导入来源并落盘。mode 由前端指定，缺省时让用户选。
+	 * @param {"folder"|"zip"|undefined} mode
+	 * @returns {Promise<{ dir: string } | null>}
+	 */
+	async importSkillFlow(mode) {
+		if (!this.workspace) throw new Error("请先打开工作区")
+		let source = mode
+		if (source !== "folder" && source !== "zip") {
+			const picked = await vscode.window.showQuickPick([
+				{ label: "从文件夹导入", value: "folder" },
+				{ label: "从 ZIP 导入", value: "zip" },
+			], { placeHolder: "选择技能来源" })
+			if (!picked) return null
+			source = picked.value
+		}
+		await fs.promises.mkdir(this.skillsRoot, { recursive: true })
+		let staged
+		if (source === "zip") {
+			const selected = await vscode.window.showOpenDialog({ canSelectFiles: true, canSelectFolders: false, canSelectMany: false, filters: { "技能包": ["zip"] }, openLabel: "导入技能包" })
+			if (!selected?.length) return null
+			const stat = await fs.promises.stat(selected[0].fsPath)
+			if (stat.size > skillArchive.ARCHIVE_LIMITS.maxArchiveBytes)
+				throw Object.assign(new Error(`技能包超过 ${Math.round(skillArchive.ARCHIVE_LIMITS.maxArchiveBytes / 1024 / 1024)}MB 限制`), { code: "ARCHIVE_TOO_LARGE" })
+			staged = await skillArchive.extractArchive({ buffer: await fs.promises.readFile(selected[0].fsPath), skillsRoot: this.skillsRoot })
+		} else {
+			const selected = await vscode.window.showOpenDialog({ canSelectFiles: false, canSelectFolders: true, canSelectMany: false, openLabel: "导入技能文件夹" })
+			if (!selected?.length) return null
+			staged = await skillArchive.stageFolder({ sourcePath: selected[0].fsPath, skillsRoot: this.skillsRoot })
+		}
+		const committed = await this.commitImport(staged)
+		return committed ? { dir: committed.dir } : null
+	}
+	/**
+	 * 重新导入：只补齐/替换原目录，继承 skillId 与 source；原目录内容与登记不符时拒绝。
+	 * @param {string} dir
+	 */
+	async reimportSkillFlow(dir) {
+		const { skills: records } = await readRegistry(this.workspace)
+		const record = records.find(item => item.dir === `${SKILLS_DIR_SEGMENTS.join("/")}/${dir}`)
+		if (!record) throw new Error("该技能不在安装登记中，请使用导入")
+		const target = this.skillDirPath(dir)
+		const exists = await fs.promises.lstat(target).then(() => true, () => false)
+		if (exists && record.dirDigest) {
+			const current = await skillArchive.digestDirectory(target)
+			if (current !== record.dirDigest)
+				throw Object.assign(new Error("原目录内容与登记不一致，已保留旧登记"), { code: "SOURCE_VERIFY_FAILED" })
+		}
+		const selected = await vscode.window.showOpenDialog({ canSelectFiles: false, canSelectFolders: true, canSelectMany: false, openLabel: `重新导入 ${record.name || dir}` })
+		if (!selected?.length) return null
+		await fs.promises.mkdir(this.skillsRoot, { recursive: true })
+		const staged = await skillArchive.stageFolder({ sourcePath: selected[0].fsPath, skillsRoot: this.skillsRoot })
+		const committed = await this.commitImport(staged, { record, requestedDir: dir })
+		return committed ? { dir: committed.dir } : null
+	}
+	/**
+	 * 详情：只读本地文件，路径必须落在技能目录内（含符号链接逃逸检查）。
+	 * @param {string} dir
+	 */
+	async skillDetailPayload(dir) {
+		const target = this.skillDirPath(dir)
+		const realRoot = await fs.promises.realpath(this.skillsRoot).catch(() => this.skillsRoot)
+		const realTarget = await fs.promises.realpath(target).catch(() => {
+			throw Object.assign(new Error("技能目录不存在"), { code: "NOT_FOUND" })
+		})
+		const relative = path.relative(realRoot, realTarget)
+		if (!relative || relative.startsWith("..") || path.isAbsolute(relative))
+			throw Object.assign(new Error("技能目录越界"), { code: "ARCHIVE_INVALID" })
+
+		const { skills: records } = await readRegistry(this.workspace)
+		const record = records.find(item => item.dir === `${SKILLS_DIR_SEGMENTS.join("/")}/${dir}`) || null
+		const files = []
+		/** @param {string} current @param {string} prefix */
+		const walk = async (current, prefix) => {
+			if (files.length >= 200) return
+			for (const entry of await fs.promises.readdir(current, { withFileTypes: true })) {
+				if (files.length >= 200) return
+				const full = path.join(current, entry.name)
+				const stat = await fs.promises.lstat(full)
+				if (stat.isSymbolicLink()) continue
+				const rel = prefix ? `${prefix}/${entry.name}` : entry.name
+				if (stat.isDirectory()) await walk(full, rel)
+				else files.push({ path: rel, size: stat.size })
+			}
+		}
+		await walk(realTarget, "")
+		let readme = ""
+		try {
+			const stat = await fs.promises.stat(path.join(realTarget, "SKILL.md"))
+			if (stat.size <= 512 * 1024) readme = await fs.promises.readFile(path.join(realTarget, "SKILL.md"), "utf8")
+		} catch {}
+		return { type: "skillDetail", detail: { dir, dirPath: realTarget, files, readme, record } }
+	}
 	async ensureBinary() {
-		const override = vscode.workspace.getConfiguration("dicodeCodex").get("codexPath")
 		if (override && override !== "codex") return override
 		if (!this.installPromise) {
 			this.installPromise = ensureCodexInstalled(
@@ -1013,29 +1270,124 @@ class DicodeView {
 
 		if (message.type === "importSkill") {
 			try {
-				if (!this.workspace) throw new Error("请先打开工作区")
-				const selected = await vscode.window.showOpenDialog({ canSelectFiles: false, canSelectFolders: true, canSelectMany: false, openLabel: "导入技能文件夹" })
-				if (!selected?.length) return
-				await importLocalSkill(selected[0].fsPath, this.workspace)
-				await this.handle({ type: "listSkills" })
-			} catch (error) { this.post({ type: "skillsError", message: error.message }) }
+				const result = await this.importSkillFlow(message.mode)
+				if (result) {
+					await this.refreshSkills(false)
+					this.post({ type: "skillImported", dir: result.dir, mode: message.mode || "folder" })
+				} else {
+					this.post(await this.installedSkillsPayload())
+				}
+			} catch (error) {
+				this.post({ type: "skillsError", action: "import", code: error.code || "ARCHIVE_INVALID", message: error.message })
+			}
+			return
+		}
+		if (message.type === "reimportSkill") {
+			try {
+				const result = await this.reimportSkillFlow(message.dir)
+				if (result) {
+					await this.refreshSkills(false)
+					this.post({ type: "skillImported", dir: result.dir, mode: "reimport" })
+				} else {
+					this.post(await this.installedSkillsPayload())
+				}
+			} catch (error) {
+				this.post({ type: "skillsError", action: "reimport", dir: message.dir, code: error.code || "ARCHIVE_INVALID", message: error.message })
+			}
+			return
+		}
+		if (message.type === "unregisterSkill") {
+			try {
+				const { skills: records } = await readRegistry(this.workspace)
+				const record = records.find(item => item.dir === `${SKILLS_DIR_SEGMENTS.join("/")}/${message.dir}`)
+				if (!record) throw new Error("该技能不在安装登记中")
+				await removeRecord(this.workspace, { skillId: record.skillId, source: record.source })
+				this.post(await this.installedSkillsPayload())
+			} catch (error) {
+				this.post({ type: "skillsError", action: "unregister", dir: message.dir, message: error.message })
+			}
+			return
+		}
+		if (message.type === "deleteSkill") {
+			try {
+				const payload = await this.installedSkillsPayload()
+				const entry = (payload.skills || []).find(item => item.dir === message.dir)
+				if (!entry) throw new Error("技能不存在，请刷新列表")
+				if (entry.scope === "system" || entry.scope === "admin") throw new Error("系统/管理员技能为只读，不能删除")
+				const lines = [`将删除目录：${entry.dirPath}`]
+				if (entry.source === SOURCES.EXTERNAL) lines.push("该目录不在安装登记中，可能是团队共享文件。")
+				const choice = await vscode.window.showWarningMessage(lines.join("\n"), { modal: true }, "删除")
+				if (choice !== "删除") {
+					this.post(payload)
+					return
+				}
+				if (entry.source === SOURCES.EXTERNAL) {
+					const second = await vscode.window.showWarningMessage("确认删除手工放置的技能？此操作不可撤销。", { modal: true }, "确认删除")
+					if (second !== "确认删除") {
+						this.post(payload)
+						return
+					}
+				}
+				await vscode.workspace.fs.delete(vscode.Uri.file(entry.dirPath), { recursive: true, useTrash: true })
+				if (entry.record) await removeRecord(this.workspace, { skillId: entry.record.skillId, source: entry.record.source })
+				this.post(await this.installedSkillsPayload())
+				this.post({ type: "skillDeleted", dir: entry.dir })
+			} catch (error) {
+				this.post({ type: "skillsError", action: "delete", dir: message.dir, code: error.code, message: error.message })
+			}
+			return
+		}
+		if (message.type === "installedSkills") {
+			this.post(await this.installedSkillsPayload())
+			return
+		}
+		if (message.type === "getSkillDetail") {
+			try {
+				this.post(await this.skillDetailPayload(message.dir))
+			} catch (error) {
+				this.post({ type: "skillsError", action: "detail", dir: message.dir, code: error.code, message: error.message })
+			}
+			return
+		}
+		if (message.type === "revealSkill") {
+			if (!this.workspace) throw new Error("请先打开工作区")
+			await vscode.commands.executeCommand("revealInExplorer", vscode.Uri.file(this.skillDirPath(message.dir)))
+			return
+		}
+		if (message.type === "openSettings") {
+			await vscode.commands.executeCommand("workbench.action.openSettings", "dicodeCodex")
+			return
+		}
+		if (message.type === "openSkillFile") {
+			const dirPath = this.skillDirPath(message.dir)
+			const target = path.resolve(dirPath, message.path || "SKILL.md")
+			const relative = path.relative(dirPath, target)
+			if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("文件路径越界")
+			await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(target))
+			return
+		}
+		if (message.type === "ignoreRegistry") {
+			if (this.workspace) await appendRegistryIgnore(this.workspace)
+			this.post(await this.installedSkillsPayload())
 			return
 		}
 		if (message.type === "listSkills") {
-			try {
-				const client = await this.ensureClient()
-				const result = await client.request("skills/list", { cwds: this.workspace ? [this.workspace] : [], forceReload: true })
-				this.skills = (result.data || []).flatMap(entry => entry.skills || [])
-				this.post({ type: "skills", skills: this.skills, errors: (result.data || []).flatMap(entry => entry.errors || []) })
-			} catch (error) { this.post({ type: "skillsError", message: error.message }) }
+			await this.refreshSkills(true)
 			return
 		}
 		if (message.type === "setSkillEnabled") {
 			const skill = this.skills?.find(item => item.path === message.path)
-			if (!skill) throw new Error("技能不存在，请刷新列表")
-			const client = await this.ensureClient()
-			await client.request("skills/config/write", { path: skill.path, enabled: !!message.enabled })
-			await this.handle({ type: "listSkills" })
+			if (!skill) {
+				this.post({ type: "skillsError", action: "toggle", dir: message.dir, enabled: !message.enabled, message: "技能不存在，请刷新列表" })
+				return
+			}
+			try {
+				const client = await this.ensureSkillClient()
+				await client.request("skills/config/write", { path: skill.path, enabled: !!message.enabled })
+				this.post(await this.installedSkillsPayload())
+			} catch (error) {
+				this.post({ type: "skillsError", action: "toggle", dir: message.dir, enabled: !message.enabled, message: `启停失败：${error.message}` })
+			}
 			return
 		}
 		if (message.type === "chooseImages") {
@@ -1251,6 +1603,7 @@ class DicodeView {
 		clearTimeout(this.historyTimer)
 		this.persistHistory()
 		this.client?.dispose()
+		this.disposeSkillClient()
 		this.output.dispose()
 	}
 }

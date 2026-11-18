@@ -81,6 +81,8 @@
 		"skillsModel.js",
 		"skillsRegistry.js",
 		"skillsJobs.js",
+		"skillArchive.js",
+		"installedView.js",
 		"dicode-instructions.md",
 		"file-edit-instructions.md",
 		"media/**",

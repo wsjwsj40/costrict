@@ -3,7 +3,11 @@ import { createRoot } from 'react-dom/client'
 import MarkdownIt from 'markdown-it'
 import Composer from './Composer'
 import Attachments, { ImagePreview } from './Attachments'
-import { HistoryList, SkillList } from './Subpages'
+import { HistoryList } from './Subpages'
+import NavRail, { type RailPage } from './NavRail'
+import Installed from './Installed'
+import { Icon } from './Icon'
+import type { InstalledSkill, SkillDetail } from './skills'
 import { ConversationStore, parseDiff } from '../media/conversation'
 import './style.css'
 
@@ -45,26 +49,6 @@ md.renderer.rules.image = (tokens, index, options, env, renderer) => {
 }
 const post = (type: string, data: Record<string, unknown> = {}) => vscode.postMessage({ type, ...data })
 const editTools = new Set(['write_file', 'replace_file_text', 'delete_file'])
-const iconPaths: Record<string, string> = {
-  brand: 'M3.2 17.7 9 5.8c.8-1.7 2.5-2.1 3.7-.7l3.1 3.7 M3.2 17.7c-.8 1.7.3 3 2.3 2.4l10-3.7c2.1-.8 3.5-.4 4.4 1.1 M20 9.2v7.9c0 3.1-2.8 3.7-4.5 1.9 M20 4.2h.01',
-  edit: 'M3 11.5 2.5 14l2.5-.5 8.1-8.1-2-2L3 11.5Zm7.2-8.1 1.4-1.4a1.4 1.4 0 0 1 2 2l-1.4 1.4',
-  command: 'M2 3.2h12v9.6H2zM4.5 6l2.2 2-2.2 2M8.5 10h3',
-  copy: 'M5 4h8v10H5zM3 11H2V2h8v1',
-  changes: 'M3 2.5h7l3 3v8H3zM9.5 2.5v3H13M5.5 9h5M5.5 11.5h4',
-  history: 'M8 2a6 6 0 1 1-5.7 4M8 4v4l2.5 1.5M2 3v3h3',
-  new: 'M2.5 2.5h11v11h-11zM8 5v6M5 8h6',
-  chat: 'M2 2.5h12v8H7l-4 3v-3H2zM5 5.5h6M5 8h4',
-  right: 'M6 3l5 5-5 5',
-  check: 'M3 8l3 3 7-7',
-  close: 'M4 4l8 8M12 4l-8 8',
-  back: 'M9.5 3 4.5 8l5 5M5 8h8',
-  search: 'M6.8 2.5a4.3 4.3 0 1 0 0 8.6 4.3 4.3 0 0 0 0-8.6zM10 10l3.5 3.5',
-  plus: 'M8 3v10M3 8h10',
-  skills: 'M8 1.5 10 5.5 14.5 6.2 11.2 9.4 12 14 8 11.8 4 14 4.8 9.4 1.5 6.2 6 5.5z',
-  user: 'M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM2.5 14c.3-3 2.3-4.5 5.5-4.5s5.2 1.5 5.5 4.5',
-  compact: 'M4 2h8M4 14h8M3 3v10M6 5h6M6 8h5M6 11h6M1.5 5h2M1.5 11h2',
-}
-function Icon({ kind }: { kind: string }) { if (kind === 'brand') return <img className="icon" src={document.querySelector<HTMLMetaElement>('meta[name="dicode-brand"]')?.content || ''} alt="" />; return <svg className="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={iconPaths[kind] || iconPaths.command} /></svg> }
 function Markdown({ text }: { text: string }) {
   const [preview, setPreview] = useState<{ src: string; name: string } | null>(null)
   const onClick = (event: React.MouseEvent) => {
@@ -269,24 +253,47 @@ function App() {
   const [status, setStatus] = useState('准备就绪')
   const [approval, setApproval] = useState<any>(null)
   const [question, setQuestion] = useState<any>(null)
-  const [page, setPage] = useState<'home' | 'history' | 'profile' | 'skills'>('home')
+  const [page, setPage] = useState<'home' | 'skills' | 'history' | 'notices' | 'profile'>('home')
+  const [skillsTab, setSkillsTab] = useState<'installed' | 'all'>('installed')
   const [search, setSearch] = useState('')
   const [images, setImages] = useState<any[]>([])
-  const [skills, setSkills] = useState<any[]>([])
-  const [skillSearch, setSkillSearch] = useState('')
+  const [installed, setInstalled] = useState<InstalledSkill[]>([])
+  const [indexAvailable, setIndexAvailable] = useState(true)
+  const [registryIgnored, setRegistryIgnored] = useState(true)
+  const [registryRecovered, setRegistryRecovered] = useState(false)
+  const [skillDetail, setSkillDetail] = useState<SkillDetail | null>(null)
+  const [pendingSkills, setPendingSkills] = useState<Record<string, boolean>>({})
   const [skillsMessage, setSkillsMessage] = useState('')
+  const [notices, setNotices] = useState<Array<{ id: string; title: string; detail: string; at: number }>>([])
   const [planOpen, setPlanOpen] = useState(false)
   const [visibleLimit, setVisibleLimit] = useState(30)
   const [stopping, setStopping] = useState(false)
+  const autoLanded = useRef(false)
   const messages = useRef<HTMLDivElement>(null)
   const follow = useRef(true)
   const busy = state.busy || (store.turns.at(-1)?.status === 'starting' && state.busy !== false)
   useEffect(() => {
     const receive = (event: MessageEvent) => {
       const msg = event.data
-      if (msg.type === 'state') { setState((old: any) => ({ ...old, ...msg })); if (msg.models?.length) setModel(current => msg.models.some((entry: any) => entry.id === current) ? current : msg.models[0].id); if (!msg.busy) { setStopping(false); const turn = store.turns.at(-1); if (turn && turn.id === msg.lastTurn?.id && ['starting', 'inProgress'].includes(turn.status) && ['failed', 'interrupted', 'completed'].includes(msg.lastTurn.status)) { turn.status = msg.lastTurn.status; turn.error = msg.lastTurn.error; turn.stopRequested = msg.lastTurn.stopRequested; turn.completedAt = Date.now(); setRevision(n => n + 1) } } }
-      if (msg.type === 'skills') { setSkills(msg.skills || []); setSkillsMessage(msg.errors?.length ? '部分技能加载失败' : '') }
-      if (msg.type === 'skillsError') setSkillsMessage(msg.message)
+      if (msg.type === 'state') {
+        if (!autoLanded.current) { autoLanded.current = true; if (!msg.loggedIn) setPage('skills') }
+        setState((old: any) => ({ ...old, ...msg })); if (msg.models?.length) setModel(current => msg.models.some((entry: any) => entry.id === current) ? current : msg.models[0].id); if (!msg.busy) { setStopping(false); const turn = store.turns.at(-1); if (turn && turn.id === msg.lastTurn?.id && ['starting', 'inProgress'].includes(turn.status) && ['failed', 'interrupted', 'completed'].includes(msg.lastTurn.status)) { turn.status = msg.lastTurn.status; turn.error = msg.lastTurn.error; turn.stopRequested = msg.lastTurn.stopRequested; turn.completedAt = Date.now(); setRevision(n => n + 1) } } }
+      if (msg.type === 'skills') setSkillsMessage(msg.errors?.length ? '部分技能加载失败' : '')
+      if (msg.type === 'installedSkills') {
+        setInstalled(msg.skills || [])
+        setIndexAvailable(msg.indexAvailable !== false)
+        setRegistryIgnored(msg.registryIgnored !== false)
+        setRegistryRecovered(msg.registryRecovered === true)
+        setSkillsMessage(msg.indexAvailable === false ? `索引不可用：${msg.indexError || 'Codex CLI 未就绪'}` : '')
+        setPendingSkills({})
+      }
+      if (msg.type === 'skillDetail') setSkillDetail(msg.detail || null)
+      if (msg.type === 'skillImported') { setSkillsMessage(`已导入 ${msg.dir}`); setSkillDetail(null) }
+      if (msg.type === 'skillDeleted') { setSkillsMessage(`已删除 ${msg.dir}`); setSkillDetail(current => current?.dir === msg.dir ? null : current) }
+      if (msg.type === 'skillsError') {
+        setSkillsMessage(msg.message)
+        if (msg.action === 'toggle' && msg.dir) setPendingSkills(current => { const next = { ...current }; delete next[msg.dir]; return next })
+      }
       if (msg.type === 'imagesSelected' || msg.type === 'filesSelected') setImages(old => [...old, ...msg.images.filter((image: any) => !old.some(item => item.path === image.path))])
       if (msg.type === 'history') { store.restore(msg.snapshot); setRevision(n => n + 1) }
       if (msg.type === 'tokenUsage') setState((old: any) => ({ ...old, tokenUsage: msg.tokenUsage }))
@@ -310,10 +317,54 @@ function App() {
   }, [])
   useEffect(() => { if (follow.current && messages.current) messages.current.scrollTop = messages.current.scrollHeight }, [revision, state.busy])
   const send = (effort: string) => { const text = prompt.trim(); if ((!text && !images.length) || !state.models?.some((entry: any) => entry.id === model) || busy) return; store.begin(text, images); setRevision(n => n + 1); setPrompt(''); setState((old: any) => ({ ...old, busy: true })); setStatus('正在连接 Agent…'); follow.current = true; post('send', { text, model, effort, images: images.filter(image => !image.id).map(image => image.data), attachments: images.filter(image => image.id).map(image => image.id) }); setImages([]) }
+  const navigate = (next: RailPage) => {
+    setPage(next)
+    setSkillDetail(null)
+    if (next === 'skills') { setSkillsTab('installed'); setSkillsMessage('正在加载…'); post('installedSkills') }
+  }
+  const toggleSkill = (skill: InstalledSkill) => {
+    // 乐观更新 + 逐项 pending，失败由 skillsError 回滚并提示（9.4）
+    setPendingSkills(current => ({ ...current, [skill.dir]: true }))
+    setInstalled(current => current.map(item => item.dir === skill.dir ? { ...item, enabled: !item.enabled } : item))
+    post('setSkillEnabled', { dir: skill.dir, path: skill.path, enabled: skill.enabled !== true })
+  }
   const latest = store.turns.at(-1)
   const plan = busy && latest?.plan?.steps?.length ? latest.plan : null
   const matchingThreads = (state.threads || []).filter((thread: any) => !search.trim() || [thread.title, ...(thread.turns || []).flatMap((turn: any) => [turn.user, turn.answer])].some(value => String(value || '').toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())))
-  return <><header className="topbar"><span className="brand"><Icon kind="brand" /><strong>DiCode</strong></span><div className="top-actions"><button title="新建会话" onClick={() => { post('newThread'); setPage('home') }}><Icon kind="new" /></button><button title="历史会话" onClick={() => setPage('history')}><Icon kind="history" />{state.historyUnread && <span className="history-dot" />}</button><button title="Skill 市场" onClick={() => { setPage('skills'); setSkillsMessage('正在加载…'); post('listSkills') }}><Icon kind="skills" /></button><button title="个人信息" onClick={() => setPage('profile')}><Icon kind="user" /></button></div></header>{page === 'history' ? <main className="subpage"><PageHeader title="历史会话" onBack={() => setPage('home')} /><PageSearch placeholder="搜索标题、输入和回答" value={search} onChange={setSearch} /><HistoryList onRename={(threadId, title) => post('renameThread', { threadId, title })} threads={matchingThreads} query={search} currentId={state.threadId} Icon={Icon} onSelect={threadId => { post('switchThread', { threadId }); setPage('home') }} /></main> : page === 'skills' ? <main className="subpage"><PageHeader title="Skill 市场" onBack={() => setPage('home')} action={<button className="skill-import" onClick={() => { setSkillsMessage(''); post('importSkill') }}><Icon kind="plus" />导入</button>} /><PageSearch placeholder="搜索技能" value={skillSearch} onChange={setSkillSearch} /><SkillList skills={skills} query={skillSearch} message={skillsMessage} Icon={Icon} onToggle={skill => post('setSkillEnabled', { path: skill.path, enabled: !skill.enabled })} /></main> : page === 'profile' ? <main className="subpage"><PageHeader title="个人信息" onBack={() => setPage('home')} /><div className="account-panel"><div className="account-identity"><ProfileAvatar picture={state.user?.picture} /><strong>{state.user?.name || (state.loggedIn ? '姓名未提供' : '未登录')}</strong><span className="account-status"><i />{state.loggedIn ? '已连接 DiCode' : '尚未连接'}</span></div><div className="account-details"><div><span>姓名</span><strong>{state.user?.name || '—'}</strong></div><div><span>邮箱</span><strong>{state.user?.email || '—'}</strong></div></div><button className="account-login" onClick={() => post('login')}><Icon kind="user" />{state.loggedIn ? '重新登录' : '登录 DiCode'}<Icon kind="right" /></button></div></main> : !state.loggedIn ? <div className="login"><h2>让想法成为代码。</h2><p>登录后，在当前工作区和 DiCode 一起完成任务。</p><button className="primary" onClick={() => post('login')}>登录 DiCode</button></div> : <main className="app"><div className="toolbar"><span className="workspace">{state.workspace || '未打开工作区'}</span></div><div className="conversation-area"><div className="messages" ref={messages} onScroll={() => { const node = messages.current; if (node) follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80 }}>{store.turns.length > visibleLimit && <button className="earlier" onClick={() => setVisibleLimit(n => n + 30)}>显示更早的消息</button>}{store.turns.length ? store.turns.slice(-visibleLimit).map((turn: any) => <TurnView key={turn.id} turn={turn} />) : <div className="empty"><div><Icon kind="brand" /></div><h2>从一个问题开始</h2><p>描述任务，DiCode 会在工作区中逐步完成。</p></div>}</div></div>{approval && <div className="approval"><strong>需要授权</strong><p>{approval.params?.reason || approval.params?.command || approval.params?.path || '继续执行此操作？'}</p><div className="approval-actions">{(approval.params?.availableDecisions || ['accept', 'decline']).map((decision: any) => { const value = typeof decision === 'string' ? decision : decision.decision; return <button key={value} onClick={() => post('approve', { id: approval.id, decision: value })}>{value === 'accept' ? '允许' : value === 'decline' ? '拒绝' : value}</button> })}</div></div>}{question && <UserInputCard key={question.id} request={question} />}{plan && <div className="plan-dock"><button onClick={() => setPlanOpen(!planOpen)}>执行计划 · {plan.steps.filter((step: any) => step.status === 'completed').length}/{plan.steps.length} <span className={`chevron ${planOpen ? 'up' : ''}`} /></button>{planOpen && <ol>{plan.steps.map((step: any, i: number) => <li key={i}>{step.step || step.text}</li>)}</ol>}</div>}<Composer images={images} setImages={setImages} state={state} model={model} setModel={setModel} prompt={prompt} setPrompt={setPrompt} busy={busy} stopping={stopping} status={status} send={send} post={(type, data) => { if (type === "stop") setStopping(true); post(type, data) }} persistModel={modelId => vscode.setState?.({ modelId })} /></main>}</>
+  return <div className="workspace-shell">
+    <NavRail page={page} onNavigate={navigate} onProfile={() => setPage('profile')} onSettings={() => post('openSettings')} historyUnread={state.historyUnread} noticesUnread={notices.length > 0} />
+    <div className="workspace-main">
+      {page === 'history' ? <main className="subpage"><PageHeader title="历史会话" onBack={() => setPage('home')} /><PageSearch placeholder="搜索标题、输入和回答" value={search} onChange={setSearch} /><HistoryList onRename={(threadId, title) => post('renameThread', { threadId, title })} threads={matchingThreads} query={search} currentId={state.threadId} Icon={Icon} onSelect={threadId => { post('switchThread', { threadId }); setPage('home') }} /></main>
+      : page === 'skills' ? <main className="subpage skill-hub">
+          <PageHeader title="Skill 市场" onBack={() => setPage('home')} action={<button className="ghost-button" onClick={() => post('installedSkills')}><Icon kind="refresh" />刷新</button>} />
+          <div className="list-tabs skill-tabs" aria-label="技能页签">
+            <button aria-pressed={skillsTab === 'all'} className={skillsTab === 'all' ? 'active' : ''} onClick={() => setSkillsTab('all')}>全部</button>
+            <button aria-pressed={skillsTab === 'installed'} className={skillsTab === 'installed' ? 'active' : ''} onClick={() => setSkillsTab('installed')}>已安装<span>{installed.length}</span></button>
+          </div>
+          {skillsTab === 'installed'
+            ? <Installed
+                skills={installed}
+                indexAvailable={indexAvailable}
+                message={skillsMessage}
+                detail={skillDetail}
+                pending={pendingSkills}
+                showIgnoreHint={!registryIgnored}
+                onImport={mode => { setSkillsMessage(''); post('importSkill', { mode }) }}
+                onToggle={toggleSkill}
+                onDelete={skill => post('deleteSkill', { dir: skill.dir })}
+                onReimport={skill => { setSkillsMessage(''); post('reimportSkill', { dir: skill.dir }) }}
+                onUnregister={skill => post('unregisterSkill', { dir: skill.dir })}
+                onDetail={skill => post('getSkillDetail', { dir: skill.dir })}
+                onCloseDetail={() => setSkillDetail(null)}
+                onIgnoreRegistry={() => post('ignoreRegistry')}
+              />
+            : <div className="page-empty-state"><Icon kind="box" /><strong>市场目录将在后续版本接入</strong><p>当前版本可在【已安装】里管理本地技能。</p></div>}
+        </main>
+      : page === 'notices' ? <main className="subpage"><PageHeader title="消息提醒" onBack={() => setPage('home')} /><div className="page-empty-state"><Icon kind="bell" /><strong>暂无消息</strong><p>任务与待决策的提醒会出现在这里。</p></div></main>
+      : page === 'profile' ? <main className="subpage"><PageHeader title="个人信息" onBack={() => setPage('home')} /><div className="account-panel"><div className="account-identity"><ProfileAvatar picture={state.user?.picture} /><strong>{state.user?.name || (state.loggedIn ? '姓名未提供' : '未登录')}</strong><span className="account-status"><i />{state.loggedIn ? '已连接 DiCode' : '尚未连接'}</span></div><div className="account-details"><div><span>姓名</span><strong>{state.user?.name || '—'}</strong></div><div><span>邮箱</span><strong>{state.user?.email || '—'}</strong></div></div><button className="account-login" onClick={() => post('login')}><Icon kind="user" />{state.loggedIn ? '重新登录' : '登录 DiCode'}<Icon kind="right" /></button>{registryRecovered && <p className="muted">安装登记文件曾损坏，已备份为 .bak 并继续使用空登记。</p>}</div></main>
+      : !state.loggedIn ? <div className="login"><h2>让想法成为代码。</h2><p>登录后，在当前工作区和 DiCode 一起完成任务。</p><button className="primary" onClick={() => post('login')}>登录 DiCode</button></div> : <main className="app"><div className="toolbar"><span className="workspace">{state.workspace || '未打开工作区'}</span></div><div className="conversation-area"><div className="messages" ref={messages} onScroll={() => { const node = messages.current; if (node) follow.current = node.scrollHeight - node.scrollTop - node.clientHeight < 80 }}>{store.turns.length > visibleLimit && <button className="earlier" onClick={() => setVisibleLimit(n => n + 30)}>显示更早的消息</button>}{store.turns.length ? store.turns.slice(-visibleLimit).map((turn: any) => <TurnView key={turn.id} turn={turn} />) : <div className="empty"><div><Icon kind="brand" /></div><h2>从一个问题开始</h2><p>描述任务，DiCode 会在工作区中逐步完成。</p></div>}</div></div>{approval && <div className="approval"><strong>需要授权</strong><p>{approval.params?.reason || approval.params?.command || approval.params?.path || '继续执行此操作？'}</p><div className="approval-actions">{(approval.params?.availableDecisions || ['accept', 'decline']).map((decision: any) => { const value = typeof decision === 'string' ? decision : decision.decision; return <button key={value} onClick={() => post('approve', { id: approval.id, decision: value })}>{value === 'accept' ? '允许' : value === 'decline' ? '拒绝' : value}</button> })}</div></div>}{question && <UserInputCard key={question.id} request={question} />}{plan && <div className="plan-dock"><button onClick={() => setPlanOpen(!planOpen)}>执行计划 · {plan.steps.filter((step: any) => step.status === 'completed').length}/{plan.steps.length} <span className={`chevron ${planOpen ? 'up' : ''}`} /></button>{planOpen && <ol>{plan.steps.map((step: any, i: number) => <li key={i}>{step.step || step.text}</li>)}</ol>}</div>}<Composer images={images} setImages={setImages} state={state} model={model} setModel={setModel} prompt={prompt} setPrompt={setPrompt} busy={busy} stopping={stopping} status={status} send={send} post={(type, data) => { if (type === "stop") setStopping(true); post(type, data) }} persistModel={modelId => vscode.setState?.({ modelId })} /></main>}
+    </div>
+  </div>
 }
 
-createRoot(document.getElementById('root')!).render(document.querySelector('meta[name="dicode-view"][content="changes"]') ? <ChangesViewer /> : <App />)
+createRoot(document.getElementById('root')!).render(document.querySelector<HTMLMetaElement>('meta[name="dicode-view"][content="changes"]') ? <ChangesViewer /> : <App />)
