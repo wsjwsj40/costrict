@@ -469,14 +469,93 @@ test('market: tab switching keeps search text and installed list intact', async 
   view.dom.window.close()
 })
 
-test('market: install click in phase 2 surfaces notice, no fake install', async () => {
+test('market: install click posts real marketInstall with skillId and version', async () => {
   const view = setup()
   await enterMarket(view)
-  view.emit({ type: 'marketCatalog', items: [marketSkill({})], page: 0, total: 1, hasNext: false, labelStats: [], cachedAt: Date.now(), stale: false, query: '', label: '', sort: 'newest' })
+  view.emit({ type: 'marketCatalog', items: [marketSkill({ version: '1.2.0' })], page: 0, total: 1, hasNext: false, labelStats: [], cachedAt: Date.now(), stale: false, query: '', label: '', sort: 'newest' })
   await tick()
-  view.emit({ type: 'skillsNotice', message: '安装链路将在阶段 3 接入，当前版本仅浏览市场目录' })
+  view.doc.querySelector('.market-card .skill-actions button').click()
+  const install = view.sent.at(-1)
+  assert.equal(install.type, 'marketInstall', '阶段 3 安装点击发 marketInstall')
+  assert.equal(install.skillId, 'global/pdf-tools')
+  assert.equal(install.version, '1.2.0')
+  // 切到全部页签时先取任务快照（8.4 重连）
+  assert.ok(view.sent.some(message => message.type === 'getInstallJobs'), '进入全部页签请求任务快照')
+  view.dom.window.close()
+})
+
+test('market: install jobs drive card states with progress, retry and block', async () => {
+  const view = setup()
+  await enterMarket(view)
+  view.emit({ type: 'marketCatalog', items: [
+    marketSkill({}),
+    marketSkill({ id: 'g/scraper', slug: 'scraper', name: '网页抓取' }),
+    marketSkill({ id: 'g/heavy', slug: 'heavy', name: '超限用例' }),
+  ], page: 0, total: 3, hasNext: false, labelStats: [], cachedAt: Date.now(), stale: false, query: '', label: '', sort: 'newest' })
   await tick()
-  assert.match(view.doc.querySelector('.list-notice').textContent, /阶段 3/)
+  // 快照：一个在跑、一个失败可重试、一个失败不可重试
+  view.emit({ type: 'installJobs', jobs: [
+    { jobId: 'j1', skillId: 'global/pdf-tools', version: '1.2.0', state: 'downloading', seq: 2, progress: 40, retryable: false },
+    { jobId: 'j2', skillId: 'g/scraper', version: '1.0.0', state: 'failed', seq: 3, errorCode: 'ARCHIVE_CORRUPT', errorMessage: '技能包校验失败', retryable: true },
+    { jobId: 'j3', skillId: 'g/heavy', version: '1.0.0', state: 'failed', seq: 1, errorCode: 'ARCHIVE_TOO_LARGE', errorMessage: '超出大小限制', retryable: false },
+  ] })
+  await tick()
+  const buttons = () => [...view.doc.querySelectorAll('.market-card .skill-actions button')]
+  assert.equal(buttons()[0].textContent, '安装中…')
+  assert.equal(buttons()[0].disabled, true)
+  assert.match(view.doc.querySelectorAll('.market-card')[0].querySelector('.skill-actions').textContent, /下载 40%/)
+  assert.equal(buttons()[1].textContent, '重试')
+  assert.equal(buttons()[1].disabled, false)
+  assert.match(view.doc.querySelectorAll('.market-card')[1].querySelector('.skill-actions').textContent, /技能包校验失败/, '重试态保留失败原因')
+  assert.equal(buttons()[2].textContent, '无法安装')
+  assert.equal(buttons()[2].disabled, true)
+
+  // 进度事件推进：seq 递增生效
+  view.emit({ type: 'installEvent', jobId: 'j1', skillId: 'global/pdf-tools', version: '1.2.0', state: 'downloading', seq: 3, progress: 85 })
+  await tick()
+  assert.match(view.doc.querySelectorAll('.market-card')[0].querySelector('.skill-actions').textContent, /下载 85%/)
+  // 重复 seq 被忽略
+  view.emit({ type: 'installEvent', jobId: 'j1', skillId: 'global/pdf-tools', version: '1.2.0', state: 'downloading', seq: 3, progress: 99 })
+  await tick()
+  assert.match(view.doc.querySelectorAll('.market-card')[0].querySelector('.skill-actions').textContent, /下载 85%/, '重复 seq 不生效')
+
+  // 点击重试 → marketRetry 带旧 jobId
+  buttons()[1].click()
+  const retry = view.sent.at(-1)
+  assert.equal(retry.type, 'marketRetry')
+  assert.equal(retry.jobId, 'j2')
+
+  // done 事件把任务移出，installedSkills 推送后卡片转已安装
+  view.emit({ type: 'installEvent', jobId: 'j1', skillId: 'global/pdf-tools', version: '1.2.0', state: 'done', seq: 9 })
+  view.emit({ type: 'installedSkills', skills: [{ dir: '.agents/skills/pdf-tools', dirPath: '/r/.agents/skills/pdf-tools', name: 'PDF 工具', summary: '', version: '1.2.0', source: 'market', installedAt: 1, enabled: true, scope: 'repo', path: null, missing: false, external: false, indexStale: false, altered: false, tags: [], record: { skillId: 'global/pdf-tools', source: 'market', version: '1.2.0' } }], indexAvailable: true, registryIgnored: true })
+  await tick()
+  assert.equal(buttons()[0].textContent, '已安装')
+  assert.equal(buttons()[0].disabled, true)
+  view.dom.window.close()
+})
+
+test('market: detail drawer shows update entry when registry version lags', async () => {
+  const view = setup()
+  const installed = [{ dir: '.agents/skills/pdf-tools', dirPath: '/r/.agents/skills/pdf-tools', name: 'PDF 工具', summary: '', version: '1.1.0', source: 'market', installedAt: 1, enabled: true, scope: 'repo', path: null, missing: false, external: false, indexStale: false, altered: false, tags: [], record: { skillId: 'global/pdf-tools', source: 'market', version: '1.1.0' } }]
+  await enterMarket(view, { installed })
+  view.emit({ type: 'marketCatalog', items: [marketSkill({ version: '1.2.0' })], page: 0, total: 1, hasNext: false, labelStats: [], cachedAt: Date.now(), stale: false, query: '', label: '', sort: 'newest' })
+  await tick()
+  const card = view.doc.querySelector('.market-card')
+  assert.match(card.querySelector('.skill-actions').textContent, /已安装/, '已安装态')
+  assert.match(card.querySelector('.skill-actions').textContent, /有 v1\.2\.0 可用/, '登记落后时附注更新提示')
+  // 详情页更新入口
+  view.doc.querySelector('.skill-name.as-link').click(); await tick()
+  view.emit({ type: 'marketDetailResult', skillId: 'global/pdf-tools', skill: marketSkill({ version: '1.2.0' }), content: '# 概览', versions: [
+    { version: '1.2.0', status: 'PUBLISHED', changelog: '新', fileCount: 1, totalSize: 1, publishedAt: Date.now(), downloadReady: true, createdByName: 'x' },
+    { version: '1.1.0', status: 'PUBLISHED', changelog: '旧', fileCount: 1, totalSize: 1, publishedAt: Date.now(), downloadReady: true, createdByName: 'x' },
+  ], version: '1.2.0' })
+  await tick()
+  const footer = view.doc.querySelector('.skill-detail-foot button')
+  assert.match(footer.textContent, /更新到 v1\.2\.0/, '详情页更新入口')
+  footer.click()
+  const install = view.sent.at(-1)
+  assert.equal(install.type, 'marketInstall')
+  assert.equal(install.version, '1.2.0', '更新入口复用 marketInstall 传新版本')
   view.dom.window.close()
 })
 

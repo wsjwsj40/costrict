@@ -14,9 +14,11 @@ const { ConversationStore } = require("./media/conversation")
 const { generateThreadTitle, shortRequestTitle } = require("./threadTitle")
 const { buildInstalledView, scanSkillDirs } = require("./installedView")
 const { readRegistry, upsertRecord, removeRecord, isRegistryIgnored, appendRegistryIgnore, registryPaths } = require("./skillsRegistry")
-const { SOURCES, LOCAL_VERSION, SKILLS_DIR_SEGMENTS, validateDirName } = require("./skillsModel")
+const { SOURCES, LOCAL_VERSION, SKILLS_DIR_SEGMENTS, validateDirName, ERROR_CODES } = require("./skillsModel")
 const skillArchive = require("./skillArchive")
-const { searchSkills, fetchSkillDetail, createCatalogCache, MarketError } = require("./skillMarket")
+const { searchSkills, fetchSkillDetail, fetchDownload, createCatalogCache, MarketError } = require("./skillMarket")
+const { SkillJobs } = require("./skillsJobs")
+const { createInstaller, InstallerError } = require("./skillInstaller")
 const marketStub = require("./marketStub")
 const EXTENSION_VERSION = require("./package.json").version
 const FILE_EDIT_INSTRUCTIONS = fs.readFileSync(path.join(__dirname, "file-edit-instructions.md"), "utf8").trim()
@@ -233,6 +235,8 @@ class CodexClient {
 class DicodeView {
 	constructor(context) {
 		this.context = context
+		this.installer = null
+		this.skillJobs = null
 		const savedThread = context.globalState.get(THREAD_KEY)
 		this.threadId = savedThread?.cwd === this.workspace ? savedThread.id : null
 		this.busy = false
@@ -685,10 +689,49 @@ class DicodeView {
 		return this.marketCacheInstance
 	}
 
-	/** 市场消息错误的统一出口：MarketError 保留码与 retryable，普通错误按 NETWORK 处理 */
+	/**
+	 * 安装管道（阶段 3）：依赖工作区，惰性创建；任务表与锁在 globalStorageUri（多窗口共享）。
+	 * reloadIndex 把 readSkillIndex 的 available/error 折叠成布尔给 installer（8.5）。
+	 */
+	getInstaller() {
+		if (this.installer) return this.installer
+		if (!this.workspace) return null
+		const jobs = this.skillJobs ||= new SkillJobs({ storageDir: this.context.globalStorageUri.fsPath })
+		this.installer = createInstaller({
+			workspace: this.workspace,
+			storageDir: this.context.globalStorageUri.fsPath,
+			jobs,
+			transportFactory: async () => this.marketTransport(),
+			fetchDetail: fetchSkillDetail,
+			download: fetchDownload,
+			upsertRecord,
+			reloadIndex: async () => {
+				const index = await this.readSkillIndex(true)
+				return index.available === true && !index.error
+			},
+			postEvent: event => this.post({ type: "installEvent", ...event }),
+			onFinished: async () => {
+				this.post(await this.installedSkillsPayload())
+			},
+		})
+		return this.installer
+	}
+
+	/** 扩展启动恢复（8.4）：非终态任务转 INTERRUPTED、清残留临时目录与下载 zip，不阻塞激活 */
+	recoverInstallJobs() {
+		const installer = this.getInstaller()
+		if (!installer) return
+		installer.recover().catch((error) => {
+			this.output.appendLine(`[install] 恢复任务失败：${error.message}`)
+		})
+	}
+
+	/** 市场消息错误的统一出口：MarketError / InstallerError 保留码与 retryable，普通错误按 NETWORK 处理 */
 	postMarketError(scope, error) {
-		const code = error instanceof MarketError ? error.code : "NETWORK"
-		this.post({ type: "marketError", scope, code, message: error.message || "请求失败", retryable: error.retryable !== false, requiresLogin: error.requiresLogin === true || code === "UNAUTHORIZED" })
+		const known = error instanceof MarketError || error instanceof InstallerError
+			? error.code
+			: (error && typeof error.code === "string" && ERROR_CODES[error.code] ? error.code : "NETWORK")
+		this.post({ type: "marketError", scope, code: known, message: error.message || "请求失败", retryable: error.retryable !== false, requiresLogin: error.requiresLogin === true || known === "UNAUTHORIZED" })
 	}
 
 	/**
@@ -1496,8 +1539,59 @@ class DicodeView {
 			return
 		}
 		if (message.type === "marketInstall") {
-			// 阶段 2 明确提示，不模拟安装（7.2：桩只负责数据与状态字段）
-			this.post({ type: "skillsNotice", message: "安装链路将在阶段 3 接入，当前版本仅浏览市场目录" })
+			// 提交安装（8.1）：门禁不过直接 marketError；通过则去重/排队，后续靠 installEvent 推进
+			const installer = this.getInstaller()
+			if (!installer) {
+				this.postMarketError("install", new MarketError("NETWORK", "请先打开工作区再安装技能"))
+				return
+			}
+			try {
+				const { jobId, reused } = await installer.install(message.skillId, message.version)
+				this.post({ type: "marketInstallResult", skillId: message.skillId, version: message.version, jobId, reused })
+				this.post({ type: "installJobs", jobs: await installer.snapshot() })
+			} catch (error) {
+				this.postMarketError("install", error)
+			}
+			return
+		}
+		if (message.type === "marketRetry") {
+			const installer = this.getInstaller()
+			if (!installer) {
+				this.postMarketError("install", new MarketError("NETWORK", "请先打开工作区再重试安装"))
+				return
+			}
+			try {
+				const { jobId } = await installer.retry(message.jobId)
+				this.post({ type: "marketRetryResult", jobId, previousJobId: message.jobId })
+				this.post({ type: "installJobs", jobs: await installer.snapshot() })
+			} catch (error) {
+				this.postMarketError("install", error)
+			}
+			return
+		}
+		if (message.type === "getInstallJobs") {
+			const installer = this.getInstaller()
+			if (!installer) {
+				this.post({ type: "installJobs", jobs: [] })
+				return
+			}
+			this.post({ type: "installJobs", jobs: await installer.snapshot() })
+			return
+		}
+		if (message.type === "refreshSkillIndex") {
+			// 索引重试（8.5）：独立动作，不与安装重试共用 jobId
+			const installer = this.getInstaller()
+			if (!installer) {
+				this.post({ type: "skillsNotice", message: "请先打开工作区" })
+				return
+			}
+			try {
+				const result = await installer.refreshIndex(message.skillId)
+				this.post(await this.installedSkillsPayload())
+				this.post({ type: "skillsNotice", message: result.ok ? "索引已刷新" : "索引刷新仍失败，请稍后重试" })
+			} catch (error) {
+				this.post({ type: "skillsError", action: "refreshIndex", message: error.message })
+			}
 			return
 		}
 		if (message.type === "listSkills") {
@@ -1834,5 +1928,7 @@ function activate(context) {
 		vscode.workspace.registerTextDocumentContentProvider("dicode-after", { provideTextDocumentContent: (uri) => provider.afterDocuments.get(uri.query) || "" }),
 		provider,
 	)
+	// 安装任务恢复（8.4）：非终态任务转 INTERRUPTED、清残留临时目录；无工作区时静默跳过
+	if (vscode.workspace.workspaceFolders?.length) provider.recoverInstallJobs()
 }
 module.exports = { activate, CodexClient, DicodeView, ConversationCoordinator, modelCatalog }

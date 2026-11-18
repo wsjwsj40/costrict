@@ -8,8 +8,8 @@ import NavRail, { type RailPage } from './NavRail'
 import Installed from './Installed'
 import { Icon } from './Icon'
 import Market, { type MarketErrorView, type MarketDetailData } from './Market'
-import type { InstalledSkill, SkillDetail, MarketSkill } from './skills'
-import { marketInstalledIds, localDirBasenames } from './skills'
+import type { InstalledSkill, SkillDetail, MarketSkill, InstallJobView } from './skills'
+import { marketInstalledIds, localDirBasenames, mergeInstallEvent, applyInstallJobsSnapshot, jobsBySkillId, compareVersions, installedVersionFor } from './skills'
 import { ConversationStore, parseDiff } from '../media/conversation'
 import './style.css'
 
@@ -271,6 +271,8 @@ function App() {
   const [marketDetail, setMarketDetail] = useState<MarketDetailData | null>(null)
   const [marketDetailLoading, setMarketDetailLoading] = useState(false)
   const [marketMessage, setMarketMessage] = useState('')
+  // 安装任务（阶段 3）：webview 重开先快照后增量（第 6 节），事件按 jobId+seq 严格递增幂等合并
+  const [installJobs, setInstallJobs] = useState<InstallJobView[]>([])
   const marketRequestRef = useRef({ query: '', label: '', sort: 'newest', page: 0 })
   const [marketParams, setMarketParams] = useState({ query: '', label: '', sort: 'newest' })
   const changeMarketParams = (partial: { query?: string; label?: string; sort?: string }) => setMarketParams(old => ({ ...old, ...partial }))
@@ -282,6 +284,16 @@ function App() {
   const [registryRecovered, setRegistryRecovered] = useState(false)
   const marketInstalled = useMemo(() => marketInstalledIds(installed), [installed])
   const marketLocalDirs = useMemo(() => localDirBasenames(installed), [installed])
+  // 任务态与更新提示（5.4）：按 skillId 折叠；登记版本落后于 publishedVersion 时附注「有 vX 可用」
+  const marketJobs = useMemo(() => jobsBySkillId(installJobs), [installJobs])
+  const marketUpdateVersions = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const item of marketItems) {
+      const current = installedVersionFor(installed, item.id)
+      if (current && item.version && compareVersions(item.version, current) > 0) map[item.id] = item.version
+    }
+    return map
+  }, [marketItems, installed])
   const [skillDetail, setSkillDetail] = useState<SkillDetail | null>(null)
   const [pendingSkills, setPendingSkills] = useState<Record<string, boolean>>({})
   const [skillsMessage, setSkillsMessage] = useState('')
@@ -337,6 +349,14 @@ function App() {
         if (msg.scope === 'detail') setMarketDetailLoading(false)
         if (msg.scope === 'auth' || msg.code === 'UNAUTHORIZED') setMarketAuth(old => ({ ...old, loggedIn: false }))
         if (msg.scope === 'catalog') setMarketLoading(false)
+        if (msg.scope === 'install') setMarketMessage(msg.message || '')
+      }
+      if (msg.type === 'installJobs') setInstallJobs(old => applyInstallJobsSnapshot(old, msg.jobs || []))
+      if (msg.type === 'installEvent') {
+        setInstallJobs(old => {
+          const result = mergeInstallEvent(old, msg)
+          return result.applied ? result.jobs : old
+        })
       }
       if (msg.type === 'skillsNotice') setMarketMessage(msg.message || '')
       if (msg.type === 'skillDetail') setSkillDetail(msg.detail || null)
@@ -387,6 +407,20 @@ function App() {
   }
   const openMarketDetail = (skillId: string) => { setMarketDetailLoading(true); post('marketDetail', { skillId }) }
   const selectMarketVersion = (skillId: string, version: string) => { if (version) { setMarketDetailLoading(true); post('marketDetail', { skillId, version }) } }
+  const openAllTab = () => {
+    setSkillsTab('all')
+    setMarketMessage('')
+    // 重开/切回市场先取任务快照再接增量（8.4）：按钮不能停在【安装】而实际已在安装
+    post('getInstallJobs')
+  }
+  const installMarketSkill = (skill: MarketSkill, version?: string) => {
+    setMarketMessage('')
+    post('marketInstall', { skillId: skill.id, version: version || skill.version || '' })
+  }
+  const retryMarketInstall = (_skill: MarketSkill, jobId: string) => {
+    setMarketMessage('')
+    post('marketRetry', { jobId })
+  }
   const latest = store.turns.at(-1)
   const plan = busy && latest?.plan?.steps?.length ? latest.plan : null
   const matchingThreads = (state.threads || []).filter((thread: any) => !search.trim() || [thread.title, ...(thread.turns || []).flatMap((turn: any) => [turn.user, turn.answer])].some(value => String(value || '').toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())))
@@ -397,7 +431,7 @@ function App() {
       : page === 'skills' ? <main className="subpage skill-hub">
           <PageHeader title="Skill 市场" onBack={() => setPage('home')} action={<button className="ghost-button" onClick={() => post('installedSkills')}><Icon kind="refresh" />刷新</button>} />
           <div className="list-tabs skill-tabs" aria-label="技能页签">
-            <button aria-pressed={skillsTab === 'all'} className={skillsTab === 'all' ? 'active' : ''} onClick={() => setSkillsTab('all')}>全部</button>
+            <button aria-pressed={skillsTab === 'all'} className={skillsTab === 'all' ? 'active' : ''} onClick={openAllTab}>全部</button>
             <button aria-pressed={skillsTab === 'installed'} className={skillsTab === 'installed' ? 'active' : ''} onClick={() => setSkillsTab('installed')}>已安装<span>{installed.length}</span></button>
           </div>
           {skillsTab === 'installed'
@@ -433,6 +467,8 @@ function App() {
                 detailLoading={marketDetailLoading}
                 installedIds={marketInstalled}
                 localDirs={marketLocalDirs}
+                jobs={marketJobs}
+                updateVersions={marketUpdateVersions}
                 query={marketParams.query}
                 label={marketParams.label}
                 sort={marketParams.sort}
@@ -441,7 +477,8 @@ function App() {
                 onOpenDetail={openMarketDetail}
                 onCloseDetail={() => setMarketDetail(null)}
                 onSelectVersion={selectMarketVersion}
-                onInstall={() => post('marketInstall')}
+                onInstall={installMarketSkill}
+                onRetry={retryMarketInstall}
                 onLogin={(username, password) => post('marketLogin', { username, password })}
                 onLogout={() => post('marketLogout')}
                 onGoInstalled={() => setSkillsTab('installed')}

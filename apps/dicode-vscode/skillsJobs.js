@@ -67,6 +67,25 @@ class SkillJobs {
 	constructor(options) {
 		if (!options || !options.storageDir) throw new Error("SkillJobs 需要 storageDir")
 		this.storageDir = options.storageDir
+		/** @type {Map<string, Promise<void>>} 同工作区的任务表读改写串行链（并发安装的事件不能互相覆盖） */
+		this.#writeChains = new Map()
+	}
+
+	/** @type {Map<string, Promise<void>>} */
+	#writeChains
+
+	/**
+	 * 把任务表读改写操作排进同工作区的串行链。
+	 * @template T
+	 * @param {string} workspaceId
+	 * @param {() => Promise<T>} fn
+	 * @returns {Promise<T>}
+	 */
+	#enqueueWrite(workspaceId, fn) {
+		const previous = this.#writeChains.get(workspaceId) || Promise.resolve()
+		const next = previous.then(fn, fn)
+		this.#writeChains.set(workspaceId, next.then(() => undefined, () => undefined))
+		return next
 	}
 
 	/** @param {string} workspaceId */
@@ -130,7 +149,12 @@ class SkillJobs {
 	 * @param {number} [now]
 	 * @returns {Promise<{ jobs: import("./skillsModel").InstallJob[], interrupted: number }>}
 	 */
-	async recover(workspaceId, now = Date.now()) {
+	recover(workspaceId, now = Date.now()) {
+		return this.#enqueueWrite(workspaceId, () => this.#recoverLocked(workspaceId, now))
+	}
+
+	/** recover 的实际执行体，仅在串行链内调用。 */
+	async #recoverLocked(workspaceId, now) {
 		const jobs = await this.read(workspaceId)
 		let interrupted = 0
 		for (const job of jobs) {
@@ -150,10 +174,19 @@ class SkillJobs {
 
 	/**
 	 * 应用一条安装事件。重复或过期的 seq 直接忽略；已终态的任务不再接受事件。
+	 * 读改写经同工作区串行链，避免并发安装的事件互相覆盖任务表。
 	 * @param {import("./skillsModel").InstallEvent} event
 	 * @returns {Promise<{ job: import("./skillsModel").InstallJob|null, applied: boolean }>}
 	 */
-	async appendEvent(event) {
+	appendEvent(event) {
+		return this.#enqueueWrite(event.workspaceId, () => this.#appendEventLocked(event))
+	}
+
+	/**
+	 * appendEvent 的实际执行体，仅在串行链内调用。
+	 * @param {import("./skillsModel").InstallEvent} event
+	 */
+	async #appendEventLocked(event) {
 		if (!event || typeof event.jobId !== "string") throw new Error("安装事件缺少 jobId")
 		if (!Number.isInteger(event.seq) || event.seq < 0) throw new Error("安装事件 seq 必须是非负整数")
 		const jobs = await this.read(event.workspaceId)

@@ -19,6 +19,8 @@
 
 'use strict'
 
+const archive = require('./skillArchive')
+
 const STUB_ACCOUNT = { username: 'admin', password: 'admin123' }
 
 const TINY_ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
@@ -109,6 +111,7 @@ const STUB_SKILLS = [
 		needApiKey: false,
 		versions: [
 			{ version: '1.3.0', status: 'DRAFT', changelog: '渲染模式重写（草稿中）', fileCount: 9, totalSize: 220000, publishedAt: '2026-03-12T15:00:00Z', downloadReady: false },
+			{ version: '1.2.3', status: 'PUBLISHED', changelog: '修复编码问题', fileCount: 7, totalSize: 209000, publishedAt: '2026-03-06T15:00:00Z', downloadReady: true },
 			{ version: '1.2.2', status: 'PUBLISHED', changelog: '修复分页遗漏', fileCount: 7, totalSize: 210000, publishedAt: '2026-03-02T15:00:00Z', downloadReady: true },
 			{ version: '1.2.1', status: 'PUBLISHED', changelog: '压缩包结构精简', fileCount: 7, totalSize: 208000, publishedAt: '2026-02-10T15:00:00Z', downloadReady: false },
 		],
@@ -162,6 +165,45 @@ const STUB_SKILLS = [
 			{ version: '1.0.0', status: 'PUBLISHED', changelog: '受限发布', fileCount: 2, totalSize: 20480, publishedAt: '2026-03-01T00:00:00Z', downloadReady: true },
 		],
 		overview: '---\nname: secret-skill\ndescription: 导出平台审计数据。\n---\n\n# 内部审计技能\n\n需要平台单独授权后使用。',
+	},
+	{
+		id: 10,
+		slug: 'verify-mismatch',
+		displayName: '校验用例',
+		summary: '来源校验用例：包内 SKILL.md 身份与目录项不一致。',
+		skillLabel: '开发工具',
+		needApiKey: false,
+		stubInstallCase: 'source-verify',
+		versions: [
+			{ version: '1.0.0', status: 'PUBLISHED', changelog: '校验用例', fileCount: 2, totalSize: 4096, publishedAt: '2026-03-14T10:00:00Z', downloadReady: true },
+		],
+		overview: '---\nname: verify-mismatch\ndescription: 来源校验用例。\n---\n\n# 校验用例\n\n安装管道应拒绝本包并报 SOURCE_VERIFY_FAILED。',
+	},
+	{
+		id: 11,
+		slug: 'broken-pkg',
+		displayName: '坏包用例',
+		summary: '包结构用例：压缩包缺少 SKILL.md。',
+		skillLabel: '开发工具',
+		needApiKey: false,
+		stubInstallCase: 'missing-skillmd',
+		versions: [
+			{ version: '1.0.0', status: 'PUBLISHED', changelog: '坏包用例', fileCount: 1, totalSize: 512, publishedAt: '2026-03-14T11:00:00Z', downloadReady: true },
+		],
+		overview: '---\nname: broken-pkg\ndescription: 坏包用例。\n---\n\n# 坏包用例\n\n安装管道应拒绝本包并报 ARCHIVE_INVALID。',
+	},
+	{
+		id: 12,
+		slug: 'heavy-pkg',
+		displayName: '超限用例',
+		summary: '限额用例：包声明解压体积超过单文件上限。',
+		skillLabel: '开发工具',
+		needApiKey: false,
+		stubInstallCase: 'oversize',
+		versions: [
+			{ version: '1.0.0', status: 'PUBLISHED', changelog: '超限用例', fileCount: 2, totalSize: 1024, publishedAt: '2026-03-14T12:00:00Z', downloadReady: true },
+		],
+		overview: '---\nname: heavy-pkg\ndescription: 超限用例。\n---\n\n# 超限用例\n\n安装管道应拒绝本包并报 ARCHIVE_TOO_LARGE。',
 	},
 ]
 
@@ -220,17 +262,111 @@ function createStubState(overrides = {}) {
 		catalogFailure: false,
 		unauthorized: false,
 		captchaRequired: false,
+		/** slug → 已失败下载次数；crc-corrupt 桩包按次数决定返回坏包还是好包（12.2「模拟失败可恢复」） */
+		installFailures: {},
+		/** false 时 crc-corrupt 每次都返回坏包（测试精确控制用） */
+		retryHeals: true,
 		...overrides,
 	}
 }
 
 const jsonHeaders = { 'content-type': 'application/json' }
+const zipContentType = 'application/zip'
 
 const ok = body => ({ status: 200, contentType: jsonHeaders['content-type'], text: JSON.stringify(body) })
 // 失败响应对应真实 HTTP 状态（401/403/404/500），body 内 code 与状态一致（契约第 6 节）
 const fail = (status, code, msg) => ({ status, contentType: jsonHeaders['content-type'], text: JSON.stringify({ code, msg, success: false }) })
 const notFound = () => fail(404, 404, '资源不存在或无权可见')
 const forbidden = () => fail(403, 403, '账号缺少对应权限，请在平台调整角色权限')
+
+/**
+ * 内存构造 store 模式 zip（只服务桩下载；解析器侧支持 store 与 deflate）。
+ * 支持 entry.uncompressedSize 伪造声明大小（超限用例不需要真造 100MB 数据），
+ * entry.corrupt = true 时翻转 payload 首字节使解压 CRC 与声明不符。
+ * @param {Array<{ name: string, data: string|Buffer, uncompressedSize?: number, corrupt?: boolean }>} entries
+ */
+function makeStubZip(entries) {
+	const chunks = []
+	const centralChunks = []
+	let offset = 0
+	for (const entry of entries) {
+		const raw = Buffer.isBuffer(entry.data) ? entry.data : Buffer.from(entry.data, 'utf8')
+		const payload = Buffer.from(raw)
+		if (entry.corrupt) payload[0] = payload[0] ^ 0xff
+		const name = Buffer.from(entry.name, 'utf8')
+		const crc = archive.crc32(raw)
+		const local = Buffer.alloc(30)
+		local.writeUInt32LE(0x04034b50, 0)
+		local.writeUInt16LE(20, 4)
+		local.writeUInt16LE(0, 6)
+		local.writeUInt16LE(0, 8) // store
+		local.writeUInt32LE(crc >>> 0, 14)
+		local.writeUInt32LE(payload.length, 18)
+		local.writeUInt32LE(entry.uncompressedSize ?? raw.length, 22)
+		local.writeUInt16LE(name.length, 26)
+		chunks.push(local, name, payload)
+
+		const central = Buffer.alloc(46)
+		central.writeUInt32LE(0x02014b50, 0)
+		central.writeUInt16LE(20, 6)
+		central.writeUInt16LE(0, 8)
+		central.writeUInt16LE(0, 10)
+		central.writeUInt32LE(crc >>> 0, 16)
+		central.writeUInt32LE(payload.length, 20)
+		central.writeUInt32LE(entry.uncompressedSize ?? raw.length, 24)
+		central.writeUInt16LE(name.length, 28)
+		central.writeUInt32LE((0o100644 << 16) >>> 0, 38)
+		central.writeUInt32LE(offset, 42)
+		centralChunks.push(central, name)
+
+		offset += local.length + name.length + payload.length
+	}
+	const centralBuffer = Buffer.concat(centralChunks)
+	const eocd = Buffer.alloc(22)
+	eocd.writeUInt32LE(0x06054b50, 0)
+	eocd.writeUInt16LE(entries.length, 8)
+	eocd.writeUInt16LE(entries.length, 10)
+	eocd.writeUInt32LE(centralBuffer.length, 12)
+	eocd.writeUInt32LE(offset, 16)
+	return Buffer.concat([...chunks, centralBuffer, eocd])
+}
+
+/**
+ * 按 stubInstallCase 构造桩技能包（7.2 四种桩包 + 正常包）。
+ * @param {StubSkill} skill
+ * @param {ReturnType<typeof createStubState>} state
+ * @param {string} version 包内文件携带版本号，供升级用例断言内容变化
+ * @returns {Buffer}
+ */
+function buildStubPackage(skill, state, version = '') {
+	const overview = `---\nname: ${skill.slug}\ndescription: ${skill.displayName}。\n---\n\n${skill.overview.replace(/^---\n[\s\S]*?---\n\n/, '')}`
+	switch (skill.stubInstallCase) {
+		case 'crc-corrupt': {
+			const healed = !state.retryHeals || (state.installFailures[skill.slug] || 0) >= 1
+			const entries = [
+				{ name: `${skill.slug}/SKILL.md`, data: overview },
+				{ name: `${skill.slug}/reference.txt`, data: `api-mocker 桩包参考文件 v${version}` },
+			]
+			return healed ? makeStubZip(entries) : makeStubZip(entries.map(entry => ({ ...entry, corrupt: true })))
+		}
+		case 'source-verify':
+			// SKILL.md 身份与目录项不一致（slug/displayName 都对不上）
+			return makeStubZip([{ name: `${skill.slug}/SKILL.md`, data: '---\nname: unrelated-name\ndescription: 与目录项不符的元数据。\n---\n\n内容本身合法。\n' }])
+		case 'missing-skillmd':
+			return makeStubZip([{ name: `${skill.slug}/README.txt`, data: '只有说明文件，没有 SKILL.md。' }])
+		case 'oversize':
+			// 声明解压大小超过单文件 10MB 限额，实际 payload 极小（解析器按声明值检查）
+			return makeStubZip([
+				{ name: `${skill.slug}/SKILL.md`, data: overview },
+				{ name: `${skill.slug}/blob.bin`, data: 'declared-too-big', uncompressedSize: 11 * 1024 * 1024 },
+			])
+		default:
+			return makeStubZip([
+				{ name: `${skill.slug}/SKILL.md`, data: overview },
+				{ name: `${skill.slug}/reference.txt`, data: `${skill.displayName} 桩包参考文件 v${version}` },
+			])
+	}
+}
 
 /** @param {string} text */
 function matchQuery(text, q) {
@@ -328,6 +464,25 @@ function createTransport(state) {
 			const entry = skill.versions.find(item => item.version === version)
 			if (!entry || entry.status !== 'PUBLISHED') return notFound()
 			return { status: 200, contentType: 'application/octet-stream', text: skill.overview }
+		}
+
+		// 安装下载（8.1 步骤 3）：固定版本 ZIP 流；Content-Type 分流由适配层处理
+		const downloadMatch = /^\/([^/]+)\/([^/]+)\/versions\/([^/]+)\/download$/.exec(path)
+		if (downloadMatch) {
+			const skill = STUB_SKILLS.find(item => item.slug === decodeURIComponent(downloadMatch[2]))
+			const version = decodeURIComponent(downloadMatch[3])
+			if (!skill) return notFound()
+			if (skill.slug === 'secret-skill') return forbidden()
+			const entry = skill.versions.find(item => item.version === version)
+			if (!entry) return notFound()
+			// 安装门禁同第 7 节：PUBLISHED 且 downloadReady 才可下载（草稿/未就绪 404）
+			if (entry.status !== 'PUBLISHED' || entry.downloadReady !== true) return notFound()
+			if (typeof request.onProgress === 'function') request.onProgress(entry.totalSize, entry.totalSize)
+			const bytes = buildStubPackage(skill, state, version)
+			// crc-corrupt：首次下载返回坏包并推进失败计数，重试即好包（12.2「模拟失败可恢复」）；
+			// retryHeals=false 时不推进计数，每次都是坏包（测试精确控制用）
+			if (skill.stubInstallCase === 'crc-corrupt' && state.retryHeals) state.installFailures[skill.slug] = 1
+			return { status: 200, contentType: zipContentType, bytes }
 		}
 
 		return notFound()

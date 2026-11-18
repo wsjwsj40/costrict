@@ -171,6 +171,51 @@ async function searchSkills(transport, params = {}) {
 
 const OVERVIEW_PATH = 'SKILL.md'
 
+/** 下载超时下限（第 7 节：应用服务器流式传输，≥60s），由 transport 实现方执行 */
+const DOWNLOAD_TIMEOUT_MS = 60 * 1000
+
+/**
+ * 下载指定版本技能包（8.1 步骤 3，固定版本下载入口，不用最新版接口）。
+ * Content-Type 分流：application/json → 按 7.1 映射错误（含 body.errorCode 语义码）；
+ * 其余按二进制返回 bytes。transport 契约扩展：响应可带 bytes（Uint8Array/Buffer），
+ * 请求可带 timeoutMs（真实传输执行超时）与 onProgress(loaded, total)（流式实现回调）。
+ * @param {(request: { path: string, query?: Record<string, string>, method?: string, timeoutMs?: number, onProgress?: (loaded: number, total: number) => void }) => Promise<{ status: number, contentType: string, text?: string, bytes?: Uint8Array }>} transport
+ * @param {string} skillId
+ * @param {string} version
+ * @param {{ timeoutMs?: number, onProgress?: (loaded: number, total: number) => void }} [options]
+ * @returns {Promise<Buffer>} zip 原始字节
+ */
+async function fetchDownload(transport, skillId, version, options = {}) {
+	const [ns, slug] = splitSkillId(skillId)
+	const enc = value => encodeURIComponent(value)
+	/** @type {{ path: string, method: string, timeoutMs: number, onProgress?: (loaded: number, total: number) => void }} */
+	const request = {
+		path: `/${enc(ns)}/${enc(slug)}/versions/${enc(version)}/download`,
+		method: 'GET',
+		timeoutMs: options.timeoutMs || DOWNLOAD_TIMEOUT_MS,
+	}
+	if (options.onProgress) request.onProgress = options.onProgress
+	let response
+	try {
+		response = await transport(request)
+	} catch (error) {
+		if (error instanceof MarketError) throw error
+		throw new MarketError('NETWORK', error && error.message)
+	}
+	const contentType = String(response.contentType || '')
+	if (response.status !== 200 || /json/i.test(contentType)) {
+		// JSON 错误体按统一口径映射（401/403/404/语义码/5xx）；走完未抛说明是 200 的 JSON 成功体，
+		// 下载接口不应返回 JSON 成功响应，按协议异常处理
+		await unwrapJson(response, '下载请求')
+		throw new MarketError('NETWORK', '下载请求：下载接口返回了 JSON 响应')
+	}
+	const bytes = response.bytes !== undefined
+		? Buffer.from(response.bytes)
+		: Buffer.from(String(response.text || ''), 'binary')
+	if (!bytes.length) throw new MarketError('ARCHIVE_CORRUPT', '下载内容为空')
+	return bytes
+}
+
 /**
  * 市场详情：三个接口拼装，不下载包即可查看（3.3）。
  * version 缺省取 publishedVersion.version；仅该版本的概览原文被拉取。
@@ -337,8 +382,10 @@ module.exports = {
 	unwrapJson,
 	searchSkills,
 	fetchSkillDetail,
+	fetchDownload,
 	createCatalogCache,
 	groupKeyOf,
+	DOWNLOAD_TIMEOUT_MS,
 	DEFAULT_TTL_MS,
 	DEFAULT_MAX_GROUPS,
 	DEFAULT_MAX_BYTES,

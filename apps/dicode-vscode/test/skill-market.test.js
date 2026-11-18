@@ -208,7 +208,7 @@ async function makeView(t, { stubEnabled }) {
   return { view, messages, workspace }
 }
 
-test('extension 接线：桩模式目录/详情/登录/登出/安装提示', async t => {
+test('extension 接线：桩模式目录/详情/登录/登出/安装出口', async t => {
   const { view, messages } = await makeView(t, { stubEnabled: true })
   const auth = view.marketAuthPayload()
   assert.equal(auth.loggedIn, true, '桩初始登录态')
@@ -216,8 +216,8 @@ test('extension 接线：桩模式目录/详情/登录/登出/安装提示', asy
 
   await view.handle({ type: 'marketList', page: 0 })
   const catalog = messages.find(message => message.type === 'marketCatalog')
-  assert.equal(catalog.items.length, 8)
-  assert.equal(catalog.items[0].name, 'API 模拟服务', 'newest 排序适配后生效')
+  assert.equal(catalog.items.length, 11, '桩技能 12 条中 secret-skill 不可见')
+  assert.equal(catalog.items[0].name, '超限用例', 'newest 排序适配后生效（最新发布时间）')
   assert.ok(Array.isArray(catalog.labelStats) && catalog.labelStats.length > 0)
 
   await view.handle({ type: 'marketList', page: 0 })
@@ -249,8 +249,12 @@ test('extension 接线：桩模式目录/详情/登录/登出/安装提示', asy
   assert.equal(messages.at(-1).loggedIn, false)
 
   await view.handle({ type: 'marketInstall', skillId: 'global/pdf-tools' })
-  assert.equal(messages.at(-1).type, 'skillsNotice', '阶段 2 不模拟安装')
-  assert.ok(messages.at(-1).message.includes('阶段 3'))
+  const installError = messages.at(-1)
+  assert.equal(installError.type, 'marketError', '阶段 3 安装走真实门禁出口')
+  assert.equal(installError.scope, 'install')
+  assert.equal(installError.code, 'UNAUTHORIZED', '登出后安装被 401 拦截，错误出口与 requiresLogin 正确')
+  assert.equal(installError.requiresLogin, true)
+  assert.ok(installError.message.length > 0, '错误带可读原因')
   await view.dispose()
 })
 

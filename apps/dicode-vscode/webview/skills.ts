@@ -181,6 +181,119 @@ export interface MarketJobView {
   retryable: boolean
   errorCode?: string
   message?: string
+  progress?: number
+  jobId?: string
+  version?: string
+}
+
+/** installEvent / installJobs 消息里的任务快照（5.3 InstallJob 的传输形状） */
+export interface InstallJobView {
+  jobId: string
+  workspaceId?: string
+  skillId: string
+  version: string
+  state: 'queued' | 'downloading' | 'verifying' | 'extracting' | 'registering' | 'done' | 'failed'
+  seq: number
+  progress?: number
+  digest?: string
+  errorCode?: string
+  errorMessage?: string
+  retryable?: boolean
+  startedAt?: number
+}
+
+/** 终态任务不出现在 UI 列表（快照口径：在跑 + 失败） */
+export function isTerminalJobState(state: InstallJobView['state']): boolean {
+  return state === 'done' || state === 'failed'
+}
+
+/**
+ * installEvent 合并（第 6 节）：按 jobId + seq 幂等，且只接受 seq 严格递增的事件——
+ * 不用 (jobId, state) 作幂等键，否则同一 downloading 状态下的多次进度事件会被当成重复丢弃。
+ * done 事件把任务移出列表（终态以登记重建，不在快照口径内）。
+ */
+export function mergeInstallEvent(
+  jobs: InstallJobView[],
+  event: InstallJobView,
+): { jobs: InstallJobView[]; applied: boolean } {
+  if (!event || typeof event.jobId !== 'string' || !Number.isInteger(event.seq)) return { jobs, applied: false }
+  if (event.state === 'done') {
+    const existed = jobs.some(job => job.jobId === event.jobId)
+    return { jobs: jobs.filter(job => job.jobId !== event.jobId), applied: existed }
+  }
+  const index = jobs.findIndex(job => job.jobId === event.jobId)
+  if (index >= 0 && event.seq <= jobs[index].seq) return { jobs, applied: false }
+  if (index >= 0) {
+    const copy = jobs.slice()
+    copy[index] = { ...copy[index], ...event }
+    return { jobs: copy, applied: true }
+  }
+  return { jobs: [...jobs, event], applied: true }
+}
+
+/**
+ * installJobs 快照整体替换（webview 重开先快照后增量，8.4）。
+ * 快照口径是「在跑 + 失败」（扩展侧已滤 done），这里只兜底滤 done 与非法项。
+ */
+export function applyInstallJobsSnapshot(jobs: InstallJobView[], snapshot: InstallJobView[]): InstallJobView[] {
+  return (Array.isArray(snapshot) ? snapshot : []).filter(job => job && typeof job.jobId === 'string' && job.state !== 'done')
+}
+
+/**
+ * 任务列表 → 按 skillId 折叠的 UI 态：优先展示在跑任务（seq 最大），无在跑取最新失败。
+ * 同一 skillId 的不同版本任务也折叠到同一条目（5.4 表格按目录级/任务级二分）。
+ */
+export function jobsBySkillId(jobs: InstallJobView[]): Record<string, MarketJobView> {
+  const byId: Record<string, InstallJobView> = {}
+  for (const job of jobs) {
+    if (!job || typeof job.skillId !== 'string') continue
+    const current = byId[job.skillId]
+    if (current) {
+      const running = !isTerminalJobState(job.state)
+      const currentRunning = !isTerminalJobState(current.state)
+      // 在跑优先；同为在跑取 seq 更大（更新）的；失败之间取 startedAt 更晚的
+      if (running && currentRunning && job.seq <= current.seq) continue
+      if (!running && !currentRunning && (job.startedAt || 0) <= (current.startedAt || 0)) continue
+      if (running && !currentRunning) { byId[job.skillId] = job; continue }
+      if (!running && currentRunning) continue
+    }
+    byId[job.skillId] = job
+  }
+  return Object.fromEntries(Object.entries(byId).map(([id, job]) => [id, jobViewOf(job)]))
+}
+
+function jobViewOf(job: InstallJobView): MarketJobView {
+  return {
+    state: job.state === 'done' ? 'failed' : job.state,
+    retryable: job.retryable === true,
+    errorCode: job.errorCode,
+    message: job.errorMessage,
+    progress: job.progress,
+    jobId: job.jobId,
+    version: job.version,
+  }
+}
+
+/** SemVer 比较（与扩展侧 skillsModel.compareVersion 同口径），非合法段按 0 处理 */
+export function compareVersions(a: string, b: string): number {
+  const parse = (value: string) => String(value || '').split('.').map(part => {
+    const num = parseInt(part, 10)
+    return Number.isFinite(num) ? num : 0
+  })
+  const left = parse(a)
+  const right = parse(b)
+  const length = Math.max(left.length, right.length)
+  for (let index = 0; index < length; index++) {
+    const diff = (left[index] || 0) - (right[index] || 0)
+    if (diff !== 0) return diff > 0 ? 1 : -1
+  }
+  return 0
+}
+
+/** 登记中该 skillId 的市场安装版本（无登记返回 null） */
+export function installedVersionFor(installed: InstalledSkill[], skillId: string): string | null {
+  const record = installed.find(skill => skill.source === 'market' && String(skill.record?.skillId || '') === skillId)
+  return record?.record?.version ? String(record.record.version) : null
 }
 
 export const SORT_OPTIONS: Array<{ id: string; label: string }> = [
@@ -257,6 +370,12 @@ export function marketCardState(
 
   if (job && job.state !== 'failed') {
     if (skill.needApiKey) notes.push('运行需 API Key')
+    // 阶段文案（5.4：安装中显示进度或阶段文案），与扩展侧 JOB_STATE_LABELS 同口径
+    if (job.state === 'queued') notes.push('排队等待中')
+    else if (job.state === 'downloading' && typeof job.progress === 'number' && job.progress > 0 && job.progress < 100) notes.push(`下载 ${job.progress}%`)
+    else if (job.state === 'verifying') notes.push('正在校验安装包')
+    else if (job.state === 'extracting') notes.push('正在解压安装')
+    else if (job.state === 'registering') notes.push('正在写入登记')
     return { key: 'installing', label: '安装中…', enabled: false, notes }
   }
 

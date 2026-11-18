@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react'
 import MarkdownIt from 'markdown-it'
 import { Icon } from './Icon'
-import type { MarketSkill, MarketVersion } from './skills'
+import type { MarketSkill, MarketVersion, MarketJobView } from './skills'
 import {
   SORT_OPTIONS,
   compatBadge,
@@ -14,7 +14,7 @@ import {
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 
 export type MarketErrorView = {
-  scope: 'catalog' | 'detail' | 'auth'
+  scope: 'catalog' | 'detail' | 'auth' | 'install'
   code: string
   message: string
   retryable: boolean
@@ -46,6 +46,10 @@ type Props = {
   detailLoading: boolean
   installedIds: Set<string>
   localDirs: Set<string>
+  /** 按 skillId 折叠的安装任务态（阶段 3 接真实任务表） */
+  jobs: Record<string, MarketJobView>
+  /** 登记版本落后于目录项 publishedVersion 时的更新提示版本（skillId → vX） */
+  updateVersions: Record<string, string>
   /** 搜索条件受控于 app 层：页签切换卸载重挂后状态保留（12.1 阶段 2） */
   query: string
   label: string
@@ -55,7 +59,8 @@ type Props = {
   onOpenDetail: (skillId: string) => void
   onCloseDetail: () => void
   onSelectVersion: (skillId: string, version: string) => void
-  onInstall: (skill: MarketSkill) => void
+  onInstall: (skill: MarketSkill, version?: string) => void
+  onRetry: (skill: MarketSkill, jobId: string) => void
   onLogin: (username: string, password: string) => void
   onLogout: () => void
   onGoInstalled: () => void
@@ -64,10 +69,14 @@ type Props = {
 const numberFormat = (value: number) => value.toLocaleString('zh-CN')
 
 /** 市场卡片：名称/发布者/版本空态/简介/兼容/操作（3.2【全部】） */
-function MarketCard({ skill, installed, localDirs, onOpenDetail, onInstall }: { skill: MarketSkill; installed: Set<string>; localDirs: Set<string>; onOpenDetail: (skillId: string) => void; onInstall: (skill: MarketSkill) => void }) {
+function MarketCard({ skill, installed, localDirs, job, updateVersion, onOpenDetail, onInstall, onRetry }: { skill: MarketSkill; installed: Set<string>; localDirs: Set<string>; job: MarketJobView | null; updateVersion: string | null; onOpenDetail: (skillId: string) => void; onInstall: (skill: MarketSkill, version?: string) => void; onRetry: (skill: MarketSkill, jobId: string) => void }) {
   const badge = compatBadge(skill)
   const isInstalled = installed.has(skill.id)
-  const card = marketCardState(skill, { installedIds: installed, localDirs })
+  const card = marketCardState(skill, { installedIds: installed, localDirs, job, updateAvailableVersion: updateVersion || undefined })
+  const click = () => {
+    if (card.key === 'install') onInstall(skill)
+    if (card.key === 'retry' && job?.jobId) onRetry(skill, job.jobId)
+  }
   return <div className={`skill-card market-card ${card.key === 'installed' ? 'is-installed' : ''}`}>
     <div className="skill-card-head">
       {skill.icon ? <img className="market-icon" src={skill.icon} alt="" /> : <span className="market-icon market-icon-empty"><Icon kind="box" /></span>}
@@ -87,10 +96,10 @@ function MarketCard({ skill, installed, localDirs, onOpenDetail, onInstall }: { 
     <div className="skill-actions">
       {card.notes.map(note => <span key={note} className="skill-note">{note}</span>)}
       <button
-        className={card.key === 'blocked' || card.key === 'incompatible' || card.key === 'restricted' ? 'ghost-button danger' : 'primary small'}
+        className={card.key === 'blocked' || card.key === 'incompatible' || card.key === 'restricted' ? 'ghost-button danger' : card.key === 'retry' ? 'ghost-button' : 'primary small'}
         disabled={!card.enabled}
         title={card.enabled ? '' : card.notes[0] || card.label}
-        onClick={() => { if (card.key === 'install') onInstall(skill) }}
+        onClick={click}
       >{card.label}</button>
     </div>
   </div>
@@ -125,13 +134,22 @@ function ConfigGate({ onGoInstalled }: { onGoInstalled: () => void }) {
   </div>
 }
 
-/** 市场详情抽屉：元信息 + 版本历史 + 概览（3.3），声明能力/示例空态兜底（14 #16） */
-function DetailDrawer({ detail, loading, installed, onSelectVersion, onClose, onInstall, onLogout }: { detail: MarketDetailData | null; loading: boolean; installed: Set<string>; onSelectVersion: (skillId: string, version: string) => void; onClose: () => void; onInstall: (skill: MarketSkill) => void; onLogout: () => void }) {
+/** 市场详情抽屉：元信息 + 版本历史 + 概览（3.3），更新入口复用覆盖管道（8.3，阶段 3） */
+function DetailDrawer({ detail, loading, installed, jobs, updateVersions, onSelectVersion, onClose, onInstall, onRetry, onLogout }: { detail: MarketDetailData | null; loading: boolean; installed: Set<string>; jobs: Record<string, MarketJobView>; updateVersions: Record<string, string>; onSelectVersion: (skillId: string, version: string) => void; onClose: () => void; onInstall: (skill: MarketSkill, version?: string) => void; onRetry: (skill: MarketSkill, jobId: string) => void; onLogout: () => void }) {
   const html = useMemo(() => (detail ? md.render(detail.content || '_暂无概览内容_') : ''), [detail])
   if (loading) return <aside className="skill-detail"><div className="skill-detail-head"><strong>正在加载详情…</strong><button className="icon-button" onClick={onClose}><Icon kind="close" /></button></div></aside>
   if (!detail) return null
   const { skill } = detail
-  const card = marketCardState(skill, { installedIds: installed, localDirs: new Set() })
+  const job = jobs[skill.id] || null
+  const updateVersion = updateVersions[skill.id] || null
+  const card = marketCardState(skill, { installedIds: installed, localDirs: new Set(), job, updateAvailableVersion: updateVersion || undefined })
+  const footerAction = () => {
+    if (card.key === 'install') onInstall(skill, detail.version)
+    else if (card.key === 'retry' && job?.jobId) onRetry(skill, job.jobId)
+    else if (card.key === 'installed' && updateVersion) onInstall(skill, updateVersion)
+  }
+  const footerLabel = card.key === 'installed' && updateVersion ? `更新到 v${updateVersion}` : `${card.label}${detail.version ? ` v${detail.version}` : ''}`
+  const footerEnabled = card.enabled || (card.key === 'installed' && Boolean(updateVersion))
   return <aside className="skill-detail" aria-label="技能详情">
     <div className="skill-detail-head">
       <div>
@@ -164,7 +182,7 @@ function DetailDrawer({ detail, loading, installed, onSelectVersion, onClose, on
                 className={action.enabled ? 'ghost-button' : 'ghost-button'}
                 disabled={!action.enabled}
                 title={action.enabled ? '' : action.label}
-                onClick={() => { if (action.enabled) onInstall(skill) }}
+                onClick={() => { if (action.enabled) onInstall(skill, version.version) }}
               >{action.label}</button>
             </li>
           })}
@@ -178,10 +196,11 @@ function DetailDrawer({ detail, loading, installed, onSelectVersion, onClose, on
     </div>
     <div className="skill-detail-foot">
       <button
-        className={card.key === 'installed' ? 'primary' : 'primary'}
-        disabled={!card.enabled}
-        onClick={() => { if (card.key === 'install' || card.key === 'retry') onInstall(skill) }}
-      >{card.label}{detail.version ? ` v${detail.version}` : ''}</button>
+        className={card.key === 'blocked' || card.key === 'incompatible' || card.key === 'restricted' ? 'ghost-button danger' : 'primary'}
+        disabled={!footerEnabled}
+        title={!footerEnabled && card.notes[0] ? card.notes[0] : ''}
+        onClick={footerAction}
+      >{footerLabel}</button>
       <button className="ghost-button" onClick={onLogout}>退出 SkillHub 登录</button>
     </div>
   </aside>
@@ -191,8 +210,8 @@ function DetailDrawer({ detail, loading, installed, onSelectVersion, onClose, on
 export default function Market(props: Props) {
   const {
     items, total, page, hasNext, labelStats, cachedAt, stale, loading, error, message, auth,
-    detail, detailLoading, installedIds, localDirs, query, label, sort, onParamsChange,
-    onRequest, onOpenDetail, onCloseDetail, onSelectVersion, onInstall, onLogin, onLogout, onGoInstalled,
+    detail, detailLoading, installedIds, localDirs, jobs, updateVersions, query, label, sort, onParamsChange,
+    onRequest, onOpenDetail, onCloseDetail, onSelectVersion, onInstall, onRetry, onLogin, onLogout, onGoInstalled,
   } = props
   // 搜索/筛选/排序变化 → 防抖 400ms 后回第 0 页；q 变化才延迟，label/sort 立即
   React.useEffect(() => {
@@ -250,7 +269,7 @@ export default function Market(props: Props) {
           ) : (
             <>
               <div className="market-list">
-                {items.map(skill => <MarketCard key={skill.id} skill={skill} installed={installedIds} localDirs={localDirs} onOpenDetail={onOpenDetail} onInstall={onInstall} />)}
+                {items.map(skill => <MarketCard key={skill.id} skill={skill} installed={installedIds} localDirs={localDirs} job={jobs[skill.id] || null} updateVersion={updateVersions[skill.id] || null} onOpenDetail={onOpenDetail} onInstall={onInstall} onRetry={onRetry} />)}
               </div>
               {hasNext && <button className="ghost-button load-more" disabled={loading} onClick={() => onRequest({ query: query, label, sort, page: page + 1 })}>{loading ? '加载中…' : '加载更多'}</button>}
               {!hasNext && items.length > 0 && <p className="muted center">共 {numberFormat(total)} 个技能</p>}
@@ -262,9 +281,12 @@ export default function Market(props: Props) {
       detail={detail}
       loading={detailLoading}
       installed={installedIds}
+      jobs={jobs}
+      updateVersions={updateVersions}
       onSelectVersion={onSelectVersion}
       onClose={onCloseDetail}
       onInstall={onInstall}
+      onRetry={onRetry}
       onLogout={onLogout}
     />
   </div>
