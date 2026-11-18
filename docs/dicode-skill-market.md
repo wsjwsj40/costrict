@@ -27,7 +27,7 @@
 | 市场接口在内网，当前不可达 | 无法联调真实目录与下载 | 阶段 0–3 用桩数据与本地桩包打通全链路，数据源单独隔离，阶段 4 只替换实现 |
 | 内网账户与真实技能包不可得 | 无法验证真实兼容性与组织策略 | 兼容状态、组织限制、来源校验在桩数据中构造用例，逻辑先落地，阶段 4 校准 |
 | Codex CLI 行为未验证 | 未登录能否调用技能 RPC 未知 | 阶段 1 首项即做验证，并备好退化方案 |
-| 本地无 VSIX 发布链路验证 | 版本递增与打包未定 | 归入阶段 5，不影响功能开发 |
+| 本机未验证 VSIX 打包与分发 | 阶段 3 收尾的内测包可能受阻 | 阶段 3 开始前先跑一次 `vsce package` 验证环境，不可用则内测顺延 |
 
 ### 1.3 其他模块边界
 
@@ -48,9 +48,9 @@
 | 0 | 数据底座 | 无 | 模型、状态推导、登记读写 |
 | 1 | 本地能力 | Codex CLI | 导入（文件夹 + zip）、详情、删除、启停、技能 client |
 | 2 | 市场浏览 | 无（桩数据） | 列表、详情、布局、缓存与离线 |
-| 3 | 安装链路 | 无（本地桩包） | 安装管道、去重、回滚、中断恢复、索引刷新 |
+| 3 | 安装链路 | 无（本地桩包） | 安装管道、去重、回滚、中断恢复、索引刷新、内测包 |
 | 4 | 真实接口接入 | 内网接口 | 契约校准、联调、错误码映射 |
-| 5 | 收尾与增强 | 内网 + 发布链路 | 版本升级入口、CLI 复用、打包发布 |
+| 5 | 收尾与增强 | 阶段 4 之后 | 版本升级入口、CLI 复用、使用文档 |
 
 阶段 0–3 完全可在本地完成。阶段 4 是唯一硬依赖内网的阶段。
 
@@ -81,6 +81,7 @@
 - 产出：`skillInstaller.js`（下载、摘要校验、解压、登记、覆盖回滚）、安装任务表与事件、事件幂等、中断恢复、索引刷新。
 - 关键点：去重键 `(workspaceId, skillId, version)`；覆盖用 `.new` / `.bak` 目录切换；失败清理临时文件且旧版本可用；重连先快照后增量。
 - 验证：连续点击只产生一个 `jobId`；摘要不符、来源校验失败、不兼容、组织限制四类被拦截；覆盖失败回滚；扩展重启后中间态转 `INTERRUPTED`。
+- 收尾：递增扩展版本并打一版内测 VSIX，桩数据模式下走通真实安装流程，先收一轮问题再进阶段 4。
 
 **阶段 4：真实接口接入**
 
@@ -90,7 +91,7 @@
 
 **阶段 5：收尾与增强**
 
-- 技能版本升级与回滚的独立入口、CLI 侧复用安装、版本递增与 VSIX 打包、使用文档。
+- 技能版本升级与回滚的独立入口、CLI 侧复用安装、使用文档。
 - 进入条件：阶段 0–4 验收通过。
 
 ### 2.4 需求覆盖矩阵
@@ -124,10 +125,19 @@
 ### 3.2 列表
 
 - 顶部：搜索框 + 两个筛选项【全部】【已安装】，不做第三个筛选。
-- 搜索匹配名称、简介、标签三项；本地已安装项额外匹配路径。
 - 卡片展示：名称、发布者、版本、简介、兼容状态、安装操作。
-- 【已安装】以当前工作区登记记录为准，不以远程目录返回为准。
 - 排序按发布者 + 名称稳定排序，避免刷新跳动；已安装项不提前置顶。
+
+搜索与筛选按数据来源分工，两处不要混用：
+
+| 视图 | 数据来源 | 搜索与筛选在哪做 |
+| --- | --- | --- |
+| 【全部】 | 远程目录，分页 | 搜索词与筛选条件下发服务端（`q`、`filter`），服务端返回已过滤的分页结果 |
+| 【已安装】 | 本地登记记录 | 以登记为主数据源，按 `skillId` 向远程补齐版本、发布者、简介等元数据；不从远程分页结果里筛 |
+| 本地技能管理页 | 本机技能索引 | 纯本地内存过滤，不发任何请求 |
+
+- 【已安装】不能用「远程结果里过滤已装」实现，否则已装技能落在第 3 页时就查不到。
+- 远程离线时，【已安装】仍可显示登记中的技能，元数据缺失处留空态。
 
 ### 3.3 详情
 
@@ -205,7 +215,7 @@
  * @property {string} skillId        market 安装取目录项 id；本地导入取 SKILL.md 的 name
  * @property {string} version        market 取目录项版本；本地导入为 '0.0.0-local'
  * @property {string} digest         market 取包摘要；本地导入为目录内容的 sha256
- * @property {string} dir            相对工作区的安装目录，如 .agents/skills/review
+ * @property {string} dir            相对工作区的安装目录，固定为 .agents/skills/<技能原名>
  * @property {'market'|'import'|'system'} source
  * @property {number} installedAt
  * @property {string} [publisher]
@@ -215,6 +225,8 @@
 ```
 
 写入要求：先写 `.registry.json.tmp` 再 `rename`；多窗口用 `.registry.json.lock` 短锁；解析失败视为空登记并把损坏文件留为 `.bak`，不阻塞页面。
+
+该文件是机器生成的工作区状态，**加入 `.gitignore`，不入版本控制**，避免每人安装都让仓库变脏、换机换目录产生冲突。团队想共享「该项目该装哪些技能」时，另出一份只含 `skillId` 与版本的手写推荐清单，不与登记文件混用。
 
 ### 5.3 安装任务
 
@@ -253,7 +265,8 @@ ready ──install──▶ installing ──ok──▶ installed
 
 | 方向 | 消息 | 参数 / 返回 | 说明 |
 | --- | --- | --- | --- |
-| Webview → 扩展 | `marketList` | `{ query?, cursor? }` | 拉远程目录，分页；筛选全在本地做 |
+| Webview → 扩展 | `marketList` | `{ query?, filter?, cursor? }` | 拉远程目录；搜索词与筛选下发给服务端，分页返回 |
+| | `marketByIds` | `{ ids }` | 按登记里的 `skillId` 批量补齐元数据，供【已安装】视图 |
 | | `marketDetail` | `{ skillId, version? }` | 远程详情 |
 | | `marketInstall` | `{ skillId, version, digest }` | 提交安装，返回 `jobId` |
 | | `marketRetry` | `{ jobId }` | 重试可重试的失败任务 |
@@ -265,6 +278,7 @@ ready ──install──▶ installing ──ok──▶ installed
 | | `deleteSkill` | `{ path }` | 仅可管理来源 |
 | | `openSkillFile` / `revealSkill` | `{ path }` | 打开文件 / 资源管理器定位 |
 | 扩展 → Webview | `marketCatalog` | `{ items, nextCursor, cachedAt, stale }` | `stale` 表示来自缓存 |
+| | `marketItems` | `{ items }` | `marketByIds` 的结果，缺项表示远程已下架 |
 | | `marketDetail` | `{ skill, content }` | `content` 为概览文档 |
 | | `marketError` | `{ code, message, retryable }` | 目录/详情失败 |
 | | `installJobs` | `{ jobs }` | 全量快照，重连先收快照再收增量 |
@@ -280,15 +294,19 @@ ready ──install──▶ installing ──ok──▶ installed
 
 | 方法 | 路径 | 参数 | 返回要点 |
 | --- | --- | --- | --- |
-| GET | `/skill-market/api/v1/skills` | `q`、`cursor`、`limit` | `{ items: MarketSkill[], nextCursor }` |
+| GET | `/skill-market/api/v1/skills` | `q`、`filter`、`cursor`、`limit` | `{ items: MarketSkill[], nextCursor }` |
+| GET | `/skill-market/api/v1/skills` | `ids` 批量 | `{ items: MarketSkill[] }`，供【已安装】视图按登记补齐元数据 |
 | GET | `/skill-market/api/v1/skills/{id}` | `version?` | `MarketSkill` + `usage`、`source`、`capabilities[]`、`examples[]`、`readme` |
 | GET | `/skill-market/api/v1/skills/{id}/versions/{version}/download` | — | zip 流，响应头带 `digest` 与 `content-length` |
 
 约束：
 
-- 列表分页，客户端不一次拉全量；【已安装】筛选不传服务端，由本地登记过滤。
+- 搜索与筛选由服务端执行：`q` 匹配名称、简介、标签；`filter` 为服务端筛选枚举，当前只有 `all`，后续分类、来源、发布者等条件都在此扩展，客户端不为其新增消息。
+- 列表分页，客户端不一次拉全量；翻页时保留当前 `q` 与 `filter`。
+- 【已安装】不传服务端，它以本地登记为主数据源，再用 `ids` 批量接口补齐元数据；这样已装技能落在任意目录页都能显示。
 - `digest` 以服务端返回为准，客户端下载后重算比对，不一致即失败。
-- 目录缓存写 `context.globalStorageUri` 下 `market-cache.json`，TTL 10 分钟；过期先展示缓存再后台刷新。
+- 目录缓存写 `context.globalStorageUri` 下 `market-cache.json`，全局一份、跨工作区共用，TTL 10 分钟；过期先展示缓存再后台刷新。
+- 缓存按 `q` + `filter` 分组存储，切换筛选条件不互相覆盖。
 
 ### 7.1 错误码
 
@@ -303,6 +321,7 @@ ready ──install──▶ installing ──ok──▶ installed
 | `DIGEST_MISMATCH` | 摘要比对不一致 | 是 |
 | `DISK_FULL` | 磁盘空间不足 | 否 |
 | `VERSION_CONFLICT` | 并发写入导致版本冲突 | 是 |
+| `DIR_CONFLICT` | 目标目录已被其他技能或手工文件占用 | 否 |
 | `INTERRUPTED` | 扩展重启导致任务中断 | 是 |
 
 ### 7.2 桩数据
@@ -321,7 +340,7 @@ ready ──install──▶ installing ──ok──▶ installed
 3. 下载：写 `context.globalStorageUri/downloads/<jobId>.zip`，报进度。
 4. 校验：重算 sha256 与 `digest` 比对。
 5. 解压：复用 `skillArchive.js` 的安全解压规则（见 9.2），拒绝绝对路径、`..`、符号链接、加密条目。
-6. 登记：校验 `SKILL.md` frontmatter 含 `name`、`description`；写入 `<workspace>/.agents/skills/<目录名>`；成功后原子写登记。
+6. 登记：校验 `SKILL.md` frontmatter 含 `name`、`description`，且 `name` 与目录项一致（目录名由它决定，不一致按 `SOURCE_VERIFY_FAILED` 拒绝）；写入 `<workspace>/.agents/skills/<目录名>`；成功后原子写登记。
 7. 刷新：`skills/list` 带 `forceReload: true`，让 Agent 索引立即生效。
 8. 清理：无论成败删除临时 zip 与临时解压目录。
 
@@ -333,9 +352,11 @@ ready ──install──▶ installing ──ok──▶ installed
 
 ### 8.3 覆盖与回滚
 
-- 目标目录已存在且登记来源为 `market`：装到 `<dir>.new`，成功后 `<dir>` → `<dir>.bak`、`<dir>.new` → `<dir>`，再删 `.bak`。
-- 任一步失败：删 `.new`，`.bak` 还原，登记保持旧版本，原版本继续可用。
-- 目标目录存在但登记无记录（用户手工放置）：不覆盖，提示先删除或改名。
+目录名固定取技能原名（`SKILL.md` 的 `name`），不加发布者前缀；同名冲突由用户处理，扩展不自动加后缀。
+
+- **升级**：登记中同一 `skillId` 已存在且版本不同，装到 `<dir>.new`，成功后 `<dir>` → `<dir>.bak`、`<dir>.new` → `<dir>`，再删 `.bak`。任一步失败：删 `.new`，`.bak` 还原，登记保持旧版本，原版本继续可用。
+- **目录冲突**：目标目录已存在，但登记的 `skillId` 不同（另一个技能同名）或登记里没有记录（用户手工放置），不覆盖、不改名，报 `DIR_CONFLICT` 并提示用户自行删除或改名后重试。
+- **并发**：同一目录的写入按 8.2 的短锁串行，两个技能同时装到同名目录时只有一个成功，另一个报 `DIR_CONFLICT`。
 
 ### 8.4 后台继续与重连
 
@@ -365,7 +386,8 @@ ready ──install──▶ installing ──ok──▶ installed
 
 - 必须包含 `SKILL.md`，frontmatter 含 `name`、`description`。
 - 拒绝符号链接、加密条目、绝对路径、含 `..` 的路径。
-- 目录名取 `SKILL.md` 的 `name` 归一化（小写、非法字符转 `-`）；重名时提供「覆盖 / 重命名 / 取消」。
+- 目录名固定取 `SKILL.md` 的 `name`（小写、非法字符转 `-`），保持技能原名，不加前缀与后缀。
+- 重名时由用户当场决定：覆盖 / 重命名 / 取消。市场安装是无人值守流程，同名一律阻断（见 8.3），两者策略不同是有意为之。
 
 **zip 专项**
 
@@ -460,6 +482,7 @@ ready ──install──▶ installing ──ok──▶ installed
 - 连续三次安装同一版本只产生一个 `jobId`；
 - 摘要不一致、来源校验失败、不兼容、组织限制四类均不写登记；
 - 覆盖安装成功换版本；中途失败回滚且登记不变；
+- 目标目录被其他 `skillId` 或手工放置的目录占用时报 `DIR_CONFLICT`，不写入、不改名；
 - 扩展重启后中间态转 `INTERRUPTED` 并可重试；
 - 索引刷新失败标 `indexStale` 并可重试。
 
@@ -487,11 +510,14 @@ ready ──install──▶ installing ──ok──▶ installed
 
 `npm run check`、`npm test`、`npm run build`（均在 `apps/dicode-vscode` 下）。每阶段结束跑全量，不只跑新增用例。
 
-## 13. 待确认问题
+## 13. 已确认决策
 
-1. **设计稿缺口**：原型卡片没有版本、简介、兼容状态，也没有详情页。按需求先实现、字段留空态兜底，还是等 UI 补齐？
-2. **登记文件是否入库**：`<workspace>/.agents/skills.registry.json` 建议纳入版本控制以便团队共享已安装清单；若担心环境差异进入仓库，则加入 `.gitignore`。
-3. **安装目录命名**：建议 `publisher__name`，避免不同发布者同名技能互相覆盖；本地导入沿用 `SKILL.md` 的 `name`。
-4. **目录缓存位置**：建议全局 `globalStorageUri`，目录内容与工作区无关。
-5. **`INTERRUPTED` 是否与服务端错误码表统一**：本仓库先按自定义码处理。
-6. **版本发布节奏**：阶段 3 结束是否先发一版内测 VSIX，还是等阶段 4 一起发。
+| # | 事项 | 决策 |
+| --- | --- | --- |
+| 1 | 设计稿缺口 | 按需求先实现。版本、简介、兼容状态在 UI 出稿前留空态兜底；详情页按需求字段自行排版，不等稿 |
+| 2 | 登记文件 | 加入 `.gitignore`，不入库。团队共享「该装哪些技能」另出只含 `skillId` 与版本的推荐清单 |
+| 3 | 安装目录命名 | 保持技能原名，不加发布者前缀。同名冲突由用户自行删除或改名，扩展报 `DIR_CONFLICT`，不自动改名 |
+| 4 | 目录缓存 | 全局 `globalStorageUri`，跨工作区共用，按 `q` + `filter` 分组 |
+| 5 | `INTERRUPTED` | 先用本地自定义码，阶段 4 若服务端有对应码再映射 |
+| 6 | 发布节奏 | 阶段 3 收尾发一版内测 VSIX（桩数据模式），阶段 4 联调通过后发正式版 |
+| 7 | 搜索与筛选分工 | 远程列表由服务端筛选（`q` + `filter`）；【已安装】以本地登记为主数据源、按 `ids` 补齐元数据；本地技能管理页纯本地过滤，不发请求 |
