@@ -3,3 +3,7 @@ node_modules/
 *.tar
 *.tgz
 .DS_Store
+
+# 需求文档与截图仅本地保留，含内部信息，不入库
+docs/design/dicode-v4-prd.md
+docs/design/assets/
