@@ -589,7 +589,7 @@ test('general file attachments provide text content and survive history restore'
   view.ensureClient = async () => ({ request: async (method, params) => { if (method === 'turn/start') input = params.input; return { turn: { id: 't' } } } })
   try {
     await view.handle({ type: 'send', text: '', model: 'm', attachments: ['file-1'] })
-    assert.ok(input.some(part => part.type === 'text' && part.text.includes('hello') && part.text.includes(attachment.path)))
+    assert.ok(input.some(part => part.type === 'text' && part.text.includes('hello') && part.text.includes(JSON.stringify(attachment.path))))
     const snapshot = view.conversation.snapshot()
     view.conversation.restore(snapshot)
     assert.equal(view.conversation.turns.at(-1).attachments[0].name, 'notes.txt')

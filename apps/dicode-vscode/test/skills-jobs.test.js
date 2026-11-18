@@ -108,7 +108,7 @@ test('目录锁未失效时二次抢锁超时报 LOCK_TIMEOUT', async t => {
 test('心跳超时的锁可被接管，release 后锁文件消失', async t => {
   const { jobs } = await makeJobs(t)
   const file = jobs.lockFile(WORKSPACE_ID, 'demo')
-  await jobs.acquireLock(WORKSPACE_ID, 'demo', { heartbeatMs: 0, timeoutMs: 150 })
+  await fs.mkdir(path.dirname(file), { recursive: true })
   await fs.writeFile(file, JSON.stringify({ owner: 'dead-owner', heartbeatAt: Date.now() - LOCK_STALE_MS * 2 }))
   const taken = await jobs.acquireLock(WORKSPACE_ID, 'demo', { heartbeatMs: 0, timeoutMs: 500 })
   await taken.release()
@@ -131,11 +131,12 @@ test('心跳持续更新时不会被判定失效', async t => {
 test('clearStaleLocks 只清失效锁，保留活锁', async t => {
   const { jobs } = await makeJobs(t)
   const held = await jobs.acquireLock(WORKSPACE_ID, 'alive', { heartbeatMs: 0, timeoutMs: 150 })
-  await jobs.acquireLock(WORKSPACE_ID, 'dead', { heartbeatMs: 0, timeoutMs: 150 })
-  await fs.writeFile(jobs.lockFile(WORKSPACE_ID, 'dead'), JSON.stringify({ owner: 'x', heartbeatAt: Date.now() - LOCK_STALE_MS * 2 }))
+  const deadFile = jobs.lockFile(WORKSPACE_ID, 'dead')
+  await fs.mkdir(path.dirname(deadFile), { recursive: true })
+  await fs.writeFile(deadFile, JSON.stringify({ owner: 'x', heartbeatAt: Date.now() - LOCK_STALE_MS * 2 }))
   assert.equal(await jobs.clearStaleLocks(WORKSPACE_ID), 1)
   assert.equal(await fs.stat(jobs.lockFile(WORKSPACE_ID, 'alive')).then(() => true, () => false), true)
-  assert.equal(await fs.stat(jobs.lockFile(WORKSPACE_ID, 'dead')).then(() => true, () => false), false)
+  assert.equal(await fs.stat(deadFile).then(() => true, () => false), false)
   await held.release()
 })
 
