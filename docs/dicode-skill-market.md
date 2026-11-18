@@ -1,297 +1,496 @@
-# DiCode 技能市场完善规划
+# DiCode Skill 市场开发规划
 
-> 状态：规划完成，暂缓实施（代码未改动）
+> 状态：已按 V4.0.1 需求重写，分阶段实施（代码未改动）
 > 分支：`feat/skill-market`
 > 范围：`apps/dicode-vscode`（VS Code 扩展 + Webview）
+> 需求依据：产品需求文档 V4.0.1【P0】Skill 市场与一键安装，以及跨会话异步执行、IDE 布局、事件恢复中与 Skill 安装相关的条款
+> 设计参考：`docs/design/dicode-vscode-ui-prototype.html`、`docs/design/dicode-webview-ui.md`
 > 日期：2026-11-18
 
-## 0. 当前状态
+需求文档与截图含内部信息，**不纳入本仓库**，仅在本地维护。本文档是唯一入库的实施依据，需求变更时同步更新此处。
 
-- 已确认本轮只做阶段一，但暂不修改代码。
-- 登录、API Key、未登录本地技能的现状分析见 1.4。
-- 远程接口能力与页面命名见第 2、4 节；待内网可访问后再实施。
-- 开始实施前需确认第 9 节的实施细节。
+## 0. 本版变更
 
-## 1. 现状
+上一版规划定的是「本轮只做本地技能管理，远程市场暂停，页面改名『技能管理』」，与 V4.0.1 的 P0 要求（远程目录 + 一键安装）方向冲突。本版以需求文档为准重写，并把全部需求拆成可按环境独立推进的阶段。
 
-### 1.1 入口与链路
+| 项 | 上一版 | 本版 |
+| --- | --- | --- |
+| 范围 | 只做本地技能管理 | 远程市场安装为主线，本地能力一并补齐 |
+| 页面命名 | 本地「技能管理」，远程「Skill Hub」 | 统一【Skill 市场】，不拆两个页面 |
+| 远程接口 | 暂停，等内网可访问 | 契约先行 + 桩数据，阶段 0–3 不等内网即可开发 |
+| 推进方式 | 一次性实施 | 按环境依赖分 6 个阶段，每阶段可独立验收 |
+| zip 导入 | 阶段一必做 | 移入阶段 5 完善项，需求未强制 |
+| 安装去重 | 未涉及 | 按工作区 + Skill + 版本去重，共用安装任务 |
+| 离线 | 未涉及 | 已安装列表与目录缓存均可离线读 |
+
+## 1. 需求范围与环境约束
+
+### 1.1 需求范围（全部纳入）
+
+需求文档中与 Skill 相关的条款全部纳入实施范围，不做裁剪：
+
+1. 入口与布局：导航第 2 项【Skill 市场】、返回保留草稿、窄面板独占、最大化时列表与详情并排。
+2. 列表：搜索 +【全部】【已安装】两项筛选；搜索匹配名称、简介、标签；卡片展示名称、发布者、版本、简介、兼容状态、安装操作。
+3. 详情：用途、来源、版本、声明能力、示例。
+4. 缺省状态：骨架加载、目录失败保留缓存并重试、已安装列表离线可读。
+5. 安装五态：可安装 / 安装中 / 已安装 / 可重试 / 不可安装。
+6. 安装链路：固定 Skill ID、版本、摘要；同一工作区 + Skill + 版本去重；切走或关闭市场后继续处理。
+7. 安装后动作：刷新列表与 Agent Skill 索引；已开始任务继续使用固定或更新前版本。
+8. 失败处理：保留失败原因、清理临时文件、原已安装版本继续可用、允许重试。
+9. 并发与恢复：安装任务按工作区持久化，事件带 `workspaceId`、`skillId`、`version`、`digest`、`jobId`、`state`、`errorCode`；重连先取快照再补增量。
+10. 存量能力：未登录可用本地技能、文件夹导入、技能详情、删除、启停。
+
+### 1.2 环境约束与应对
+
+| 约束 | 影响 | 应对 |
+| --- | --- | --- |
+| 市场接口在内网，当前不可达 | 无法联调真实目录与下载 | 阶段 0–3 用桩数据与本地桩包打通全链路，接口层单独隔离，阶段 4 只替换实现 |
+| 内网账户与真实技能包不可得 | 无法验证真实兼容性与组织策略 | 兼容状态、组织限制、来源校验在桩数据中构造用例，逻辑先落地，阶段 4 校准 |
+| Codex CLI 行为未验证 | 未登录是否可调技能 RPC 未知 | 阶段 1 首项即做验证，并备好退化方案 |
+| 本地无 VSIX 发布链路验证 | 版本递增与打包未定 | 归入阶段 5，不影响功能开发 |
+| 需求文档不入库 | 提交信息与文档中不得出现内部细节 | 本文档只写结论与口径，不复述需求原文 |
+
+### 1.3 边界：属于其他模块的部分
+
+以下内容不在本模块实施，但本文档预留衔接点：
+
+- 终端/CLI 的 Skill 安装：终端组件不在本仓库，阶段 5 只保证扩展侧安装入口可被复用。
+- 消息提醒中的安装失败：需求的消息提醒只覆盖任务待决策与任务动态，本模块不扩展提醒。
+- 跨会话记忆、待决策强提醒：属于 V4.0.2，由对应模块负责。
+
+## 2. 分步实施路线
+
+### 2.1 划分原则
+
+按**环境依赖**切分：先做不依赖任何外部条件的部分，再做依赖本地可验证条件的部分，最后做必须依赖内网的接入。每个阶段都能单独交付、单独验收，中断后可从下一阶段继续，不需要推倒重来。
+
+### 2.2 阶段总览
+
+| 阶段 | 主题 | 外部依赖 | 产出 | 可独立验收 |
+| --- | --- | --- | --- | --- |
+| 0 | 数据底座 | 无 | 模型、状态推导、登记读写 | 单测 |
+| 1 | 本地能力与未登录 | Codex CLI | 技能详情、删除、导入覆盖、启停、技能 client | 手工 + 单测 |
+| 2 | 市场列表与详情 | 无（桩数据） | 列表页、详情页、布局、缓存与离线 | 界面走查 + jsdom |
+| 3 | 安装链路与健壮性 | 无（本地桩包） | 安装管道、去重、回滚、中断恢复、索引刷新 | 端到端安装 |
+| 4 | 真实接口接入 | 内网接口 | 契约校准、联调、错误码映射 | 内网联调 |
+| 5 | 完善项 | 内网 + 发布链路 | zip 导入、版本升级、CLI 复用、打包 | 可选 |
+
+阶段 0–3 完全可在本地完成，覆盖需求中除「真实目录与真实包」之外的全部行为。阶段 4 是唯一硬依赖内网的阶段。
+
+### 2.3 各阶段任务
+
+**阶段 0：数据底座（无外部依赖）**
+
+- 产出：`skillsModel.js`（类型、`compareVersion`、状态推导、去重键）、`skillsRegistry.js`（登记读写、原子写、短锁、损坏恢复）。
+- 关键点：登记文件是「已安装」与离线可用的唯一真相来源，必须先稳定。
+- 验证：`skills-registry.test.js` 覆盖原子写、并发锁、损坏恢复、跨窗口读一致性。
+- 风险：登记文件路径与格式一旦定稿，阶段 3 的安装与阶段 2 的离线展示都依赖它，变更成本高，需在阶段 0 定死。
+
+**阶段 1：本地能力与未登录（依赖 Codex CLI 行为验证）**
+
+- 前置验证：空 token 启动 app-server 后 `skills/list`、`skills/config/write` 是否可用。可用则走独立技能 client；不可用则退化为自行扫描技能目录 + 写用户级配置，并在本文档记录差异。
+- 产出：`ensureSkillClient()`、`getSkillDetail` / `deleteSkill` / `openSkillFile` / `revealSkill`、导入覆盖与重命名、启停乐观更新与回滚。
+- 验证：未登录状态下可列举、查看详情、导入、删除、启停；`system` / `admin` 来源不可删。
+- 说明：本阶段不涉市场，可在真实接口不可用时独立交付价值。
+
+**阶段 2：市场列表与详情（桩数据驱动）**
+
+- 产出：`marketStub.js`（覆盖五态与四类错误）、`skillMarket.js`（数据源抽象，桩与真实接口同一出口）、`webview/skills.ts`、`webview/Market.tsx`、列表与详情样式。
+- 关键点：搜索、两筛选、卡片字段（含版本与兼容状态）、骨架、缓存过期标注、离线已安装；最大化态列表与详情并排。
+- 验证：jsdom 覆盖筛选与五态按钮；手工走查 VS Code 深/浅与 JetBrains 深/浅四套主题。
+- 风险：设计稿缺版本、简介、兼容状态与详情页（见 13.1），字段先按需求实现并留空态兜底。
+
+**阶段 3：安装链路与健壮性（本地桩包）**
+
+- 产出：`skillInstaller.js`（下载、摘要校验、解压、登记、覆盖回滚）、安装任务表与事件、`installEvent` 幂等、中断恢复、索引刷新。
+- 关键点：去重键 `(workspaceId, skillId, version)`；覆盖用 `.new` / `.bak` 目录切换；失败清理临时文件且旧版本可用；安装事件纳入统一事件模型，重连先快照后增量。
+- 验证：连续点击只产生一个 `jobId`；摘要不符、来源校验失败、不兼容、组织限制四类被拦截；覆盖失败回滚；扩展重启后中间态转 `INTERRUPTED`。
+- 说明：桩包为固定结构 zip，用于打通解压与登记，不含真实发布者信息。
+
+**阶段 4：真实接口接入（内网）**
+
+- 产出：`skillMarket.js` 真实实现、鉴权、分页、错误码映射、缓存 TTL、真实下载与摘要来源。
+- 关键点：契约以服务端实际响应校准，字段缺失在适配层补齐，不把服务端差异泄漏到 UI。
+- 验证：逐条核对第 12.2 节的验收表；目录失败、超时、离线三条路径均能回到可用状态。
+
+**阶段 5：完善项（非需求强制）**
+
+- zip 导入、技能版本升级与回滚的独立入口、CLI 侧复用安装、版本递增与 VSIX 打包。
+- 进入条件：阶段 0–4 验收通过，且需求方确认优先级。
+
+### 2.4 需求覆盖矩阵
+
+| 需求条款 | 阶段 |
+| --- | --- |
+| 入口、导航、草稿保留、窄面板与最大化并排 | 2 |
+| 列表：搜索、两项筛选、卡片六字段 | 2 |
+| 详情：用途、来源、版本、声明能力、示例 | 2 |
+| 骨架、目录失败保留缓存并重试、已安装离线可读 | 2（离线依赖阶段 0 登记） |
+| 可安装 → 安装中 → 已安装 → 可重试 → 不可安装五态 | 3（不可安装策略在 4 校准） |
+| 安装链路固定 ID、版本、摘要 | 3 |
+| 同工作区 + Skill + 版本去重，后台继续 | 3 |
+| 安装后刷新列表与 Agent Skill 索引 | 3 |
+| 失败清理临时文件、旧版本继续可用 | 3 |
+| 安装事件字段与按工作区持久化 | 3（持久化底座在 0） |
+| 并行请求共用安装任务 | 3 |
+| 重连快照 + 增量补齐 | 3 |
+| 未登录可用本地技能、导入、删除、启停 | 1 |
+| 真实目录、真实包、真实兼容与组织策略 | 4 |
+
+## 3. 产品形态
+
+### 3.1 入口与布局
+
+- 左上导航第 2 项【Skill 市场】进入，回到对话后保留输入中草稿。
+- 窄面板：市场占据插件内容区，列表与详情为前后两级。
+- 最大化态：列表与详情并排（左侧列表、右侧详情）。
+- 切换导航项不重建市场状态，已发起的安装任务不受影响。
+
+### 3.2 列表
+
+- 顶部：搜索框 + 两个筛选项【全部】【已安装】，不做第三个筛选。
+- 搜索匹配名称、简介、标签三项；本地已安装项额外匹配路径。
+- 卡片展示：名称、发布者、版本、简介、兼容状态、安装操作。
+- 【已安装】以当前工作区登记记录为准，不以远程目录返回为准。
+- 排序按发布者 + 名称稳定排序，避免刷新跳动；已安装项不提前置顶。
+
+### 3.3 详情
+
+- 字段：用途、来源、版本、声明能力、示例。
+- 远程详情由接口返回概览与结构化字段，不下载包即可查看。
+- 本地已安装项直接读本地 `SKILL.md`。
+- 详情内的安装/重试操作复用列表的状态机。
+
+### 3.4 缺省与异常状态
+
+| 场景 | 表现 |
+| --- | --- |
+| 初次加载 | 骨架屏或加载提示，不显示空态 |
+| 目录请求失败 | 有缓存则展示缓存并标注已过期 + 重试；无缓存则错误态 + 重试 |
+| 已安装列表 | 离线可读，来自本地登记 |
+| 搜索无结果 | 空态提示，保留当前筛选条件 |
+| 单条安装失败 | 该条转【重试】并保留失败原因，不影响其他条目 |
+
+## 4. 现状
+
+### 4.1 现有链路
 
 | 层 | 位置 | 说明 |
 | --- | --- | --- |
 | 入口 | `webview/app.tsx` 顶栏「Skill 市场」 | 切到 `skills` 子页，并发送 `listSkills` |
 | 列表 | `webview/Subpages.tsx:23` `SkillList` | 搜索、全部/已启用筛选、启用开关、空状态 |
 | 导入 | `webview/app.tsx` 右上角「导入」 | 发送 `importSkill` |
-| 消息处理 | `extension.js:1014-1040` | `importSkill` / `listSkills` / `setSkillEnabled` |
-| 导入实现 | `extension.js:30-60` `importLocalSkill` | 校验 `SKILL.md`，复制到 `<workspace>/.agents/skills/<目录名>` |
-| 测试 | `test/skill-import.test.js` | 覆盖导入成功、同名不覆盖、导入后刷新 |
+| 消息处理 | `extension.js:1014-1038` | `importSkill` / `listSkills` / `setSkillEnabled` |
+| 导入实现 | `extension.js:30-61` `importLocalSkill` | 校验 `SKILL.md` frontmatter，复制到 `<workspace>/.agents/skills/<目录名>`，拒绝符号链接与同名覆盖 |
+| 测试 | `test/skill-import.test.js` | 导入成功、同名不覆盖、导入后刷新 |
 
-### 1.2 当前能力
+技能数据来自 Codex app-server：列表 `skills/list`（`cwds: [workspace]`, `forceReload: true`），启停 `skills/config/write`，字段为 `name`、`description`、`path`、`scope`、`enabled`、`pluginId`。
 
-- 技能来源：Codex app-server 的 `skills/list`（`cwds: [workspace]`, `forceReload: true`）。
-- 技能启停：Codex `skills/config/write`（`{ path, enabled }`），写入用户级 `[[skills.config]]`。
-- 技能导入：仅支持选择本地文件夹，要求 `SKILL.md` frontmatter 含 `name` 和 `description`，拒绝符号链接与同名目录。
-- 展示字段：`name`、`description`、`path`、`scope`、`enabled`、`pluginId`。
+### 4.2 与目标的差距
 
-**结论：当前页面本质是「本地已安装技能管理器」，缺少详情、删除、更新、压缩包导入和远程市场能力。**
+1. 没有远程目录：无接口、无分页、无版本与兼容状态。
+2. 没有安装链路：只能从本地文件夹复制。
+3. 没有登记记录：「已安装」靠实时扫描，离线不可用，也无法区分来源。
+4. 没有详情页：看不到 `SKILL.md`、来源、文件列表。
+5. 没有删除：导入后只能启停，目录需手动清理。
+6. 未登录不可用：`listSkills` / `setSkillEnabled` 经 `ensureClient()` → `accessToken()`，未登录直接抛错；`importSkill` 虽不依赖登录，但导入后刷新被拒，表现为「文件已复制但页面报错」。
+7. 状态反馈不完整：无真正加载态，启停失败走通用 `error` 且技能页不展示，分条 `errors` 被压成一句话。
+8. 启停不可靠：非乐观更新、无逐项 pending、无失败回滚。
+9. 数据模型未定义：前端以 `any` 处理，以 `path` 作 key。
 
-### 1.3 现存问题
+## 5. 数据模型
 
-1. **未登录时本地技能不可用**：`listSkills` / `setSkillEnabled` 都经过 `ensureClient()` → `accessToken()`，未登录直接抛「请先登录」。
-2. **加载与错误反馈不完整**：无真正的加载态；`skillsError` 只覆盖列表失败，启停失败走通用 `error` 消息而技能页不展示；分条 `errors` 被压缩成一句「部分技能加载失败」。
-3. **无详情页**：看不到 `SKILL.md` 内容、来源、完整路径和文件列表。
-4. **无删除/卸载/更新**：导入后只能启停，目录需要手动清理；重复导入只提示「目录已存在」。
-5. **启停不可靠**：非乐观更新、无逐项 pending、无失败回滚，快速点击可能并发写入。
-6. **导入能力有限**：仅支持文件夹，不支持 zip；无覆盖、重命名、进度和体积限制。
-7. **可发现性弱**：只有「全部/已启用」筛选，没有来源分组、排序和分类。
-8. **刷新时机少**：仅打开页面、导入、启停后刷新；外部变更不可见。
-9. **数据模型未定义**：前端以 `any` 处理，以 `path` 作为 key。
-10. **命名不符**：入口叫「Skill 市场」，实际是本地管理。
+新增 `apps/dicode-vscode/skillsModel.js`，扩展侧与 webview 共用一份字段定义；webview 侧再导出 TypeScript 类型。时间用毫秒时间戳，版本比较不引第三方依赖，自行实现 `compareVersion`。
 
-### 1.4 登录、API Key 与本地技能链路分析
+### 5.1 市场目录项
 
-**当前代码逻辑与目标不一致：未登录时不能正常使用本地技能。**
-
-- `listSkills` → `ensureClient()` → `accessToken()`，没有 OIDC token 时直接抛错。
-- `setSkillEnabled` 同样依赖登录后的 Codex client。
-- `importSkill` 本身只做文件复制，不依赖登录；但导入后调用 `listSkills` 刷新，未登录时会被拒绝，表现为「文件已复制但页面报错、列表不显示」。
-- 技能页虽然能在未登录时渲染，但拿不到任何数据。
-
-**当前不支持用户自带 API Key：**
-
-- 扩展只有 OIDC 登录一种鉴权方式，token 存放于 SecretStorage。
-- Codex 启动参数固定使用 `model_providers.dicode.env_key="DICODE_ACCESS_TOKEN"`，没有 API Key 配置项，也不会读取 `OPENAI_API_KEY` 或 `~/.codex/auth.json`。
-- 模型列表 `${serverUrl}/ai-gateway/api/v1/models` 同样使用 OIDC token。
-- 若要支持自带 API Key，需要新增配置项、SecretStorage、模型列表与 `/codex/v1` 的鉴权分支，**不属于阶段一**。
-
-**可行性判断：**
-
-- Codex app-server 的 `skills/list`、`skills/config/write` 是本地 RPC；官方文档未要求启动或调用这些方法前必须登录/提供 API Key。
-- 因此可以新增一个**独立的本地技能 client**：不要求 OIDC token，只启动 app-server 用于技能扫描与启停；会话 client 仍保持现有登录逻辑。
-- 实现前需用仓库实际使用的 Codex CLI 做一次小验证：确认空 token 启动 app-server 后 `skills/list`、`skills/config/write` 可正常调用。若该版本仍强制校验，则退化为自行扫描技能目录 + 写入用户级配置的方案（成本更高，作为后备）。
-
-## 2. 本轮范围与产品结构
-
-### 2.1 已确认
-
-- **本轮只做阶段一：本地技能管理。**
-- 远程技能市场暂停；内网服务端不在本仓库，待可访问后再做。
-- 本地页面名称：**技能管理**；未来远程页面名称：**Skill Hub**。
-- 允许删除用户级技能；系统/组织来源只读。
-- 导入支持文件夹和 **zip**。
-- 未登录也能使用本地技能；未登录时不能访问远程市场。
-
-### 2.2 页面结构
-
-| 页面 | 本轮 | 说明 |
-| --- | --- | --- |
-| 技能管理 | 实现 | 顶栏入口，管理本地已安装技能 |
-| Skill Hub | 不实现 | 未来远程市场入口，本轮仅在代码/文档中预留命名，不放置不可用的死入口 |
-
-## 3. 阶段一：本地技能管理实施计划
-
-### 3.1 数据模型与消息协议
-
-Webview 侧新增 `webview/skills.ts`，统一技能模型：
-
-```ts
-type SkillScope = 'user' | 'repo' | 'system' | 'admin' | 'unknown'
-
-type Skill = {
-  id: string          // 稳定标识，优先 path，其次 scope + name
-  name: string
-  description: string
-  path?: string       // Codex 返回的技能路径（通常是 SKILL.md）
-  dir?: string        // 技能目录
-  scope?: SkillScope
-  enabled: boolean
-  pluginId?: string
-  source?: 'local' | 'imported'
-}
+```js
+/** @typedef {Object} MarketSkill
+ * @property {string} id            市场内稳定标识，安装一律以 id + version 定位
+ * @property {string} name
+ * @property {string} publisher
+ * @property {string} version
+ * @property {string} summary       列表用一句话简介，参与搜索
+ * @property {string[]} tags        参与搜索
+ * @property {string} digest        Skill 包摘要，安装与升级校验用
+ * @property {'compatible'|'incompatible'|'restricted'} compat
+ * @property {string} [minClientVersion]  incompatible 时给出最低客户端版本
+ * @property {string} [compatReason]      restricted 时的组织策略说明
+ * @property {number} [updatedAt]
+ */
 ```
 
-不同 Codex 版本可能让 `path` 指向 `SKILL.md` 文件，也可能指向技能目录；实现时统一归一化：目录则拼接 `SKILL.md`，文件则直接使用，删除时取所在目录。
+### 5.2 安装登记（按工作区持久化）
 
-消息约定：
+登记是【已安装】筛选与离线可用的唯一依据，存于 `<workspace>/.agents/skills.registry.json`：
 
-| 方向 | 消息 | 说明 |
+```js
+/** @typedef {Object} InstallRecord
+ * @property {string} skillId
+ * @property {string} version
+ * @property {string} digest
+ * @property {string} dir        相对工作区的安装目录，如 .agents/skills/review
+ * @property {'market'|'import'|'system'} source
+ * @property {number} installedAt
+ * @property {string} [publisher]
+ * @property {string} [name]
+ * @property {boolean} [indexStale] 登记成功但 Agent 索引未刷新
+ */
+```
+
+写入要求：先写 `.registry.json.tmp` 再 `rename`；多窗口用 `.registry.json.lock` 短锁；解析失败视为空登记并把损坏文件留为 `.bak`，不阻塞页面。
+
+### 5.3 安装任务
+
+```js
+/** @typedef {Object} InstallJob
+ * @property {string} jobId
+ * @property {string} skillId
+ * @property {string} version
+ * @property {string} digest
+ * @property {'queued'|'downloading'|'verifying'|'extracting'|'registering'|'done'|'failed'} state
+ * @property {number} [progress]     0-100，下载阶段有效
+ * @property {string} [errorCode]
+ * @property {string} [errorMessage]
+ * @property {number} startedAt
+ * @property {number} [finishedAt]
+ */
+```
+
+### 5.4 安装状态机
+
+```
+ready ──install──▶ installing ──ok──▶ installed
+                      │
+                      └──fail──▶ failed ──retry──▶ installing
+blocked（不兼容 / 已限制 / 来源校验失败）── 不允许进入 installing
+```
+
+- `installing` 细分管道阶段（downloading → verifying → extracting → registering），UI 统一显示【安装中…】。
+- `installed` 判定：登记存在且 `digest` 与目录一致；仅 `skillId` 命中但版本不同，视为可升级，按钮仍为【安装】。
+- `failed` 必须带 `errorCode`，UI 至少区分「可重试」与「不可重试」。
+
+## 6. 消息协议
+
+扩展侧统一在 `extension.js` 的消息分支处理，实现放独立模块。旧消息保持兼容，不删不改语义。
+
+| 方向 | 消息 | 参数 / 返回 | 说明 |
+| --- | --- | --- | --- |
+| Webview → 扩展 | `marketList` | `{ query?, filter?, cursor? }` | 拉远程目录，分页 |
+| | `marketDetail` | `{ skillId, version? }` | 远程详情 |
+| | `marketInstall` | `{ skillId, version, digest }` | 提交安装，返回 `jobId` |
+| | `marketRetry` | `{ jobId }` 或 `{ skillId, version }` | 重试同一安装 |
+| | `installedList` | 无 | 读工作区登记，离线可用 |
+| | `listSkills` | 无 | 保留，取 Codex 技能索引 |
+| | `getSkillDetail` | `{ path }` | 本地详情：元数据 + `SKILL.md` + 文件列表 |
+| | `importSkill` | `{ mode: 'folder' }` | 保留，仅文件夹 |
+| | `setSkillEnabled` | `{ path, enabled }` | 保留 |
+| | `deleteSkill` | `{ path }` | 新增，仅可管理来源 |
+| | `openSkillFile` / `revealSkill` | `{ path }` | 新增 |
+| 扩展 → Webview | `marketCatalog` | `{ items, nextCursor, cachedAt, stale }` | `stale` 表示来自缓存 |
+| | `marketDetail` | `{ skill, content }` | `content` 为概览文档 |
+| | `marketError` | `{ code, message, retryable }` | 目录/详情失败 |
+| | `installJobs` | `{ jobs }` | 全量快照，重连先收快照再收增量 |
+| | `installEvent` | `{ jobId, skillId, version, digest, state, errorCode?, progress? }` | 与需求的事件字段一致 |
+| | `installedSkills` | `{ records }` | 登记快照 |
+| | `skills` / `skillsDetail` / `skillsError` / `skillsNotice` | 保留 | 本地技能沿用 |
+
+事件合并：`installEvent` 按 `jobId` + `state` 幂等，重复事件忽略；已 `done` / `failed` 的 `jobId` 不再接受后续事件。
+
+## 7. 远程接口契约（先行定义）
+
+接口在内网、当前不可达，本仓库先定契约，阶段 4 以服务端实际响应校准。鉴权复用现有 OIDC token，未登录不请求远程。
+
+| 方法 | 路径 | 参数 | 返回要点 |
+| --- | --- | --- | --- |
+| GET | `/skill-market/api/v1/skills` | `q`、`cursor`、`limit` | `{ items: MarketSkill[], nextCursor }`；`installed` 由客户端本地过滤 |
+| GET | `/skill-market/api/v1/skills/{id}` | `version?` | `MarketSkill` + `usage`、`source`、`capabilities[]`、`examples[]`、`readme` |
+| GET | `/skill-market/api/v1/skills/{id}/versions/{version}/download` | — | zip 流，响应头带 `digest` 与 `content-length` |
+
+约束：
+
+- 列表必须分页，客户端不一次拉全量。
+- `digest` 以服务端返回为准，客户端下载后重算比对，不一致即失败。
+- 目录缓存写 `context.globalStorageUri` 下 `market-cache.json`，TTL 10 分钟；过期先展示缓存再后台刷新。
+
+### 7.1 错误码
+
+| errorCode | 触发 | 可重试 |
 | --- | --- | --- |
-| Webview → 扩展 | `listSkills` | 拉取列表 |
-| | `importSkill` | 支持文件夹 / zip，参数 `{ mode?: 'folder' | 'zip' }` |
-| | `setSkillEnabled` | `{ path, enabled }` |
-| | `getSkillDetail` | `{ path }`，返回元数据 + `SKILL.md` + 文件列表 |
-| | `openSkillFile` / `revealSkill` | 打开 `SKILL.md` / 在资源管理器中显示 |
-| | `deleteSkill` | `{ path }`，仅允许可管理来源 |
-| 扩展 → Webview | `skills` | `{ skills, errors, loading }` |
-| | `skillsDetail` | `{ skill, content, files }` |
-| | `skillsError` | `{ message, path? }` |
-| | `skillsNotice` | 导入/删除/启停成功的轻提示 |
+| `NETWORK` | 请求超时、连接失败 | 是 |
+| `UNAUTHORIZED` | token 失效 | 是（重新登录后） |
+| `NOT_FOUND` | 技能或版本不存在 | 否 |
+| `INCOMPATIBLE_CLIENT` | 客户端版本低于 `minClientVersion` | 否 |
+| `ORG_RESTRICTED` | 组织策略限制 | 否 |
+| `SOURCE_VERIFY_FAILED` | 来源/签名校验失败 | 否 |
+| `DIGEST_MISMATCH` | 摘要比对不一致 | 是 |
+| `DISK_FULL` | 磁盘空间不足 | 否 |
+| `VERSION_CONFLICT` | 并发写入导致版本冲突 | 是 |
+| `INTERRUPTED` | 扩展重启导致任务中断 | 是 |
 
-保持对旧消息兼容。
+### 7.2 桩数据方案（阶段 2–3 使用）
 
-### 3.2 未登录可用的本地技能
+- `apps/dicode-vscode/marketStub.js` 内置一份目录与详情，覆盖五种安装状态：可安装、安装中（延迟返回）、已安装、可重试（首次必失败）、不可安装（一条 `incompatible`、一条 `restricted`）。
+- 启用条件：配置项 `dicodeCodex.skillMarketStub` 为 `true`；默认关闭，避免误连。
+- 桩数据只在扩展侧生效，webview 不感知来源，阶段 4 只替换 `skillMarket.js` 的数据源实现。
+- 桩包是固定结构 zip（单层根目录 + `SKILL.md`），仅供打通解压与登记。
 
-核心改造：把「本地技能操作」与「登录会话」解耦。
+## 8. 安装链路
 
-1. 新增 `ensureSkillClient()`：
-   - 不调用 `accessToken()`；启动独立的 Codex app-server 实例。
-   - 模型目录使用 CLI 自带模型构造，不依赖 `/ai-gateway` 返回的模型列表。
-   - 仅用于 `skills/list` 和 `skills/config/write`，不复用会话 client。
-2. `importSkill`、`getSkillDetail`、`deleteSkill`、`openSkillFile`、`revealSkill` 使用纯文件系统操作，不依赖 client 和登录。
-3. `listSkills` / `setSkillEnabled` 使用 `ensureSkillClient()`。
-4. 用户登录后，会话 client 与技能 client 相互独立；退出登录只清理会话 client，不影响技能页。
-5. 若 Codex CLI 尚未安装，沿用 `ensureBinary()` 的下载/配置逻辑；失败时给出「设置 `dicodeCodex.codexPath` 或登录后安装」的提示。
-6. 实现前先验证空 token 启动 app-server 的行为；若不可行，改为本地扫描技能目录 + 用户配置写入，并在文档中记录差异。
+### 8.1 管道
 
-### 3.3 列表页
+1. 校验：条目 `compat` 必须为 `compatible`，否则 `blocked`。
+2. 去重：按 `(workspaceId, skillId, version)` 查在跑任务，命中则复用原 `jobId`。
+3. 下载：写 `context.globalStorageUri/downloads/<jobId>.zip`，报进度。
+4. 校验：重算 sha256 与 `digest` 比对。
+5. 解压：仅支持 store/deflate，拒绝绝对路径、`..`、符号链接、加密条目；兼容单层根目录并剥离。
+6. 登记：校验 `SKILL.md` frontmatter 含 `name`、`description`；写入 `<workspace>/.agents/skills/<目录名>`；成功后原子写登记。
+7. 刷新：`skills/list` 带 `forceReload: true`，让 Agent 索引立即生效。
+8. 清理：无论成败删除临时 zip 与临时解压目录。
 
-- 页面标题与入口文案改为「技能管理」。
-- 增加手动刷新按钮；刷新期间禁用并显示加载态。
-- 增加加载骨架、错误状态与「重试」。
-- 筛选：全部 / 已启用 / 已禁用；按来源（工作区 / 个人 / 组织 / 系统）筛选或分组。
-- 显示各来源数量与启用数量；按启用状态、名称稳定排序。
-- 搜索范围覆盖名称、描述、来源文案与路径。
-- 点击列表行进入详情页；开关独立操作，不触发跳转。
+### 8.2 去重与并发
 
-### 3.4 详情页
+- 同一 `(workspaceId, skillId, version)` 只有一条 `InstallJob`，连续点击不产生第二条记录。
+- 安装目录写入前加 `.lock` 短锁，超时 30 秒强制清理并报 `VERSION_CONFLICT`。
+- 不同技能可并行；同一技能不同版本串行，避免互相覆盖。
 
-- 展示名称、描述、来源、完整路径、启用状态。
-- 直接读取并渲染本地 `SKILL.md`（复用现有 Markdown 渲染和安全链接处理）。
-- 展示技能目录下的文件列表（限制深度、数量和单文件体积）。
-- 操作：启用/禁用、打开 `SKILL.md`、在资源管理器中显示、删除。
-- 路径安全：只允许读取已知技能根目录内的文件，拒绝 `..`、绝对路径和符号链接逃逸。
+### 8.3 覆盖与回滚
 
-### 3.5 导入（文件夹 + zip）
+- 目标目录已存在且来源为 `market`：装到 `<dir>.new`，成功后 `<dir>` → `<dir>.bak`、`<dir>.new` → `<dir>`，再删 `.bak`。
+- 任一步失败：删 `.new`，`.bak` 还原，登记保持旧版本，原版本继续可用。
+- 目标目录存在但登记无记录（用户手工放置）：不覆盖，提示先删除或改名。
 
-- 导入按钮先让用户选择「从文件夹导入」或「从 ZIP 导入」。
-- 文件夹与 zip 共用同一套校验：
-  - 必须包含 `SKILL.md`，frontmatter 含 `name`、`description`；
-  - 限制压缩包体积、解压后总体积、文件数量；
-  - 拒绝符号链接、加密条目、绝对路径和 `..` 路径。
-- zip 解压到临时目录，校验通过后再移动到 `<workspace>/.agents/skills/<目录名>`；失败清理临时目录。
-- 兼容 zip 内只有一层根目录的常见结构（自动剥离）。
-- 同名目录提供「覆盖 / 重命名 / 取消」；覆盖前备份，失败回滚。
-- 导入过程显示进度；成功后刷新列表并提示，可选择跳转详情。
-- zip 解析建议在仓库内实现一个精简读取器（仅支持 store/deflate，校验 CRC 与大小），避免给扩展宿主新增运行时依赖和 VSIX 打包负担；测试中用 Node `zlib` 生成测试包。
+### 8.4 后台继续与重连
 
-### 3.6 启停可靠性
+- 安装跑在扩展宿主侧，webview 关闭或切走继续执行；重开市场先收 `installJobs` 快照。
+- 扩展重启：`queued` / `downloading` 等中间态标 `failed`（`INTERRUPTED`）并允许重试；已 `done` 以登记为准重建。
+- 多窗口同工作区：以登记文件为真相来源，第二个窗口只读并监听文件变化，不重复执行。
 
-- 乐观更新：点击后立即切换 UI。
-- 逐项 pending：写入期间禁用该行开关，避免并发。
-- 失败回滚并显示具体原因；成功静默或轻提示。
-- 刷新失败时保留上一次有效数据。
+### 8.5 Agent 索引刷新
 
-### 3.7 删除/卸载
+安装成功必须让 Codex 重新扫描，否则装完不可用。失败时登记已写入但标 `indexStale: true`，页面提示「已安装，索引待刷新」并提供重试。
 
-- 删除前弹出模态确认，明确显示将删除的目录。
-- **允许删除用户级与工作区级技能**；`system` / `admin` 来源只读。
-- 使用 VS Code 回收站能力（`workspace.fs.delete(..., { useTrash: true })`），失败时提示可手动处理。
-- 删除后刷新列表并回到列表页。
+## 9. 本地能力
 
-### 3.8 状态、文案与可访问性
+### 9.1 未登录可用
 
-- 页面/入口统一为「技能管理」。
-- 列表行使用可聚焦的按钮/链接语义；开关保留 `role="switch"` 与 `aria-checked`。
-- 统一空状态、加载态、错误态和成功提示样式。
-- 窄宽度下标题、描述与开关不重叠。
+1. 新增 `ensureSkillClient()`：不调用 `accessToken()`，启动独立 app-server 实例，仅用于 `skills/list` 与 `skills/config/write`；模型目录用 CLI 自带模型构造。
+2. `importSkill`、`getSkillDetail`、`deleteSkill`、`openSkillFile`、`revealSkill` 走纯文件系统，不依赖 client 与登录。
+3. 退出登录只清理会话 client，不影响技能页。
+4. Codex CLI 未安装时沿用 `ensureBinary()`，失败提示「设置 `dicodeCodex.codexPath` 或登录后安装」。
+5. 前置验证见阶段 1；不可行则退化为自行扫描技能目录 + 写用户级配置，并在此记录差异。
 
-### 3.9 测试与验收
+### 9.2 导入（仅文件夹）
 
-扩展侧测试：
+保留现有实现，补充：同名目录提供「覆盖 / 重命名 / 取消」；覆盖前备份失败回滚；显示进度；成功后刷新并提示。zip 导入在阶段 5。
 
-- 未登录时 `listSkills` 可返回本地技能，不触发 `accessToken`；
-- 未登录时启停可用；
-- 列表失败、分条错误展示；
-- 启停失败回滚；
-- 文件夹/zip 导入成功、同名覆盖/重命名/取消；
-- zip 路径穿越、符号链接、超大包被拒绝；
-- 删除权限保护（system/admin 不可删）；
-- 详情读取的路径安全。
+### 9.3 删除
 
-Webview 测试（沿用 `test/webview.test.js` 的 jsdom 方式）：
+- 删除前模态确认，显示将删除的目录。
+- 允许删除 `user` / `repo` 来源与 `source: market|import` 的登记项；`system` / `admin` 只读。
+- 用 `workspace.fs.delete(..., { useTrash: true })`，同步移除登记记录。
+- 删除后回列表并刷新。
 
-- 搜索与筛选；
-- 点击行进入详情、返回；
-- 开关乐观更新与失败恢复；
-- 加载/错误/空状态；
-- 未登录时技能管理页可用。
+### 9.4 启停
 
-验证命令：`npm run check`、`npm test`、`npm run build`。
+乐观更新 + 逐项 pending + 失败回滚并显示原因；刷新失败保留上一次有效数据。
 
-## 4. 阶段二：Skill Hub（暂不实施）
+## 10. 与其他需求的交点
 
-### 4.1 已确认的远程接口形态
-
-- 接口在内网，当前不可访问；服务端不在本仓库。
-- 远程列表按接口返回的数据**分页展示**。
-- 远程详情接口直接返回**概览文档和部分结构化数据**，无需下载 zip 即可查看技能概览。
-- 本地技能详情直接读取本地 `SKILL.md`。
-
-### 4.2 后续实现要点
-
-- 新增独立入口/页面「Skill Hub」，与「技能管理」分开。
-- 未登录：只能使用技能管理，不能访问 Skill Hub。
-- 列表：搜索、分类、分页，完全以接口返回为准。
-- 详情：展示接口返回的概览文档和结构化字段；安装/更新/卸载另行设计。
-- 若后续需要安装远程技能，再设计 zip 下载、哈希校验、安全解压与版本记录。
-- Codex 本身存在 `skills/remote/read` / `skills/remote/write`（官方标注开发中），是否复用需结合内网接口再评估。
-
-## 5. 阶段三（可选）
-
-- 组织内发布、审核与可见范围。
-- 收藏、推荐、使用统计。
-- 自动检查更新、批量更新、版本回滚。
-- 多语言文案。
-
-## 6. 文件与模块影响
-
-| 文件/模块 | 变更 |
+| 需求 | 对市场的影响 |
 | --- | --- |
-| `apps/dicode-vscode/extension.js` | 技能消息处理、未登录技能 client、详情、删除、zip 导入、路径校验 |
-| 新增 `apps/dicode-vscode/skills.js` | 技能归一化、zip 读取、安装/删除/详情与安全检查，便于单测 |
-| `apps/dicode-vscode/webview/skills.ts`（建议） | 技能类型与纯函数（过滤/排序/搜索） |
-| `apps/dicode-vscode/webview/app.tsx` | 页面路由、技能状态、消息处理、提示 |
-| `apps/dicode-vscode/webview/Subpages.tsx` | `SkillList` 增强、技能详情页 |
-| `apps/dicode-vscode/webview/style.css` | 列表、详情、加载/错误/提示样式 |
-| `apps/dicode-vscode/test/skill-import.test.js` | 扩充导入、删除、启停、未登录、zip 测试 |
-| 新增 `apps/dicode-vscode/test/skills.test.js` | zip 解析与路径安全测试 |
-| `apps/dicode-vscode/README.md` / `docs/` | 使用说明 |
+| IDE 布局（最大化并排） | 最大化态列表与详情并排；窄面板前后两级；切换不重建状态 |
+| 跨会话异步执行 | 安装按工作区调度，事件带 `workspaceId`、`jobId`、`digest`；并行请求共用任务 |
+| 事件与重连模型 | `installEvent` 纳入统一事件体系，按 `jobId` 幂等，先快照后增量 |
+| 权限模式与审批 | 安装属宿主侧受控动作，不触发工具审批；来源校验失败必须阻断 |
+| 消息提醒 | 不含安装失败，本模块不扩展（见 1.3） |
+| 深浅主题与 JetBrains | 卡片、状态按钮、骨架需覆盖四套主题 |
 
-## 7. 验收标准
+## 11. 文件与模块影响
 
-- [ ] 未登录可打开「技能管理」，查看、导入、启停、删除本地技能。
-- [ ] 未登录时访问远程能力被明确限制（本轮无远程入口）。
-- [ ] 技能页有加载/错误/空状态与手动刷新，可重试。
-- [ ] 列表支持来源筛选/分组与完整搜索。
-- [ ] 点击技能可查看详情与本地 `SKILL.md`。
-- [ ] 导入支持文件夹与 zip；同名可覆盖/重命名/取消，失败不破坏已有技能。
-- [ ] zip 导入拒绝路径穿越、符号链接、超限包。
-- [ ] 启停为乐观更新，失败自动回滚并提示原因。
-- [ ] 可删除用户级/工作区级技能；系统/组织技能不可删。
-- [ ] 详情读取和删除有路径安全校验。
-- [ ] `npm run check`、`npm test`、`npm run build` 全部通过。
+| 文件/模块 | 阶段 | 变更 |
+| --- | --- | --- |
+| 新增 `apps/dicode-vscode/skillsModel.js` | 0 | 类型、`compareVersion`、状态推导、去重键 |
+| 新增 `apps/dicode-vscode/skillsRegistry.js` | 0 | 登记读写、原子写、短锁、损坏恢复 |
+| 新增 `apps/dicode-vscode/skillMarket.js` | 2 | 目录/详情请求、缓存、分页、错误码映射 |
+| 新增 `apps/dicode-vscode/marketStub.js` | 2 | 桩数据与模拟失败 |
+| 新增 `apps/dicode-vscode/skillInstaller.js` | 3 | 下载、摘要校验、解压、覆盖回滚、任务表 |
+| `apps/dicode-vscode/extension.js` | 1、3 | 消息路由、`ensureSkillClient()`、删除/详情/打开文件 |
+| 新增 `apps/dicode-vscode/webview/skills.ts` | 2 | 类型与纯函数（过滤/排序/搜索/状态） |
+| 新增 `apps/dicode-vscode/webview/Market.tsx` | 2 | 市场列表、详情、安装按钮与状态 |
+| `apps/dicode-vscode/webview/app.tsx` | 2 | 路由、市场状态、消息处理 |
+| `apps/dicode-vscode/webview/Subpages.tsx` | 1 | `SkillList` 保留与增强，本地详情 |
+| `apps/dicode-vscode/webview/style.css` | 2 | 卡片、筛选、骨架、状态按钮、详情排版 |
+| 新增 `apps/dicode-vscode/test/skills-registry.test.js` | 0 | 原子写、锁、损坏恢复 |
+| 新增 `apps/dicode-vscode/test/skill-market.test.js` | 2 | 目录分页、缓存、错误码、桩数据 |
+| 新增 `apps/dicode-vscode/test/skill-installer.test.js` | 3 | 去重、摘要校验、解压安全、回滚 |
+| `apps/dicode-vscode/test/skill-import.test.js` | 1 | 扩充删除、启停、未登录 |
+| `apps/dicode-vscode/README.md` | 4 | 市场与本地技能说明 |
 
-## 8. 已确认决策
+依赖原则：不新增运行时依赖。zip 解析自研精简读取器（仅 store/deflate，校验 CRC 与大小），测试用 Node `zlib` 生成样例包。
 
-1. 本轮只做阶段一（本地技能管理）。
-2. 远程市场暂不实施，服务端在内网其他仓库。
-3. 允许删除用户级技能。
-4. 导入支持文件夹和 zip。
-5. 未登录可使用本地技能，不能访问远程市场。
-6. 本地页面叫「技能管理」，远程页面叫「Skill Hub」。
+## 12. 测试与验收
 
-## 9. 待确认的实施细节
+### 12.1 测试清单
 
-1. **zip 限制**：建议压缩包 ≤ 20 MB、解压后 ≤ 100 MB、文件数 ≤ 500；是否接受？
-2. **Skill Hub 入口**：本轮不放入口（推荐），还是放一个「即将上线」占位？
-3. **技能来源展示**：按 Codex 返回的 scope 展示为「个人 / 工作区 / 组织 / 系统」；若实际 scope 只有 `user/repo/public`，按实际映射，未知来源显示「其他」。
-4. **版本发布**：阶段一完成后是否递增扩展版本并打 VSIX？
+阶段 0：
 
-## 10. 建议执行顺序
+- 登记原子写、并发短锁、损坏文件留 `.bak` 后可继续读；
+- 状态推导覆盖五态；`compareVersion` 对预发布与多位版本号正确。
 
-1. 验证未登录启动 Codex app-server 并调用技能 RPC。
-2. 数据模型与扩展侧技能模块（含 zip 读取、路径安全）。
-3. 列表页与未登录链路。
-4. 详情页。
-5. 导入（文件夹 + zip）与删除。
-6. 启停可靠性与提示。
-7. 测试、`npm run check`、构建，提交。
+阶段 1：
+
+- 未登录 `listSkills` 返回本地技能且不触发 `accessToken`；
+- 详情读取的路径安全（拒绝 `..`、绝对路径、符号链接逃逸）；
+- 删除 `system` / `admin` 被拒；删除 `market` 项同步清登记；
+- 启停失败回滚；导入同名覆盖/重命名/取消。
+
+阶段 2：
+
+- 搜索命中名称/简介/标签；两筛选切换正确；
+- 五态按钮文案与禁用状态；点击后在途状态不可重复点击；
+- 骨架、错误、空态、缓存过期标注、离线已安装；
+- 最小化/最大化切换后市场状态保持；
+- 四套主题下状态色可辨识。
+
+阶段 3：
+
+- 连续三次安装同一版本只产生一个 `jobId`；
+- 摘要不一致、来源校验失败、不兼容、组织限制四类均不写登记；
+- 解压路径穿越、符号链接、加密条目被拒；
+- 覆盖安装成功换版本；中途失败回滚且登记不变；
+- 扩展重启后中间态转 `INTERRUPTED`，完成态以登记重建；
+- 索引刷新失败标 `indexStale` 并可重试。
+
+阶段 4：
+
+- 真实目录分页、超时、离线回退；
+- 鉴权失效后引导重新登录；
+- 错误码与服务端一致。
+
+### 12.2 需求验收对照
+
+| 需求验收点 | 覆盖阶段 / 方式 |
+| --- | --- |
+| 点击【安装】一次即可完成登记 | 3：8.1 全链路 + 安装态测试 |
+| 连续点击只产生一条记录 | 3：8.2 去重 + 三次点击单 `jobId` |
+| 模拟失败可恢复 | 3：桩数据必失败条目 + 重试用例 |
+| 切换【已安装】或重开市场结果正确 | 2、3：登记为真相来源 + 快照重建 |
+| 覆盖失败后重试、原版本继续可用 | 3：8.3 覆盖回滚 |
+| 离线已安装项 | 2：5.2 登记 + 3.4 离线读 |
+| 版本冲突、重复事件可识别 | 3：7.1 `VERSION_CONFLICT`、6 事件幂等 |
+| 最大化时列表和详情并排 | 2：3.1 与 10 布局交点 |
+| 运行时信息不阻塞导航与切换 | 2：切换不重建状态 |
+
+### 12.3 验证命令
+
+`npm run check`、`npm test`、`npm run build`（均在 `apps/dicode-vscode` 下）。每个阶段结束都跑全量，不只跑新增用例。
+
+## 13. 待确认问题
+
+1. **设计稿缺口**：原型卡片没有版本、简介、兼容状态，也没有详情页。按需求先实现、字段留空态兜底，还是等 UI 补齐？
+2. **登记文件是否入库**：`<workspace>/.agents/skills.registry.json` 建议纳入版本控制以便团队共享已安装清单；若担心风格差异进入仓库，则加入 `.gitignore`。
+3. **安装目录命名**：建议 `publisher__name`，避免不同发布者同名技能互相覆盖。
+4. **目录缓存位置**：建议全局 `globalStorageUri`，目录内容与工作区无关。
+5. **`INTERRUPTED` 是否与服务端错误码表统一**：本仓库先按自定义码处理。
+6. **版本发布节奏**：阶段 3 结束是否先发一版内测 VSIX，还是等阶段 4 一起发。
