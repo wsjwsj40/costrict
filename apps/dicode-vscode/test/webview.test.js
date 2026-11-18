@@ -17,6 +17,12 @@ function setup() {
   dom.window.eval(bundle)
   return { dom, sent, errors, doc: dom.window.document, emit: message => dom.window.dispatchEvent(new dom.window.MessageEvent('message', { data: message })) }
 }
+function typeInput(view, input, text) {
+  // React 受控输入：jsdom 里必须用原生 setter 赋值，再派发 input 事件才会触发 onChange
+  const setter = Object.getOwnPropertyDescriptor(view.dom.window.HTMLInputElement.prototype, 'value').set
+  setter.call(input, text)
+  input.dispatchEvent(new view.dom.window.Event('input', { bubbles: true }))
+}
 function item(id, type, raw = {}) { return { id, type, raw: { id, type, ...raw }, status: 'completed', text: raw.text || '', output: raw.aggregatedOutput || '' } }
 async function display(view, items, status = 'inProgress', diff = '') {
   await tick()
@@ -331,5 +337,170 @@ test('history titles edit without opening the conversation and Escape cancels', 
   input.dispatchEvent(new view.dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await tick()
   const rename = view.sent.find(message => message.type === 'renameThread')
   assert.equal(rename.threadId, 'one'); assert.equal(rename.title, '自定义标题')
+  view.dom.window.close()
+})
+
+// ---------------------------------------------------------------------------
+// 【全部】市场页签（阶段 2）：引导、五态按钮、已安装标记、过期响应丢弃
+// ---------------------------------------------------------------------------
+
+const marketSkill = overrides => ({
+  id: 'global/pdf-tools', namespace: 'global', slug: 'pdf-tools', name: 'PDF 工具',
+  publisher: '张三', publisherDept: 'AI平台部', version: '', summary: '处理 PDF 的技能',
+  tags: ['文档处理'], icon: 'data:image/png;base64,x', needApiKey: false,
+  compat: 'compatible', downloadCount: 42, starCount: 3, ratingAvg: 4.5, ratingCount: 6, ...overrides,
+})
+
+/** 登录态进入市场页签并切到【全部】 */
+async function enterMarket(view, { installed = [], loggedIn = true, baseUrlConfigured = true } = {}) {
+  await tick()
+  view.emit({ type: 'state', loggedIn, busy: false, workspace: '/repo', models: [{ id: 'm', name: 'Model' }] })
+  await tick()
+  view.doc.querySelector('[aria-label="Skill 市场"]').click(); await tick()
+  if (installed.length) view.emit({ type: 'installedSkills', skills: installed, indexAvailable: true, registryIgnored: true })
+  await tick()
+  const allTab = [...view.doc.querySelectorAll('.skill-tabs button')].find(node => node.textContent.includes('全部'))
+  allTab.click(); await tick()
+  view.emit({ type: 'marketAuthState', loggedIn, baseUrlConfigured })
+  await tick()
+}
+
+test('market: compatible/incompatible/restricted render five-state buttons', async () => {
+  const view = setup()
+  await enterMarket(view)
+  view.emit({ type: 'marketCatalog', items: [
+    marketSkill({}),
+    marketSkill({ id: 'g/legacy', slug: 'legacy', name: '旧版导出', compat: 'incompatible', minClientVersion: '1.5.0' }),
+    marketSkill({ id: 'g/org', slug: 'org', name: '部门周报', compat: 'restricted', compatReason: '该部门未授权' }),
+  ], page: 0, total: 3, hasNext: false, labelStats: [], cachedAt: Date.now(), stale: false, query: '', label: '', sort: 'newest' })
+  await tick()
+  const buttons = [...view.doc.querySelectorAll('.market-card .skill-actions button')]
+  assert.deepEqual(buttons.map(node => node.textContent),
+    ['安装', '不兼容', '已限制'])
+  assert.equal(buttons[0].disabled, false)
+  assert.equal(buttons[1].disabled, true)
+  assert.match(view.doc.querySelector('.market-card:nth-child(2) .skill-actions').textContent, /1\.5\.0/)
+  assert.match(view.doc.querySelector('.market-card:nth-child(3) .skill-actions').textContent, /该部门未授权/)
+  buttons[0].click()
+  assert.equal(view.sent.at(-1).type, 'marketInstall', '阶段 2 安装点击发 marketInstall')
+  view.dom.window.close()
+})
+
+test('market: installed marker only counts market registry; same-name import shows note', async () => {
+  const view = setup()
+  const installed = [
+    { dir: '.agents/skills/pdf-tools', dirPath: '/r/.agents/skills/pdf-tools', name: 'PDF 工具', summary: '', version: '1.0.0', source: 'market', installedAt: 1, enabled: true, scope: 'repo', path: null, missing: false, external: false, indexStale: false, altered: false, tags: [], record: { skillId: 'global/pdf-tools', source: 'market' } },
+    { dir: '.agents/skills/demo', dirPath: '/r/.agents/skills/demo', name: 'demo', summary: '', version: null, source: 'import', installedAt: 1, enabled: true, scope: 'repo', path: null, missing: false, external: false, indexStale: false, altered: false, tags: [], record: { skillId: null, source: 'import' } },
+  ]
+  await enterMarket(view, { installed })
+  view.emit({ type: 'marketCatalog', items: [
+    marketSkill({}),
+    marketSkill({ id: 'global/demo', slug: 'demo', name: 'demo', summary: '与本地导入同名的市场技能' }),
+  ], page: 0, total: 2, hasNext: false, labelStats: [], cachedAt: Date.now(), stale: false, query: '', label: '', sort: 'newest' })
+  await tick()
+  const cards = [...view.doc.querySelectorAll('.market-card')]
+  assert.ok(cards[0].querySelector('.source-tag.tone-market'), 'market 登记命中 → 已安装标签')
+  assert.match(cards[0].querySelector('.skill-actions').textContent, /已安装/)
+  assert.ok(!cards[1].querySelector('.source-tag.tone-market'), '同名导入不算已安装')
+  assert.match(cards[1].querySelector('.skill-actions').textContent, /本地已有同名技能/)
+  view.dom.window.close()
+})
+
+test('market: stale catalog response with outdated query is dropped', async () => {
+  const view = setup()
+  await enterMarket(view)
+  const respond = (query, name) => view.emit({ type: 'marketCatalog', items: [marketSkill({ id: 'g/' + name, slug: name, name })], page: 0, total: 1, hasNext: false, labelStats: [], cachedAt: Date.now(), stale: false, query, label: '', sort: 'newest' })
+  respond('', '初始项')
+  await tick()
+  const input = view.doc.querySelector('.installed-toolbar input')
+  typeInput(view, input, 'pdf')
+  await new Promise(resolve => setTimeout(resolve, 600))
+  assert.ok(view.sent.some(message => message.type === 'marketList' && message.query === 'pdf'), '防抖后下发服务端搜索')
+  // 旧条件的响应先到（慢响应模拟）→ 必须被丢弃
+  respond('', '过期项')
+  await tick()
+  assert.ok(!view.doc.body.textContent.includes('过期项'), '过期响应被丢弃')
+  respond('pdf', '新项')
+  await tick()
+  assert.ok(view.doc.body.textContent.includes('新项'), '匹配当前条件的响应被接受')
+  view.dom.window.close()
+})
+
+test('market: unconfigured base URL shows config gate, not an error', async () => {
+  const view = setup()
+  await enterMarket(view, { baseUrlConfigured: false })
+  assert.match(view.doc.body.textContent, /市场服务未配置/)
+  assert.ok(view.doc.body.textContent.includes('SKILLHUB_BASE_URL'))
+  assert.ok(view.doc.body.textContent.includes('切到已安装'))
+  view.dom.window.close()
+})
+
+test('market: logged-out shows login gate and submits marketLogin', async () => {
+  const view = setup()
+  await enterMarket(view, { loggedIn: false })
+  assert.match(view.doc.body.textContent, /登录 SkillHub/)
+  const inputs = [...view.doc.querySelectorAll('.market-gate input')]
+  typeInput(view, inputs[0], 'admin')
+  typeInput(view, inputs[1], 'admin123')
+  await tick()
+  view.doc.querySelector('.market-gate button[type="submit"]').click()
+  const login = view.sent.filter(message => message.type === 'marketLogin').at(-1)
+  assert.deepEqual({ username: login.username, password: login.password }, { username: 'admin', password: 'admin123' })
+  view.dom.window.close()
+})
+
+test('market: tab switching keeps search text and installed list intact', async () => {
+  const view = setup()
+  await enterMarket(view)
+  const installedSkill = { dir: '.agents/skills/example', dirPath: '/r/.agents/skills/example', name: 'example', summary: '', version: null, source: 'import', installedAt: 1, enabled: true, scope: 'repo', path: null, missing: false, external: false, indexStale: false, altered: false, tags: [], record: { skillId: null, source: 'import' } }
+  view.emit({ type: 'installedSkills', skills: [installedSkill], indexAvailable: true, registryIgnored: true })
+  await tick()
+  view.emit({ type: 'marketCatalog', items: [marketSkill({})], page: 0, total: 1, hasNext: false, labelStats: [], cachedAt: Date.now(), stale: false, query: '', label: '', sort: 'newest' })
+  await tick()
+  typeInput(view, view.doc.querySelector('.installed-toolbar input'), '保留草稿')
+  await tick()
+  // 切回已安装再切回全部
+  const tabs = () => [...view.doc.querySelectorAll('.skill-tabs button')]
+  tabs().find(node => node.textContent.includes('已安装')).click(); await tick()
+  assert.ok(view.doc.body.textContent.includes('example'), '已安装页签内容保留')
+  tabs().find(node => node.textContent.includes('全部')).click(); await tick()
+  assert.equal(view.doc.querySelector('.installed-toolbar input').value, '保留草稿', '【全部】搜索词保留')
+  assert.ok(view.doc.body.textContent.includes('PDF 工具'), '【全部】列表保留')
+  view.dom.window.close()
+})
+
+test('market: install click in phase 2 surfaces notice, no fake install', async () => {
+  const view = setup()
+  await enterMarket(view)
+  view.emit({ type: 'marketCatalog', items: [marketSkill({})], page: 0, total: 1, hasNext: false, labelStats: [], cachedAt: Date.now(), stale: false, query: '', label: '', sort: 'newest' })
+  await tick()
+  view.emit({ type: 'skillsNotice', message: '安装链路将在阶段 3 接入，当前版本仅浏览市场目录' })
+  await tick()
+  assert.match(view.doc.querySelector('.list-notice').textContent, /阶段 3/)
+  view.dom.window.close()
+})
+
+test('market: detail drawer renders versions and overview markdown', async () => {
+  const view = setup()
+  await enterMarket(view)
+  view.emit({ type: 'marketCatalog', items: [marketSkill({})], page: 0, total: 1, hasNext: false, labelStats: [], cachedAt: Date.now(), stale: false, query: '', label: '', sort: 'newest' })
+  await tick()
+  view.doc.querySelector('.skill-name.as-link').click()
+  assert.equal(view.sent.at(-1).type, 'marketDetail')
+  assert.equal(view.sent.at(-1).skillId, 'global/pdf-tools')
+  view.emit({ type: 'marketDetailResult', skillId: 'global/pdf-tools', skill: marketSkill({ version: '1.2.0' }), content: '# PDF 工具\n\n正文段落', versions: [
+    { version: '1.2.0', status: 'PUBLISHED', changelog: '最新', fileCount: 5, totalSize: 102400, publishedAt: Date.now(), downloadReady: true, createdByName: '张三' },
+    { version: '1.3.0', status: 'DRAFT', changelog: '草稿', fileCount: 5, totalSize: 102400, publishedAt: Date.now(), downloadReady: false, createdByName: '张三' },
+  ], version: '1.2.0' })
+  await tick()
+  const drawer = view.doc.querySelector('.skill-detail')
+  assert.ok(drawer, '详情抽屉打开')
+  assert.match(drawer.textContent, /版本历史/)
+  assert.match(drawer.querySelector('.markdown').textContent, /PDF 工具/)
+  assert.match(drawer.textContent, /安装此版本 v1\.2\.0|安装此版本/)
+  assert.match(drawer.textContent, /包未就绪|未发布/, 'DRAFT 版本不可安装')
+  assert.match(drawer.textContent, /声明能力与示例暂无结构化数据/, '空态兜底（14 #16）')
+  const versionBadge = [...view.doc.querySelectorAll('.market-card .skill-version')].at(-1)
+  assert.match(versionBadge.textContent, /v1\.2\.0/, '详情打开后列表卡片版本回填（14 #15）')
   view.dom.window.close()
 })

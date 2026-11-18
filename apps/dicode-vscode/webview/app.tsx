@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import MarkdownIt from 'markdown-it'
 import Composer from './Composer'
@@ -7,7 +7,9 @@ import { HistoryList } from './Subpages'
 import NavRail, { type RailPage } from './NavRail'
 import Installed from './Installed'
 import { Icon } from './Icon'
-import type { InstalledSkill, SkillDetail } from './skills'
+import Market, { type MarketErrorView, type MarketDetailData } from './Market'
+import type { InstalledSkill, SkillDetail, MarketSkill } from './skills'
+import { marketInstalledIds, localDirBasenames } from './skills'
 import { ConversationStore, parseDiff } from '../media/conversation'
 import './style.css'
 
@@ -255,12 +257,31 @@ function App() {
   const [question, setQuestion] = useState<any>(null)
   const [page, setPage] = useState<'home' | 'skills' | 'history' | 'notices' | 'profile'>('home')
   const [skillsTab, setSkillsTab] = useState<'installed' | 'all'>('installed')
+  // 【全部】市场页签状态：数据源独立于【已安装】，互不请求（3.2）
+  const [marketItems, setMarketItems] = useState<MarketSkill[]>([])
+  const [marketPage, setMarketPage] = useState(0)
+  const [marketTotal, setMarketTotal] = useState(0)
+  const [marketHasNext, setMarketHasNext] = useState(false)
+  const [marketLabelStats, setMarketLabelStats] = useState<Array<{ label: string; count: number }>>([])
+  const [marketCachedAt, setMarketCachedAt] = useState<number | undefined>(undefined)
+  const [marketStale, setMarketStale] = useState(false)
+  const [marketLoading, setMarketLoading] = useState(false)
+  const [marketError, setMarketError] = useState<MarketErrorView | null>(null)
+  const [marketAuth, setMarketAuth] = useState({ loggedIn: false, baseUrlConfigured: true })
+  const [marketDetail, setMarketDetail] = useState<MarketDetailData | null>(null)
+  const [marketDetailLoading, setMarketDetailLoading] = useState(false)
+  const [marketMessage, setMarketMessage] = useState('')
+  const marketRequestRef = useRef({ query: '', label: '', sort: 'newest', page: 0 })
+  const [marketParams, setMarketParams] = useState({ query: '', label: '', sort: 'newest' })
+  const changeMarketParams = (partial: { query?: string; label?: string; sort?: string }) => setMarketParams(old => ({ ...old, ...partial }))
   const [search, setSearch] = useState('')
   const [images, setImages] = useState<any[]>([])
   const [installed, setInstalled] = useState<InstalledSkill[]>([])
   const [indexAvailable, setIndexAvailable] = useState(true)
   const [registryIgnored, setRegistryIgnored] = useState(true)
   const [registryRecovered, setRegistryRecovered] = useState(false)
+  const marketInstalled = useMemo(() => marketInstalledIds(installed), [installed])
+  const marketLocalDirs = useMemo(() => localDirBasenames(installed), [installed])
   const [skillDetail, setSkillDetail] = useState<SkillDetail | null>(null)
   const [pendingSkills, setPendingSkills] = useState<Record<string, boolean>>({})
   const [skillsMessage, setSkillsMessage] = useState('')
@@ -287,6 +308,37 @@ function App() {
         setSkillsMessage(msg.indexAvailable === false ? `索引不可用：${msg.indexError || 'Codex CLI 未就绪'}` : '')
         setPendingSkills({})
       }
+      if (msg.type === 'marketCatalog') {
+        // 回带查询条件与最近一次请求不一致 → 过期响应，直接丢弃（第 6 节）
+        const req = marketRequestRef.current
+        if (msg.query !== req.query || msg.label !== req.label || msg.sort !== req.sort) return
+        setMarketItems(prev => (msg.page > 0 && msg.page === req.page) ? [...prev, ...(msg.items || [])] : (msg.items || []))
+        setMarketPage(msg.page || 0)
+        setMarketTotal(msg.total || 0)
+        setMarketHasNext(msg.hasNext === true)
+        setMarketLabelStats(msg.labelStats || [])
+        setMarketCachedAt(msg.cachedAt)
+        setMarketStale(msg.stale === true)
+        setMarketLoading(false)
+        setMarketError(null)
+      }
+      if (msg.type === 'marketDetailResult') {
+        setMarketDetail({ skillId: msg.skillId, skill: msg.skill, content: msg.content, versions: msg.versions, version: msg.version })
+        setMarketDetailLoading(false)
+        // 打开详情后把 publishedVersion 回填到列表卡片（3.2：列表接口不返回版本，14 #15）
+        if (msg.skill?.version) setMarketItems(prev => prev.map(item => item.id === msg.skillId && !item.version ? { ...item, version: msg.skill.version } : item))
+      }
+      if (msg.type === 'marketAuthState') {
+        setMarketAuth({ loggedIn: msg.loggedIn === true, baseUrlConfigured: msg.baseUrlConfigured !== false })
+        if (msg.loggedIn === true) requestMarket({ query: '', label: '', sort: 'newest', page: 0 })
+      }
+      if (msg.type === 'marketError') {
+        setMarketError({ scope: msg.scope, code: msg.code, message: msg.message, retryable: msg.retryable !== false, requiresLogin: msg.requiresLogin === true, captchaRequired: msg.captchaRequired === true })
+        if (msg.scope === 'detail') setMarketDetailLoading(false)
+        if (msg.scope === 'auth' || msg.code === 'UNAUTHORIZED') setMarketAuth(old => ({ ...old, loggedIn: false }))
+        if (msg.scope === 'catalog') setMarketLoading(false)
+      }
+      if (msg.type === 'skillsNotice') setMarketMessage(msg.message || '')
       if (msg.type === 'skillDetail') setSkillDetail(msg.detail || null)
       if (msg.type === 'skillImported') { setSkillsMessage(`已导入 ${msg.dir}`); setSkillDetail(null) }
       if (msg.type === 'skillDeleted') { setSkillsMessage(`已删除 ${msg.dir}`); setSkillDetail(current => current?.dir === msg.dir ? null : current) }
@@ -328,6 +380,13 @@ function App() {
     setInstalled(current => current.map(item => item.dir === skill.dir ? { ...item, enabled: !item.enabled } : item))
     post('setSkillEnabled', { dir: skill.dir, path: skill.path, enabled: skill.enabled !== true })
   }
+  const requestMarket = (params: { query?: string; label?: string; sort?: string; page?: number }) => {
+    marketRequestRef.current = { query: params.query || '', label: params.label || '', sort: params.sort || 'newest', page: params.page || 0 }
+    if ((params.page || 0) === 0) { setMarketLoading(true); setMarketError(null) }
+    post('marketList', params)
+  }
+  const openMarketDetail = (skillId: string) => { setMarketDetailLoading(true); post('marketDetail', { skillId }) }
+  const selectMarketVersion = (skillId: string, version: string) => { if (version) { setMarketDetailLoading(true); post('marketDetail', { skillId, version }) } }
   const latest = store.turns.at(-1)
   const plan = busy && latest?.plan?.steps?.length ? latest.plan : null
   const matchingThreads = (state.threads || []).filter((thread: any) => !search.trim() || [thread.title, ...(thread.turns || []).flatMap((turn: any) => [turn.user, turn.answer])].some(value => String(value || '').toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())))
@@ -358,7 +417,35 @@ function App() {
                 onCloseDetail={() => setSkillDetail(null)}
                 onIgnoreRegistry={() => post('ignoreRegistry')}
               />
-            : <div className="page-empty-state"><Icon kind="box" /><strong>市场目录将在后续版本接入</strong><p>当前版本可在【已安装】里管理本地技能。</p></div>}
+            : <Market
+                items={marketItems}
+                total={marketTotal}
+                page={marketPage}
+                hasNext={marketHasNext}
+                labelStats={marketLabelStats}
+                cachedAt={marketCachedAt}
+                stale={marketStale}
+                loading={marketLoading}
+                error={marketError}
+                message={marketMessage}
+                auth={marketAuth}
+                detail={marketDetail}
+                detailLoading={marketDetailLoading}
+                installedIds={marketInstalled}
+                localDirs={marketLocalDirs}
+                query={marketParams.query}
+                label={marketParams.label}
+                sort={marketParams.sort}
+                onParamsChange={changeMarketParams}
+                onRequest={requestMarket}
+                onOpenDetail={openMarketDetail}
+                onCloseDetail={() => setMarketDetail(null)}
+                onSelectVersion={selectMarketVersion}
+                onInstall={() => post('marketInstall')}
+                onLogin={(username, password) => post('marketLogin', { username, password })}
+                onLogout={() => post('marketLogout')}
+                onGoInstalled={() => setSkillsTab('installed')}
+              />}
         </main>
       : page === 'notices' ? <main className="subpage"><PageHeader title="消息提醒" onBack={() => setPage('home')} /><div className="page-empty-state"><Icon kind="bell" /><strong>暂无消息</strong><p>任务与待决策的提醒会出现在这里。</p></div></main>
       : page === 'profile' ? <main className="subpage"><PageHeader title="个人信息" onBack={() => setPage('home')} /><div className="account-panel"><div className="account-identity"><ProfileAvatar picture={state.user?.picture} /><strong>{state.user?.name || (state.loggedIn ? '姓名未提供' : '未登录')}</strong><span className="account-status"><i />{state.loggedIn ? '已连接 DiCode' : '尚未连接'}</span></div><div className="account-details"><div><span>姓名</span><strong>{state.user?.name || '—'}</strong></div><div><span>邮箱</span><strong>{state.user?.email || '—'}</strong></div></div><button className="account-login" onClick={() => post('login')}><Icon kind="user" />{state.loggedIn ? '重新登录' : '登录 DiCode'}<Icon kind="right" /></button>{registryRecovered && <p className="muted">安装登记文件曾损坏，已备份为 .bak 并继续使用空登记。</p>}</div></main>

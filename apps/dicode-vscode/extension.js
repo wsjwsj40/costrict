@@ -16,6 +16,8 @@ const { buildInstalledView, scanSkillDirs } = require("./installedView")
 const { readRegistry, upsertRecord, removeRecord, isRegistryIgnored, appendRegistryIgnore, registryPaths } = require("./skillsRegistry")
 const { SOURCES, LOCAL_VERSION, SKILLS_DIR_SEGMENTS, validateDirName } = require("./skillsModel")
 const skillArchive = require("./skillArchive")
+const { searchSkills, fetchSkillDetail, createCatalogCache, MarketError } = require("./skillMarket")
+const marketStub = require("./marketStub")
 const EXTENSION_VERSION = require("./package.json").version
 const FILE_EDIT_INSTRUCTIONS = fs.readFileSync(path.join(__dirname, "file-edit-instructions.md"), "utf8").trim()
 
@@ -347,6 +349,7 @@ class DicodeView {
 			this.coordinator.handle(message).catch((error) => { this.coordinator.active.post({ type: "error", message: error.message, requestType: message.type }); this.coordinator.active.postState() }),
 		)
 		this.postState()
+		this.post(this.marketAuthPayload())
 		this.tokens()
 			.then((tokens) => tokens?.access_token && this.loadModels())
 			.catch((error) => this.post({ type: "error", message: error.message }))
@@ -648,6 +651,68 @@ class DicodeView {
 		this.post(await this.installedSkillsPayload())
 		this.post({ type: "skills", skills: index.skills, errors: index.errors, indexAvailable: index.available, indexError: index.error || null })
 		return index
+	}
+
+	// ---------------------------------------------------------------
+	// 市场目录（阶段 2）：桩/真实传输统一走 skillMarket 抽象（7.2）
+	// ---------------------------------------------------------------
+	skillMarketStubEnabled() {
+		return vscode.workspace.getConfiguration("dicodeCodex").get("skillMarketStub", false)
+	}
+
+	skillHubBaseUrl() {
+		return String(process.env.SKILLHUB_BASE_URL || "").trim()
+	}
+
+	/** 桩启用时返回桩 transport；真实 HTTP 传输阶段 4 接入，此前返回 null（远程禁用，给引导不崩溃） */
+	marketTransport() {
+		if (this.skillMarketStubEnabled()) {
+			this.marketStubState ||= marketStub.createStubState()
+			return marketStub.createTransport(this.marketStubState)
+		}
+		return null
+	}
+
+	/** { loggedIn, baseUrlConfigured }：登录/登出/初始态推送（协议 marketAuthState） */
+	marketAuthPayload() {
+		const stub = this.skillMarketStubEnabled()
+		if (stub && !this.marketStubState) this.marketStubState = marketStub.createStubState()
+		return { type: "marketAuthState", loggedIn: stub ? Boolean(this.marketStubState?.loggedIn) : false, baseUrlConfigured: stub || Boolean(this.skillHubBaseUrl()) }
+	}
+
+	marketCache() {
+		this.marketCacheInstance ||= createCatalogCache({ cacheFile: path.join(this.context.globalStorageUri.fsPath, "market-cache.json") })
+		return this.marketCacheInstance
+	}
+
+	/** 市场消息错误的统一出口：MarketError 保留码与 retryable，普通错误按 NETWORK 处理 */
+	postMarketError(scope, error) {
+		const code = error instanceof MarketError ? error.code : "NETWORK"
+		this.post({ type: "marketError", scope, code, message: error.message || "请求失败", retryable: error.retryable !== false, requiresLogin: error.requiresLogin === true || code === "UNAUTHORIZED" })
+	}
+
+	/**
+	 * marketList：带缓存的目录请求；过期缓存先回 stale 再后台 force 刷新（第 7 节）。
+	 * @param {{ query?: string, label?: string, sort?: string, page?: number }} message
+	 */
+	async handleMarketList(message) {
+		const transport = this.marketTransport()
+		if (!transport) {
+			this.postMarketError("catalog", new MarketError("NETWORK", this.skillMarketStubEnabled() ? "市场服务不可用" : "SkillHub 接口将在阶段 4 接入；当前可在设置中启用 skillMarketStub 桩预览目录"))
+			return
+		}
+		const params = { q: message.query || "", label: message.label || "", sort: message.sort || "newest", page: message.page || 0 }
+		try {
+			const result = await this.marketCache().search(params, p => searchSkills(transport, p))
+			this.post({ type: "marketCatalog", ...result })
+			if (result.stale) {
+				this.marketCache().search(params, p => searchSkills(transport, p), { force: true })
+					.then(fresh => this.post({ type: "marketCatalog", ...fresh }))
+					.catch(() => { /* 后台刷新失败保留 stale 展示，不打扰 */ })
+			}
+		} catch (error) {
+			this.postMarketError("catalog", error)
+		}
 	}
 	/**
 	 * 导入/重新导入的共用落盘流程。
@@ -1369,6 +1434,70 @@ class DicodeView {
 		if (message.type === "ignoreRegistry") {
 			if (this.workspace) await appendRegistryIgnore(this.workspace)
 			this.post(await this.installedSkillsPayload())
+			return
+		}
+		if (message.type === "marketList") {
+			await this.handleMarketList(message)
+			return
+		}
+		if (message.type === "marketDetail") {
+			const transport = this.marketTransport()
+			if (!transport) {
+				this.postMarketError("detail", new MarketError("NETWORK", "SkillHub 接口将在阶段 4 接入；当前可启用 skillMarketStub 桩预览"))
+				return
+			}
+			try {
+				const detail = await fetchSkillDetail(transport, message.skillId, message.version)
+				this.post({ type: "marketDetailResult", skillId: message.skillId, ...detail })
+			} catch (error) {
+				this.postMarketError("detail", error)
+			}
+			return
+		}
+		if (message.type === "marketLogin") {
+			const transport = this.marketTransport()
+			if (!transport) {
+				this.postMarketError("auth", new MarketError("UNAUTHORIZED", "SkillHub 登录将在阶段 4 接入"))
+				return
+			}
+			try {
+				const response = await transport({ path: "/login", method: "POST", body: { username: message.username, password: message.password, code: message.code, uuid: message.uuid } })
+				const body = JSON.parse(response.text)
+				if (body.success !== true) {
+					this.post({ type: "marketError", scope: "auth", code: body.captcha ? "UNAUTHORIZED" : "UNAUTHORIZED", message: body.msg || "登录失败", retryable: true, requiresLogin: true, captchaRequired: body.captcha === true })
+					return
+				}
+				this.post(this.marketAuthPayload())
+			} catch (error) {
+				this.postMarketError("auth", error)
+			}
+			return
+		}
+		if (message.type === "marketCaptcha") {
+			const transport = this.marketTransport()
+			if (!transport) {
+				this.postMarketError("auth", new MarketError("UNAUTHORIZED", "验证码接口将在阶段 4 接入"))
+				return
+			}
+			try {
+				const response = await transport({ path: "/captchaImage" })
+				const body = JSON.parse(response.text)
+				if (body.success !== true) throw new MarketError("NETWORK", body.msg || "验证码获取失败")
+				this.post({ type: "marketCaptchaResult", uuid: body.uuid, image: body.image })
+			} catch (error) {
+				this.postMarketError("auth", error)
+			}
+			return
+		}
+		if (message.type === "marketLogout") {
+			const transport = this.marketTransport()
+			if (transport) await transport({ path: "/logout", method: "POST" }).catch(() => {})
+			this.post(this.marketAuthPayload())
+			return
+		}
+		if (message.type === "marketInstall") {
+			// 阶段 2 明确提示，不模拟安装（7.2：桩只负责数据与状态字段）
+			this.post({ type: "skillsNotice", message: "安装链路将在阶段 3 接入，当前版本仅浏览市场目录" })
 			return
 		}
 		if (message.type === "listSkills") {

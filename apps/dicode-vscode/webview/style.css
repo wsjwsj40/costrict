@@ -289,3 +289,38 @@ button:hover > .chevron, button:focus-visible > .chevron { visibility: visible; 
 .skill-file-list li small{flex:none;color:var(--muted);font-variant-numeric:tabular-nums}
 .skill-readme{margin:0;padding:10px;border-radius:6px;background:var(--vscode-textCodeBlock-background,var(--surface));font:11px/1.6 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
 .skill-detail-foot{padding:10px 14px;border-top:1px solid var(--border)}
+
+/* 【全部】市场页签（阶段 2）：工具栏、卡片、骨架、登录/配置引导 */
+.market-select{padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--fg);font-size:11px;max-width:150px}
+.market-select:focus{outline:1px solid var(--vscode-focusBorder,#75beff)}
+.market-icon{width:26px;height:26px;border-radius:6px;flex:none;object-fit:cover;background:var(--hover)}
+.market-icon-empty{display:grid;place-items:center;color:var(--muted)}
+.market-icon-empty .icon{width:14px;height:14px}
+.skill-name.as-link{background:none;border:none;padding:0;color:var(--fg);cursor:pointer;text-align:left}
+.skill-name.as-link:hover{color:var(--vscode-textLink-foreground)}
+.market-card{padding-left:0;padding-right:0}
+.market-card.is-installed .skill-name{color:var(--muted)}
+.market-tags{display:flex;gap:5px;flex-wrap:wrap}
+.market-tag{padding:0 6px;border-radius:4px;background:var(--hover);color:var(--muted);font-size:10px;line-height:18px}
+.detail-tags{margin:8px 14px 0}
+.tone-incompatible{color:var(--vscode-charts-red,#f14c4c)}
+.tone-restricted{color:var(--vscode-charts-orange,#d18616)}
+.market-skeleton{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.skeleton-card{height:88px;border-radius:8px;background:linear-gradient(90deg,var(--hover) 25%,var(--surface) 50%,var(--hover) 75%);background-size:200% 100%;animation:skeleton-wave 1.4s ease infinite}
+@keyframes skeleton-wave{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.load-more{align-self:center;margin:12px auto 0}
+.center{text-align:center}
+.primary.small{padding:3px 12px;font-size:11px}
+.market-gate{display:flex;flex-direction:column;align-items:center;gap:10px;margin:auto;padding:40px 24px;max-width:420px;text-align:center}
+.market-gate .gate-icon{display:grid;place-items:center;width:44px;height:44px;border-radius:12px;background:var(--hover);color:var(--muted)}
+.market-gate .gate-icon .icon{width:20px;height:20px}
+.market-gate strong{font-size:14px}
+.market-gate p{margin:0;color:var(--muted);font-size:12px;line-height:1.7;overflow-wrap:anywhere}
+.market-gate code{font-family:var(--mono);background:var(--vscode-textCodeBlock-background,var(--hover));padding:1px 5px;border-radius:4px;font-size:11px}
+.market-gate form{display:flex;flex-direction:column;gap:8px;width:100%;max-width:280px}
+.market-gate input{padding:7px 10px;border:1px solid var(--border);border-radius:6px;background:var(--editor);color:var(--fg);font-size:12px}
+.market-gate input:focus{outline:1px solid var(--vscode-focusBorder,#75beff)}
+.gate-error{color:var(--vscode-errorForeground,#f48771)}
+.market-versions h4,.skill-detail-body h4{margin:0 0 6px;font-size:11px;color:var(--fg)}
+.skill-file-list li.is-current{background:var(--hover);border-radius:4px}
+.market-readme{margin-top:8px}

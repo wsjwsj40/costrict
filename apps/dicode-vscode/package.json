@@ -59,6 +59,11 @@
 					],
 					"default": "unelevated",
 					"description": "Codex Windows sandbox fallback when MXC is unavailable. Elevated requires administrator provisioning; unelevated has weaker network isolation."
+				},
+				"dicodeCodex.skillMarketStub": {
+					"type": "boolean",
+					"default": false,
+					"description": "Enable the built-in skill market stub data (offline development only). Real SkillHub endpoints replace it in a later milestone."
 				}
 			}
 		}
@@ -83,6 +88,7 @@
 		"skillsJobs.js",
 		"skillArchive.js",
 		"installedView.js",
+		"marketStub.js",
 		"dicode-instructions.md",
 		"file-edit-instructions.md",
 		"media/**",
