@@ -16,7 +16,8 @@ const { buildInstalledView, scanSkillDirs } = require("./installedView")
 const { readRegistry, upsertRecord, removeRecord, isRegistryIgnored, appendRegistryIgnore, registryPaths } = require("./skillsRegistry")
 const { SOURCES, LOCAL_VERSION, SKILLS_DIR_SEGMENTS, validateDirName, ERROR_CODES } = require("./skillsModel")
 const skillArchive = require("./skillArchive")
-const { searchSkills, fetchSkillDetail, fetchDownload, createCatalogCache, MarketError } = require("./skillMarket")
+const { searchSkills, fetchSkillDetail, fetchDownload, createHttpTransport, createCatalogCache, MarketError } = require("./skillMarket")
+const { createSkillHubAuth } = require("./skillHubAuth")
 const { SkillJobs } = require("./skillsJobs")
 const { createInstaller, InstallerError } = require("./skillInstaller")
 const marketStub = require("./marketStub")
@@ -353,7 +354,7 @@ class DicodeView {
 			this.coordinator.handle(message).catch((error) => { this.coordinator.active.post({ type: "error", message: error.message, requestType: message.type }); this.coordinator.active.postState() }),
 		)
 		this.postState()
-		this.post(this.marketAuthPayload())
+		this.marketAuthPayload().then(payload => this.post(payload)).catch(() => { /* 登录态读取失败按未登录展示 */ })
 		this.tokens()
 			.then((tokens) => tokens?.access_token && this.loadModels())
 			.catch((error) => this.post({ type: "error", message: error.message }))
@@ -668,20 +669,35 @@ class DicodeView {
 		return String(process.env.SKILLHUB_BASE_URL || "").trim()
 	}
 
-	/** 桩启用时返回桩 transport；真实 HTTP 传输阶段 4 接入，此前返回 null（远程禁用，给引导不崩溃） */
+	/** 桩启用时返回桩 transport；否则基地址已配时走真实 HTTP 传输（阶段 4，鉴权头由 skillHubAuth 注入）；都无则 null（远程禁用，给引导不崩溃） */
 	marketTransport() {
 		if (this.skillMarketStubEnabled()) {
 			this.marketStubState ||= marketStub.createStubState()
 			return marketStub.createTransport(this.marketStubState)
 		}
-		return null
+		const baseUrl = this.skillHubBaseUrl()
+		if (!baseUrl) return null
+		return createHttpTransport({ baseUrl, auth: this.skillHubAuth() })
 	}
 
-	/** { loggedIn, baseUrlConfigured }：登录/登出/初始态推送（协议 marketAuthState） */
-	marketAuthPayload() {
+	/** SkillHub 独立鉴权（阶段 4）：token 存 context.secrets 独立 key，与 OIDC token 分开；基地址未配时返回 null */
+	skillHubAuth() {
+		const baseUrl = this.skillHubBaseUrl()
+		if (!baseUrl) return null
+		this.skillHubAuthInstance ||= createSkillHubAuth({ baseUrl, secrets: this.context.secrets })
+		return this.skillHubAuthInstance
+	}
+
+	/** { loggedIn, baseUrlConfigured }：登录/登出/初始态推送（协议 marketAuthState）；真实模式读 secrets 判登录态 */
+	async marketAuthPayload() {
 		const stub = this.skillMarketStubEnabled()
 		if (stub && !this.marketStubState) this.marketStubState = marketStub.createStubState()
-		return { type: "marketAuthState", loggedIn: stub ? Boolean(this.marketStubState?.loggedIn) : false, baseUrlConfigured: stub || Boolean(this.skillHubBaseUrl()) }
+		let loggedIn = stub ? Boolean(this.marketStubState?.loggedIn) : false
+		if (!stub) {
+			const auth = this.skillHubAuth()
+			if (auth) loggedIn = await auth.isLoggedIn().catch(() => false)
+		}
+		return { type: "marketAuthState", loggedIn, baseUrlConfigured: stub || Boolean(this.skillHubBaseUrl()) }
 	}
 
 	marketCache() {
@@ -741,7 +757,7 @@ class DicodeView {
 	async handleMarketList(message) {
 		const transport = this.marketTransport()
 		if (!transport) {
-			this.postMarketError("catalog", new MarketError("NETWORK", this.skillMarketStubEnabled() ? "市场服务不可用" : "SkillHub 接口将在阶段 4 接入；当前可在设置中启用 skillMarketStub 桩预览目录"))
+			this.postMarketError("catalog", new MarketError("NETWORK", this.skillMarketStubEnabled() ? "市场服务不可用" : "未配置 SKILLHUB_BASE_URL，远程市场不可用；当前可在设置中启用 skillMarketStub 桩预览目录"))
 			return
 		}
 		const params = { q: message.query || "", label: message.label || "", sort: message.sort || "newest", page: message.page || 0 }
@@ -1486,7 +1502,7 @@ class DicodeView {
 		if (message.type === "marketDetail") {
 			const transport = this.marketTransport()
 			if (!transport) {
-				this.postMarketError("detail", new MarketError("NETWORK", "SkillHub 接口将在阶段 4 接入；当前可启用 skillMarketStub 桩预览"))
+				this.postMarketError("detail", new MarketError("NETWORK", "未配置 SKILLHUB_BASE_URL，远程详情不可用；当前可启用 skillMarketStub 桩预览"))
 				return
 			}
 			try {
@@ -1498,44 +1514,75 @@ class DicodeView {
 			return
 		}
 		if (message.type === "marketLogin") {
-			const transport = this.marketTransport()
-			if (!transport) {
-				this.postMarketError("auth", new MarketError("UNAUTHORIZED", "SkillHub 登录将在阶段 4 接入"))
+			const auth = this.skillHubAuth()
+			if (this.skillMarketStubEnabled()) {
+				const transport = this.marketTransport()
+				try {
+					const response = await transport({ path: "/login", method: "POST", body: { username: message.username, password: message.password, code: message.code, uuid: message.uuid } })
+					const body = JSON.parse(response.text)
+					if (body.success !== true) {
+						this.post({ type: "marketError", scope: "auth", code: "UNAUTHORIZED", message: body.msg || "登录失败", retryable: true, requiresLogin: true, captchaRequired: body.captcha === true })
+						return
+					}
+					this.post(await this.marketAuthPayload())
+				} catch (error) {
+					this.postMarketError("auth", error)
+				}
+				return
+			}
+			if (!auth) {
+				this.postMarketError("auth", new MarketError("NETWORK", "未配置 SKILLHUB_BASE_URL，无法登录 SkillHub"))
 				return
 			}
 			try {
-				const response = await transport({ path: "/login", method: "POST", body: { username: message.username, password: message.password, code: message.code, uuid: message.uuid } })
-				const body = JSON.parse(response.text)
-				if (body.success !== true) {
-					this.post({ type: "marketError", scope: "auth", code: body.captcha ? "UNAUTHORIZED" : "UNAUTHORIZED", message: body.msg || "登录失败", retryable: true, requiresLogin: true, captchaRequired: body.captcha === true })
+				await auth.login({ username: message.username, password: message.password, code: message.code, uuid: message.uuid })
+				this.post(await this.marketAuthPayload())
+			} catch (error) {
+				if (error instanceof MarketError && error.code === "UNAUTHORIZED" && /验证码/.test(error.message || "")) {
+					// 平台开启验证码时的登录失败形态：msg 含「验证码」即提示拉图（触发条件实测校准，14 偏离登记）
+					this.post({ type: "marketError", scope: "auth", code: "UNAUTHORIZED", message: error.message, retryable: true, requiresLogin: true, captchaRequired: true })
 					return
 				}
-				this.post(this.marketAuthPayload())
-			} catch (error) {
 				this.postMarketError("auth", error)
 			}
 			return
 		}
 		if (message.type === "marketCaptcha") {
-			const transport = this.marketTransport()
-			if (!transport) {
-				this.postMarketError("auth", new MarketError("UNAUTHORIZED", "验证码接口将在阶段 4 接入"))
+			if (this.skillMarketStubEnabled()) {
+				try {
+					const transport = this.marketTransport()
+					const response = await transport({ path: "/captchaImage" })
+					const body = JSON.parse(response.text)
+					if (body.success !== true) throw new MarketError("NETWORK", body.msg || "验证码获取失败")
+					this.post({ type: "marketCaptchaResult", uuid: body.uuid, image: body.image })
+				} catch (error) {
+					this.postMarketError("auth", error)
+				}
+				return
+			}
+			const auth = this.skillHubAuth()
+			if (!auth) {
+				this.postMarketError("auth", new MarketError("NETWORK", "未配置 SKILLHUB_BASE_URL，无法获取验证码"))
 				return
 			}
 			try {
-				const response = await transport({ path: "/captchaImage" })
-				const body = JSON.parse(response.text)
-				if (body.success !== true) throw new MarketError("NETWORK", body.msg || "验证码获取失败")
-				this.post({ type: "marketCaptchaResult", uuid: body.uuid, image: body.image })
+				const result = await auth.captcha()
+				// null = 平台未开启验证码或接口不可用：UI 隐藏验证码输入（实测校准项）
+				this.post({ type: "marketCaptchaResult", uuid: result ? result.uuid : "", image: result ? result.image : "", captchaEnabled: Boolean(result) })
 			} catch (error) {
 				this.postMarketError("auth", error)
 			}
 			return
 		}
 		if (message.type === "marketLogout") {
-			const transport = this.marketTransport()
-			if (transport) await transport({ path: "/logout", method: "POST" }).catch(() => {})
-			this.post(this.marketAuthPayload())
+			if (this.skillMarketStubEnabled()) {
+				const transport = this.marketTransport()
+				if (transport) await transport({ path: "/logout", method: "POST" }).catch(() => {})
+			} else {
+				const auth = this.skillHubAuth()
+				if (auth) await auth.logout().catch(() => {})
+			}
+			this.post(await this.marketAuthPayload())
 			return
 		}
 		if (message.type === "marketInstall") {

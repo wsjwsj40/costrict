@@ -210,7 +210,7 @@ async function makeView(t, { stubEnabled }) {
 
 test('extension 接线：桩模式目录/详情/登录/登出/安装出口', async t => {
   const { view, messages } = await makeView(t, { stubEnabled: true })
-  const auth = view.marketAuthPayload()
+  const auth = await view.marketAuthPayload()
   assert.equal(auth.loggedIn, true, '桩初始登录态')
   assert.equal(auth.baseUrlConfigured, true)
 
@@ -261,19 +261,19 @@ test('extension 接线：桩模式目录/详情/登录/登出/安装出口', asy
 test('extension 接线：非桩与未配置基地址时远程禁用且给引导', async t => {
   delete process.env.SKILLHUB_BASE_URL
   const { view, messages } = await makeView(t, { stubEnabled: false })
-  const auth = view.marketAuthPayload()
+  const auth = await view.marketAuthPayload()
   assert.equal(auth.baseUrlConfigured, false)
-  assert.equal(auth.loggedIn, false, '真实鉴权阶段 4 前恒未登录')
+  assert.equal(auth.loggedIn, false, '真实模式未登录')
   await view.handle({ type: 'marketList', page: 0 })
   const error = messages.filter(message => message.type === 'marketError').at(-1)
   assert.equal(error.scope, 'catalog')
   assert.equal(error.code, 'NETWORK')
-  assert.ok(error.message.includes('阶段 4'), '明确告知接入计划')
+  assert.ok(error.message.includes('SKILLHUB_BASE_URL'), '明确告知配置要求')
   await view.handle({ type: 'marketDetail', skillId: 'global/pdf-tools' })
   assert.equal(messages.filter(message => message.type === 'marketError').at(-1).scope, 'detail')
 
   process.env.SKILLHUB_BASE_URL = 'http://hub.internal'
-  const configured = view.marketAuthPayload()
+  const configured = await view.marketAuthPayload()
   assert.equal(configured.baseUrlConfigured, true, '基地址已配置时引导态正确')
   delete process.env.SKILLHUB_BASE_URL
   await view.dispose()

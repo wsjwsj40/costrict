@@ -174,6 +174,66 @@ const OVERVIEW_PATH = 'SKILL.md'
 /** 下载超时下限（第 7 节：应用服务器流式传输，≥60s），由 transport 实现方执行 */
 const DOWNLOAD_TIMEOUT_MS = 60 * 1000
 
+/** JSON 类接口默认超时（目录/详情/概览），下载由请求自带 timeoutMs 覆盖 */
+const DEFAULT_JSON_TIMEOUT_MS = 15 * 1000
+
+/**
+ * 真实 HTTP 传输（阶段 4）：与桩 transport 同一出口契约，webview/适配层不感知来源。
+ *
+ * - URL：{BASE}/system/skillhub/skills{path}（path 已由调用方 URL-encode），query 走 searchParams；
+ * - 鉴权：auth.getAuthHeader() 注入 Bearer；401 时清 token 后仍返回响应，
+ *   错误映射由调用方 unwrapJson 统一抛 UNAUTHORIZED，重登 + 重发由 webview 驱动（app.tsx 已就位）；
+ * - Content-Type 分流：application/json → text（成功体与失败错误体都走 unwrapJson）、
+ *   application/zip → bytes（下载包）、其余（octet-stream 的 SKILL.md 原文）→ text（UTF-8）；
+ * - 超时：request.timeoutMs（下载 60s）缺省 jsonTimeoutMs（15s），AbortController 实现；
+ * - 进度：二进制响应按 Content-Length 回调 onProgress(loaded, total)（无长度时 total=0）。
+ *
+ * @param {Object} options
+ * @param {string} options.baseUrl SKILLHUB_BASE_URL（非空）
+ * @param {{ getAuthHeader: () => Promise<Record<string,string>>, clearToken: () => Promise<void> }} [options.auth] skillHubAuth 实例
+ * @param {typeof fetch} [options.fetchImpl] 缺省用全局 fetch
+ * @param {number} [options.jsonTimeoutMs]
+ * @returns {(request: { path: string, query?: Record<string, string>, method?: string, timeoutMs?: number, onProgress?: (loaded: number, total: number) => void }) => Promise<{ status: number, contentType: string, text?: string, bytes?: Buffer }>}
+ */
+function createHttpTransport({ baseUrl, auth, fetchImpl, jsonTimeoutMs = DEFAULT_JSON_TIMEOUT_MS }) {
+	const base = String(baseUrl || '').trim().replace(/\/+$/, '')
+	if (!base) throw new Error('createHttpTransport 需要 baseUrl')
+	const doFetch = fetchImpl || globalThis.fetch
+	if (typeof doFetch !== 'function') throw new Error('环境缺少 fetch 实现')
+
+	return async function transport(request) {
+		const url = new URL(`${base}/system/skillhub/skills${request.path}`)
+		for (const [key, value] of Object.entries(request.query || {})) url.searchParams.set(key, String(value))
+		const headers = auth ? await auth.getAuthHeader() : {}
+		let response
+		try {
+			response = await doFetch(url, {
+				method: request.method || 'GET',
+				headers,
+				signal: AbortSignal.timeout(request.timeoutMs || jsonTimeoutMs),
+			})
+		} catch (error) {
+			if (error instanceof MarketError) throw error
+			const timedOut = error && (error.name === 'AbortError' || /abort/i.test(String(error.message)))
+			throw new MarketError('NETWORK', timedOut ? '请求超时' : (error && error.message) || '连接 SkillHub 失败')
+		}
+		if (response.status === 401 && auth) await auth.clearToken().catch(() => {})
+		const contentType = String((response.headers.get && response.headers.get('content-type')) || '')
+		if (/json/i.test(contentType)) {
+			return { status: response.status, contentType, text: await response.text() }
+		}
+		if (/zip/i.test(contentType)) {
+			const bytes = Buffer.from(await response.arrayBuffer())
+			if (typeof request.onProgress === 'function') {
+				const total = Number(response.headers.get('content-length')) || 0
+				request.onProgress(bytes.length, total)
+			}
+			return { status: response.status, contentType, bytes }
+		}
+		return { status: response.status, contentType, text: await response.text() }
+	}
+}
+
 /**
  * 下载指定版本技能包（8.1 步骤 3，固定版本下载入口，不用最新版接口）。
  * Content-Type 分流：application/json → 按 7.1 映射错误（含 body.errorCode 语义码）；
@@ -383,6 +443,8 @@ module.exports = {
 	searchSkills,
 	fetchSkillDetail,
 	fetchDownload,
+	createHttpTransport,
+	DEFAULT_JSON_TIMEOUT_MS,
 	createCatalogCache,
 	groupKeyOf,
 	DOWNLOAD_TIMEOUT_MS,

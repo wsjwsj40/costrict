@@ -61,7 +61,11 @@ type Props = {
   onSelectVersion: (skillId: string, version: string) => void
   onInstall: (skill: MarketSkill, version?: string) => void
   onRetry: (skill: MarketSkill, jobId: string) => void
-  onLogin: (username: string, password: string) => void
+  onLogin: (username: string, password: string, captcha?: { code: string, uuid: string }) => void
+  /** 真实模式验证码（阶段 4）：登录失败提示需要验证码或用户主动拉取后存在 */
+  captcha: { uuid: string, image: string } | null
+  captchaRequired: boolean
+  onRequestCaptcha: () => void
   onLogout: () => void
   onGoInstalled: () => void
 }
@@ -105,18 +109,32 @@ function MarketCard({ skill, installed, localDirs, job, updateVersion, onOpenDet
   </div>
 }
 
-/** 登录引导：桩登录态下可用，真实鉴权阶段 4（3.4） */
-function LoginGate({ onLogin, onGoInstalled, errorMessage }: { onLogin: (username: string, password: string) => void; onGoInstalled: () => void; errorMessage: string }) {
+/** 登录引导：真实鉴权阶段 4 接入；平台开启验证码时展示图片与附加输入（7 节，触发条件实测校准） */
+function LoginGate({ onLogin, onGoInstalled, errorMessage, captcha, captchaRequired, onRequestCaptcha }: { onLogin: (username: string, password: string, captcha?: { code: string, uuid: string }) => void; onGoInstalled: () => void; errorMessage: string; captcha: { uuid: string, image: string } | null; captchaRequired: boolean; onRequestCaptcha: () => void }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [code, setCode] = useState('')
+  const showCaptcha = Boolean(captcha) || captchaRequired
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!username || !password) return
+    if (captcha && !code) return
+    onLogin(username, password, captcha ? { code, uuid: captcha.uuid } : undefined)
+  }
   return <div className="market-gate">
     <div className="gate-icon"><Icon kind="user" /></div>
     <strong>登录 SkillHub 浏览市场目录</strong>
     <p>市场目录与安装需要 SkillHub 账号；本地技能管理不受影响。</p>
-    <form onSubmit={event => { event.preventDefault(); if (username && password) onLogin(username, password) }}>
+    <form onSubmit={submit}>
       <input value={username} onChange={event => setUsername(event.target.value)} placeholder="用户名" autoComplete="username" />
       <input type="password" value={password} onChange={event => setPassword(event.target.value)} placeholder="密码" autoComplete="current-password" />
-      <button className="primary" type="submit" disabled={!username || !password}>登录</button>
+      {showCaptcha && <div className="gate-captcha">
+        <input value={code} onChange={event => setCode(event.target.value)} placeholder="验证码" autoComplete="off" />
+        {captcha
+          ? <img className="captcha-img" src={`data:image/png;base64,${captcha.image}`} alt="验证码，点击刷新" title="点击刷新" onClick={onRequestCaptcha} />
+          : <button type="button" className="inline-link" onClick={onRequestCaptcha}>获取验证码</button>}
+      </div>}
+      <button className="primary" type="submit" disabled={!username || !password || (Boolean(captcha) && !code)}>登录</button>
     </form>
     {errorMessage && <p className="gate-error">{errorMessage}</p>}
     <button className="inline-link" onClick={onGoInstalled}>先去看已安装的技能</button>
@@ -212,6 +230,7 @@ export default function Market(props: Props) {
     items, total, page, hasNext, labelStats, cachedAt, stale, loading, error, message, auth,
     detail, detailLoading, installedIds, localDirs, jobs, updateVersions, query, label, sort, onParamsChange,
     onRequest, onOpenDetail, onCloseDetail, onSelectVersion, onInstall, onRetry, onLogin, onLogout, onGoInstalled,
+    captcha, captchaRequired, onRequestCaptcha,
   } = props
   // 搜索/筛选/排序变化 → 防抖 400ms 后回第 0 页；q 变化才延迟，label/sort 立即
   React.useEffect(() => {
@@ -227,7 +246,7 @@ export default function Market(props: Props) {
 
   return <div className="installed-page">
     {blocked ? <ConfigGate onGoInstalled={onGoInstalled} />
-      : needLogin ? <LoginGate onLogin={onLogin} onGoInstalled={onGoInstalled} errorMessage={authError?.message || ''} />
+      : needLogin ? <LoginGate onLogin={onLogin} onGoInstalled={onGoInstalled} errorMessage={authError?.message || ''} captcha={captcha} captchaRequired={captchaRequired} onRequestCaptcha={onRequestCaptcha} />
         : <>
           <div className="installed-toolbar">
             <div className="search-box"><input

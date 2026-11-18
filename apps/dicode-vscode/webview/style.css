@@ -321,6 +321,9 @@ button:hover > .chevron, button:focus-visible > .chevron { visibility: visible; 
 .market-gate input{padding:7px 10px;border:1px solid var(--border);border-radius:6px;background:var(--editor);color:var(--fg);font-size:12px}
 .market-gate input:focus{outline:1px solid var(--vscode-focusBorder,#75beff)}
 .gate-error{color:var(--vscode-errorForeground,#f48771)}
+.gate-captcha{display:flex;gap:8px;align-items:center}
+.gate-captcha input{flex:1;min-width:0}
+.gate-captcha .captcha-img{height:34px;border-radius:6px;cursor:pointer;border:1px solid var(--border)}
 .market-versions h4,.skill-detail-body h4{margin:0 0 6px;font-size:11px;color:var(--fg)}
 .skill-file-list li.is-current{background:var(--hover);border-radius:4px}
 .market-readme{margin-top:8px}

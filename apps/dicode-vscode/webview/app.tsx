@@ -268,6 +268,9 @@ function App() {
   const [marketLoading, setMarketLoading] = useState(false)
   const [marketError, setMarketError] = useState<MarketErrorView | null>(null)
   const [marketAuth, setMarketAuth] = useState({ loggedIn: false, baseUrlConfigured: true })
+  // 真实模式验证码（阶段 4）：登录失败要求验证码或用户主动拉取后存在；登录成功清空
+  const [marketCaptcha, setMarketCaptcha] = useState<{ uuid: string, image: string } | null>(null)
+  const [marketCaptchaRequired, setMarketCaptchaRequired] = useState(false)
   const [marketDetail, setMarketDetail] = useState<MarketDetailData | null>(null)
   const [marketDetailLoading, setMarketDetailLoading] = useState(false)
   const [marketMessage, setMarketMessage] = useState('')
@@ -342,7 +345,21 @@ function App() {
       }
       if (msg.type === 'marketAuthState') {
         setMarketAuth({ loggedIn: msg.loggedIn === true, baseUrlConfigured: msg.baseUrlConfigured !== false })
-        if (msg.loggedIn === true) requestMarket({ query: '', label: '', sort: 'newest', page: 0 })
+        if (msg.loggedIn === true) {
+          // 登录成功：清验证码态（401 重登后重发原请求即此处的 requestMarket，第 7 节）
+          setMarketCaptcha(null)
+          setMarketCaptchaRequired(false)
+          requestMarket({ query: '', label: '', sort: 'newest', page: 0 })
+        }
+      }
+      if (msg.type === 'marketCaptchaResult') {
+        if (msg.captchaEnabled === false) {
+          // 平台明确未开启验证码：连提示态一起清，登录表单隐藏验证码行
+          setMarketCaptcha(null)
+          setMarketCaptchaRequired(false)
+        } else {
+          setMarketCaptcha({ uuid: String(msg.uuid || ''), image: String(msg.image || '') })
+        }
       }
       if (msg.type === 'marketError') {
         setMarketError({ scope: msg.scope, code: msg.code, message: msg.message, retryable: msg.retryable !== false, requiresLogin: msg.requiresLogin === true, captchaRequired: msg.captchaRequired === true })
@@ -350,6 +367,8 @@ function App() {
         if (msg.scope === 'auth' || msg.code === 'UNAUTHORIZED') setMarketAuth(old => ({ ...old, loggedIn: false }))
         if (msg.scope === 'catalog') setMarketLoading(false)
         if (msg.scope === 'install') setMarketMessage(msg.message || '')
+        // 登录失败且平台要求验证码：置位提示态并自动拉图（7 节触发条件实测校准）
+        if (msg.scope === 'auth' && msg.captchaRequired === true) { setMarketCaptchaRequired(true); post('marketCaptcha') }
       }
       if (msg.type === 'installJobs') setInstallJobs(old => applyInstallJobsSnapshot(old, msg.jobs || []))
       if (msg.type === 'installEvent') {
@@ -479,7 +498,13 @@ function App() {
                 onSelectVersion={selectMarketVersion}
                 onInstall={installMarketSkill}
                 onRetry={retryMarketInstall}
-                onLogin={(username, password) => post('marketLogin', { username, password })}
+                onLogin={(username, password, captcha) => {
+                  if (captcha) post('marketLogin', { username, password, code: captcha.code, uuid: captcha.uuid })
+                  else post('marketLogin', { username, password })
+                }}
+                captcha={marketCaptcha}
+                captchaRequired={marketCaptchaRequired}
+                onRequestCaptcha={() => post('marketCaptcha')}
                 onLogout={() => post('marketLogout')}
                 onGoInstalled={() => setSkillsTab('installed')}
               />}
