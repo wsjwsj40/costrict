@@ -449,6 +449,39 @@ test('market: logged-out shows login gate and submits marketLogin', async () => 
   view.dom.window.close()
 })
 
+test('market: captcha login flow — required error fetches image, submit posts code/uuid', async () => {
+  const view = setup()
+  await enterMarket(view, { loggedIn: false })
+  // 登录失败且平台要求验证码：webview 自动拉取验证码（7 节）
+  view.emit({ type: 'marketError', scope: 'auth', code: 'UNAUTHORIZED', message: '验证码错误', retryable: true, requiresLogin: true, captchaRequired: true })
+  await tick()
+  assert.ok(view.sent.some(message => message.type === 'marketCaptcha'), 'captchaRequired 自动请求验证码')
+  view.emit({ type: 'marketCaptchaResult', uuid: 'cap-1', image: 'aGVsbG8=' })
+  await tick()
+  const gate = view.doc.querySelector('.market-gate')
+  const captchaInput = gate.querySelector('.gate-captcha input')
+  assert.ok(captchaInput, '验证码输入框出现')
+  const img = gate.querySelector('.captcha-img')
+  assert.ok(img, '验证码图片出现')
+  assert.equal(img.getAttribute('src'), 'data:image/png;base64,aGVsbG8=')
+  // 只填账号密码不填验证码：提交按钮禁用
+  const inputs = [...gate.querySelectorAll('input')]
+  typeInput(view, inputs[0], 'admin')
+  typeInput(view, inputs[1], 'admin123')
+  await tick()
+  assert.equal(gate.querySelector('button[type="submit"]').disabled, true, '缺验证码不可提交')
+  typeInput(view, inputs[2], '8888')
+  await tick()
+  gate.querySelector('button[type="submit"]').click()
+  const login = view.sent.filter(message => message.type === 'marketLogin').at(-1)
+  assert.deepEqual({ username: login.username, code: login.code, uuid: login.uuid }, { username: 'admin', code: '8888', uuid: 'cap-1' })
+  // 平台未开启验证码（captchaEnabled false）：隐藏输入
+  view.emit({ type: 'marketCaptchaResult', captchaEnabled: false, uuid: '', image: '' })
+  await tick()
+  assert.equal(view.doc.querySelector('.gate-captcha'), null, '未开启验证码时隐藏')
+  view.dom.window.close()
+})
+
 test('market: tab switching keeps search text and installed list intact', async () => {
   const view = setup()
   await enterMarket(view)
