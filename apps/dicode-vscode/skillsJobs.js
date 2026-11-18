@@ -140,7 +140,14 @@ class SkillJobs {
 		await fs.promises.mkdir(path.dirname(file), { recursive: true })
 		const tmp = `${file}.tmp`
 		await fs.promises.writeFile(tmp, `${JSON.stringify({ version: JOBS_VERSION, jobs }, null, 2)}\n`, "utf8")
-		await fs.promises.rename(tmp, file)
+		try {
+			await fs.promises.rename(tmp, file)
+		} catch (error) {
+			// Windows 上 rename 可能被杀软短暂占用，留一次重试（与登记文件原子写同口径）
+			if (error.code !== "EPERM" && error.code !== "EBUSY") throw error
+			await new Promise(resolve => setTimeout(resolve, 100))
+			await fs.promises.rename(tmp, file)
+		}
 	}
 
 	/**
